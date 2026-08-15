@@ -12,12 +12,38 @@ class PropertyGridPanel(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.table.verticalHeader().setVisible(False)
-        self.table.setAlternatingRowColors(True)
+        self.table.setAlternatingRowColors(False)
+        self.table.setStyleSheet("""
+            QTableWidget {
+                gridline-color: #C0C0C0;
+                background-color: #FFFFFF;
+                selection-background-color: #000080;
+                selection-color: #FFFFFF;
+            }
+            QTableWidget::item {
+                border-bottom: 1px solid #C0C0C0;
+            }
+        """)
 
         layout.addWidget(self.table)
 
         # Initialize with empty selection message or defaults
         self._set_empty_state()
+        self.current_block = None
+
+        self.table.itemChanged.connect(self._on_item_changed)
+
+    def _on_item_changed(self, item):
+        if not self.current_block:
+            return
+
+        row = item.row()
+        key_item = self.table.item(row, 0)
+
+        if key_item and item.column() == 1:
+            key = key_item.text()
+            val = item.text()
+            self.current_block.update_property(key, val)
 
     def _set_empty_state(self):
         self.table.setRowCount(1)
@@ -28,6 +54,8 @@ class PropertyGridPanel(QWidget):
 
     def load_block_properties(self, block):
         """Loads properties from a BaseLogicBlock instance."""
+        self.table.blockSignals(True) # Prevent triggering itemChanged during load
+        self.current_block = block
         self.table.setRowCount(0)
 
         # Common properties defined in SRS
@@ -49,10 +77,21 @@ class PropertyGridPanel(QWidget):
         for row, (key, value) in enumerate(props.items()):
 
             key_item = QTableWidgetItem(key)
-            key_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable) # Read-only key
+            key_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            # Make property names stand out slightly
+            from PySide6.QtGui import QColor
+            key_item.setBackground(QColor(240, 240, 240))
 
             val_item = QTableWidgetItem(str(value))
-            # Depending on property, might make it editable here in future
+
+            # If property is read-only in this Phase
+            if key in ["UUID", "Category", "Execution State", "Enabled", "Visible"]:
+                val_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            else:
+                # Fully editable for "Address", "Name", "Description", "Comment", "Preset" etc
+                val_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsEditable)
 
             self.table.setItem(row, 0, key_item)
             self.table.setItem(row, 1, val_item)
+
+        self.table.blockSignals(False)

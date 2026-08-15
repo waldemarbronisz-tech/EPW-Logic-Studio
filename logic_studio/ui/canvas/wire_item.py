@@ -44,19 +44,37 @@ class WireItem(QGraphicsPathItem):
 
         path = QPainterPath(start_pos)
 
-        # Orthogonal Manhattan Routing (Foundation)
-        # We go right from source, then up/down, then right to dest
-        mid_x = start_pos.x() + (end_pos.x() - start_pos.x()) / 2
+        # Orthogonal Manhattan Routing
+        # We go right from source, then up/down, then right to dest.
+        # To make it rigid and classic: Flat/Square joins, no rounding.
 
-        path.lineTo(mid_x, start_pos.y())
-        path.lineTo(mid_x, end_pos.y())
-        path.lineTo(end_pos.x(), end_pos.y())
+        offset = 15 # Minimum extension before turning
+
+        # If destination is to the right
+        if end_pos.x() > start_pos.x() + offset:
+            mid_x = start_pos.x() + (end_pos.x() - start_pos.x()) / 2
+            path.lineTo(mid_x, start_pos.y())
+            path.lineTo(mid_x, end_pos.y())
+            path.lineTo(end_pos.x(), end_pos.y())
+        else:
+            # Destination is to the left (feedback loop)
+            # Route down and around
+            mid_y = start_pos.y() + (end_pos.y() - start_pos.y()) / 2
+            if abs(start_pos.y() - end_pos.y()) < 40:
+                mid_y = start_pos.y() + 40 # Force it to go around the block
+
+            path.lineTo(start_pos.x() + offset, start_pos.y())
+            path.lineTo(start_pos.x() + offset, mid_y)
+            path.lineTo(end_pos.x() - offset, mid_y)
+            path.lineTo(end_pos.x() - offset, end_pos.y())
+            path.lineTo(end_pos.x(), end_pos.y())
 
         self.setPath(path)
 
-        pen = QPen(self.color, self.thickness, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+        # SquareCap and MiterJoin ensure strict 90-degree visually sharp lines
+        pen = QPen(self.color, self.thickness, Qt.SolidLine, Qt.SquareCap, Qt.MiterJoin)
         if self.isSelected():
             # Cyan selection for better visibility
             pen.setColor(QColor(0, 255, 255))
-            pen.setWidth(self.thickness + 1)
+            pen.setWidth(self.thickness) # Keep thickness same but change color
         self.setPen(pen)

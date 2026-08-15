@@ -55,32 +55,47 @@ class BlockItem(QGraphicsItem):
         rect = QRectF(0, 0, self.width, self.height)
         header_rect = QRectF(0, 0, self.width, 20)
 
-        # Draw Drop Shadow
+        # Industrial Win98 Raised Border
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(0, 0, 0, 50))
-        painter.drawRect(rect.translated(3, 3))
-
-        # Draw Background
-        painter.setPen(QPen(self.border_color, 1))
         painter.setBrush(QBrush(self.bg_color))
         painter.drawRect(rect)
 
-        # Draw Header
+        # Light top-left border
+        painter.setPen(QPen(QColor(255, 255, 255), 2))
+        painter.drawLine(rect.topLeft(), rect.topRight())
+        painter.drawLine(rect.topLeft(), rect.bottomLeft())
+
+        # Dark bottom-right border
+        painter.setPen(QPen(QColor(128, 128, 128), 2))
+        painter.drawLine(rect.bottomLeft(), rect.bottomRight())
+        painter.drawLine(rect.topRight(), rect.bottomRight())
+
+        # Draw Header Bar (Classic Blue)
+        painter.setPen(Qt.NoPen)
         painter.setBrush(QBrush(self.header_color))
+        header_rect.adjust(2, 2, -2, 0)
         painter.drawRect(header_rect)
+
+        # Draw Title
+        painter.setPen(QPen(Qt.white))
+        font = QFont("MS Sans Serif", 8, QFont.Bold)
+        painter.setFont(font)
+        painter.drawText(header_rect.adjusted(4, 0, 0, 0), Qt.AlignLeft | Qt.AlignVCenter, self.logic_block.display_name)
+
+        # Draw Address/State (If applicable)
+        addr = self.logic_block.properties.get("Address", "")
+        if addr:
+            painter.setPen(QPen(Qt.black))
+            font = QFont("MS Sans Serif", 7)
+            painter.setFont(font)
+            painter.drawText(rect.adjusted(4, 25, -4, -4), Qt.AlignTop | Qt.AlignRight, addr)
 
         # Draw Selection Border
         if self.isSelected():
-            pen = QPen(self.selected_color, 2, Qt.DashLine)
+            pen = QPen(self.selected_color, 1, Qt.DotLine)
             painter.setPen(pen)
             painter.setBrush(Qt.NoBrush)
-            painter.drawRect(rect.adjusted(-2, -2, 2, 2))
-
-        # Draw Text
-        painter.setPen(QPen(Qt.white))
-        font = QFont("Arial", 9, QFont.Bold)
-        painter.setFont(font)
-        painter.drawText(header_rect, Qt.AlignCenter, self.logic_block.display_name)
+            painter.drawRect(rect.adjusted(2, 2, -2, -2))
 
     def contextMenuEvent(self, event):
         menu = QMenu()
@@ -112,4 +127,12 @@ class BlockItem(QGraphicsItem):
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemPositionHasChanged:
             self.logic_block.set_position(self.pos().x(), self.pos().y())
+            # Update connected wires
+            if self.scene():
+                from logic_studio.ui.canvas.wire_item import WireItem
+                for item in self.scene().items():
+                    if isinstance(item, WireItem):
+                        if (item.source_port and item.source_port.parentItem() == self) or \
+                           (item.dest_port and item.dest_port.parentItem() == self):
+                            item.update_path()
         return super().itemChange(change, value)

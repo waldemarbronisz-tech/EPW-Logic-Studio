@@ -102,11 +102,19 @@ class MainWindow(QMainWindow):
         self.lbl_zoom = QLabel("100%")
         self.lbl_sim = QLabel("Simulation: Stopped")
 
+        # New Milestone 4 Labels
+        self.lbl_selected = QLabel("Selected: None")
+        self.lbl_modified = QLabel("")
+        self.lbl_scan = QLabel("Scan: 0ms")
+
         status.addWidget(self.lbl_ready, 1)
+        status.addPermanentWidget(self.lbl_selected)
+        status.addPermanentWidget(self.lbl_modified)
         status.addPermanentWidget(self.lbl_grid)
         status.addPermanentWidget(self.lbl_snap)
         status.addPermanentWidget(self.lbl_cursor)
         status.addPermanentWidget(self.lbl_zoom)
+        status.addPermanentWidget(self.lbl_scan)
         status.addPermanentWidget(self.lbl_sim)
 
     def _setup_layout(self):
@@ -182,6 +190,10 @@ class MainWindow(QMainWindow):
                 action.triggered.connect(self.stop_simulation)
             elif t == "Compile":
                 action.triggered.connect(self.compile_project)
+            elif t == "Save":
+                action.triggered.connect(self._save_project)
+            elif t in ["Open", "Open..."]:
+                action.triggered.connect(self._open_project)
 
     def compile_project(self):
         from logic_studio.compiler.core import Compiler
@@ -218,6 +230,67 @@ class MainWindow(QMainWindow):
                 p.value = None
         self.scene.refresh_live_states()
 
+    def _save_project(self):
+        from PySide6.QtWidgets import QFileDialog
+        import os
+        path, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "EPW Logic Files (*.epwlogic)")
+        if path:
+            self.project.save_to_file(path)
+            self.lbl_modified.setText("")
+
+    def _open_project(self):
+        from PySide6.QtWidgets import QFileDialog
+        from logic_studio.core.project import Project
+        import os
+        path, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "EPW Logic Files (*.epwlogic)")
+        if path and os.path.exists(path):
+            self.stop_simulation()
+            self.scene.clear()
+            self.project = Project.load_from_file(path)
+
+            # Reconstruct scene
+            from logic_studio.ui.canvas.block_item import BlockItem
+            from logic_studio.ui.canvas.wire_item import WireItem
+
+            block_items = {}
+            for block in self.project.blocks:
+                item = BlockItem(block)
+                self.scene.addItem(item)
+                block_items[block.uuid] = item
+
+            # Reconstruct wires visually
+            for block in self.project.blocks:
+                item = block_items.get(block.uuid)
+                if not item: continue
+
+                for out_pin in block.outputs:
+                    for conn_uuid in out_pin.connections:
+                        # Find destination port
+                        for dest_block in self.project.blocks:
+                            dest_item = block_items.get(dest_block.uuid)
+                            if not dest_item: continue
+
+                            for in_pin in dest_block.inputs:
+                                if in_pin.uuid == conn_uuid:
+                                    # Found match, create wire
+                                    # Note: port graphic items are children of BlockItem
+                                    source_port = None
+                                    dest_port = None
+
+                                    from logic_studio.ui.canvas.port_item import PortItem
+                                    for child in item.childItems():
+                                        if isinstance(child, PortItem) and child.pin.uuid == out_pin.uuid:
+                                            source_port = child
+                                            break
+                                    for child in dest_item.childItems():
+                                        if isinstance(child, PortItem) and child.pin.uuid == in_pin.uuid:
+                                            dest_port = child
+                                            break
+
+                                    if source_port and dest_port:
+                                        wire = WireItem(source_port, dest_port)
+                                        self.scene.addItem(wire)
+
     def _update_simulation_panel(self):
         # Sync ELA/ADA block states to the UI
         # 1. Read Inputs from Panel -> ELA Blocks
@@ -248,5 +321,7 @@ class MainWindow(QMainWindow):
         from logic_studio.ui.canvas.block_item import BlockItem
         if selected and isinstance(selected[0], BlockItem):
             self.property_panel.load_block_properties(selected[0].logic_block)
+            self.lbl_selected.setText(f"Selected: {selected[0].logic_block.display_name}")
         else:
             self.property_panel._set_empty_state()
+            self.lbl_selected.setText("Selected: None")

@@ -15,10 +15,17 @@ class CompilerOutputPanel(QWidget):
         self.errors_log = self._create_text_area()
         self.messages_log = self._create_text_area()
 
+        self.runtime_log = self._create_text_area()
+        self.terminal_log = self._create_text_area()
+        self.debug_log = self._create_text_area()
+
         self.tabs.addTab(self.compiler_log, "Compiler")
         self.tabs.addTab(self.warnings_log, "Warnings")
         self.tabs.addTab(self.errors_log, "Errors")
         self.tabs.addTab(self.messages_log, "Messages")
+        self.tabs.addTab(self.runtime_log, "Runtime")
+        self.tabs.addTab(self.terminal_log, "Terminal")
+        self.tabs.addTab(self.debug_log, "Debug")
 
         layout.addWidget(self.tabs)
 

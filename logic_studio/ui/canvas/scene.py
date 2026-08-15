@@ -29,7 +29,22 @@ class LogicScene(QGraphicsScene):
             if isinstance(item, BlockItem):
                 if project:
                     project.remove_block(item.logic_block)
+
+                # Delete connected wires to avoid C++ pointer crashes
+                wires_to_remove = []
+                for scene_item in self.items():
+                    if isinstance(scene_item, WireItem):
+                        if (scene_item.source_port and scene_item.source_port.parentItem() == item) or \
+                           (scene_item.dest_port and scene_item.dest_port.parentItem() == item):
+                            wires_to_remove.append(scene_item)
+
+                for w in wires_to_remove:
+                    if w.source_port and w.dest_port:
+                        w.source_port.pin.disconnect(w.dest_port.pin)
+                    self.removeItem(w)
+
                 self.removeItem(item)
+
             elif isinstance(item, WireItem):
                 if item.source_port and item.dest_port:
                     item.source_port.pin.disconnect(item.dest_port.pin)

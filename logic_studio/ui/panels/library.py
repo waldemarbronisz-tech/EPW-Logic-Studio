@@ -1,5 +1,36 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QTreeWidget, QTreeWidgetItem, QLineEdit, QLabel
-from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLineEdit, QScrollArea, QGroupBox, QGridLayout, QPushButton
+from PySide6.QtGui import QDrag
+from PySide6.QtCore import Qt, QMimeData
+
+class BlockDragButton(QPushButton):
+    def __init__(self, text, parent=None):
+        super().__init__(text, parent)
+        self.block_name = text
+        # Make it look like a classic block icon button
+        self.setFixedSize(50, 40)
+        self.setStyleSheet("""
+            QPushButton {
+                background: #C0C0C0;
+                border-left: 1px solid #FFFFFF;
+                border-top: 1px solid #FFFFFF;
+                border-right: 1px solid #808080;
+                border-bottom: 1px solid #808080;
+                font-weight: bold;
+                font-size: 8pt;
+            }
+            QPushButton:hover {
+                background: #D0D0D0;
+            }
+        """)
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() == Qt.LeftButton:
+            drag = QDrag(self)
+            mime = QMimeData()
+            mime.setText(self.block_name)
+            drag.setMimeData(mime)
+            drag.exec(Qt.CopyAction)
+        super().mouseMoveEvent(event)
 
 class LibraryPanel(QWidget):
     def __init__(self, parent=None):
@@ -9,54 +40,87 @@ class LibraryPanel(QWidget):
 
         # Search Box
         self.search_box = QLineEdit()
-        self.search_box.setPlaceholderText("Search components...")
+        self.search_box.setPlaceholderText("Search...")
         self.search_box.textChanged.connect(self._filter_library)
         layout.addWidget(self.search_box)
 
-        # Library Tree
-        self.tree = QTreeWidget()
-        self.tree.setHeaderHidden(True)
-        self.tree.setDragEnabled(True)
-        layout.addWidget(self.tree)
+        # Scroll Area for Toolbox
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+
+        self.content_widget = QWidget()
+        self.content_layout = QVBoxLayout(self.content_widget)
+        self.content_layout.setContentsMargins(2, 2, 2, 2)
+        self.content_layout.setSpacing(4)
+
+        self.scroll.setWidget(self.content_widget)
+        layout.addWidget(self.scroll)
+
+        self.category_groups = []
+        self.block_buttons = []
 
         self._populate_categories()
 
     def _populate_categories(self):
         from logic_studio.blocks.registry import BlockRegistry
 
-        # We ensure standard categories are created even if empty yet
         standard_categories = [
-            "Logic Gates", "Timers", "Memory", "Inputs", "Outputs",
-            "Mathematics", "Comparators", "Electrical Protection",
-            "Environmental Protection", "Automation", "Switching",
-            "Counters", "Communication", "System", "Simulation"
+            "Inputs", "Outputs", "Logic Gates", "Memory", "Timers",
+            "Counters", "Mathematics", "Comparators", "Communication", "System"
         ]
 
         all_cats = list(set(standard_categories + BlockRegistry.get_categories()))
-        all_cats.sort()
+
+        # Sort based on standard order then alpha
+        def sort_key(cat):
+            try:
+                return standard_categories.index(cat)
+            except ValueError:
+                return 999
+        all_cats.sort(key=lambda x: (sort_key(x), x))
 
         for cat in all_cats:
-            item = QTreeWidgetItem(self.tree)
-            item.setText(0, cat)
-            item.setFlags(item.flags() & ~Qt.ItemIsDragEnabled) # Category can't be dragged
+            group = QGroupBox(cat)
+            group_layout = QGridLayout(group)
+            group_layout.setSpacing(2)
+            group_layout.setContentsMargins(2, 12, 2, 2)
 
             blocks = BlockRegistry.get_blocks_in_category(cat)
+            if not blocks:
+                group.hide()
+
+            col = 0
+            row = 0
             for block_name in blocks:
-                child = QTreeWidgetItem(item)
-                child.setText(0, block_name)
+                btn = BlockDragButton(block_name)
+                group_layout.addWidget(btn, row, col)
+                self.block_buttons.append((btn, group))
+
+                col += 1
+                if col > 3: # 4 items per row
+                    col = 0
+                    row += 1
+
+            self.content_layout.addWidget(group)
+            self.category_groups.append(group)
+
+        self.content_layout.addStretch()
 
     def _filter_library(self, text):
         text = text.lower()
 
-        # Hide all first
-        for item in self.tree.findItems("*", Qt.MatchWildcard | Qt.MatchRecursive):
-            item.setHidden(True)
+        # Hide/show logic
+        for btn, group in self.block_buttons:
+            if text in btn.block_name.lower():
+                btn.show()
+            else:
+                btn.hide()
 
-        # Show matching items and their parents
-        for item in self.tree.findItems(f"*{text}*", Qt.MatchWildcard | Qt.MatchRecursive):
-            item.setHidden(False)
-            parent = item.parent()
-            while parent:
-                parent.setHidden(False)
-                parent.setExpanded(bool(text)) # expand if searching
-                parent = parent.parent()
+        for group in self.category_groups:
+            # Check if group has any visible children
+            visible_children = sum(1 for btn, g in self.block_buttons if g == group and not btn.isHidden())
+            if visible_children > 0:
+                group.show()
+            else:
+                group.hide()

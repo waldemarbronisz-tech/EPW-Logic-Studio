@@ -33,6 +33,28 @@ class BaseLogicBlock:
             "Comment": ""
         }
 
+    def update_property(self, key: str, value: str):
+        """Update property, casting to correct type if necessary."""
+        if key in self.properties:
+            # Simple type inference for Phase 4
+            if isinstance(self.properties[key], int):
+                try:
+                    self.properties[key] = int(value)
+                except ValueError:
+                    pass
+            elif isinstance(self.properties[key], float):
+                try:
+                    self.properties[key] = float(value)
+                except ValueError:
+                    pass
+            else:
+                self.properties[key] = value
+
+        elif key == "Name":
+            self.display_name = value
+        elif key == "Description":
+            self.description = value
+
     def serialize(self) -> dict:
         """Serialize block to a dictionary for JSON."""
         return {
