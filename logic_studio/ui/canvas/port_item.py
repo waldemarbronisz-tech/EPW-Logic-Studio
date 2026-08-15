@@ -16,6 +16,10 @@ class PortItem(QGraphicsItem):
         elif pin.data_type in [pin.TYPE_INTEGER, pin.TYPE_FLOAT]:
             self.color = QColor(0, 0, 200)
 
+    def update_live_state(self):
+        """Called by engine/scene to refresh UI."""
+        self.update()
+
     def boundingRect(self):
         # Slightly larger for easier clicking
         margin = 4
@@ -26,7 +30,13 @@ class PortItem(QGraphicsItem):
         rect = QRectF(-self.radius, -self.radius, self.radius*2, self.radius*2)
 
         painter.setPen(QPen(Qt.black, 1))
-        painter.setBrush(QBrush(self.color))
+
+        # Live fill
+        fill_color = self.color
+        if isinstance(self.pin.value, bool) and self.pin.value:
+            fill_color = QColor(0, 255, 0) # Bright green when high
+
+        painter.setBrush(QBrush(fill_color))
         painter.drawEllipse(rect)
 
         # Draw label

@@ -9,22 +9,33 @@ class Project:
         self.settings = {
             "name": "New Project",
             "version": "1.0",
-            "cycle_time_ms": 10
+            "cycle_time_ms": 100
         }
 
     def add_block(self, block):
-        self.blocks.append(block)
+        if block not in self.blocks:
+            self.blocks.append(block)
 
     def remove_block(self, block):
         if block in self.blocks:
             self.blocks.remove(block)
 
     def serialize(self) -> dict:
-        """Serialize full project for saving to .project file."""
+        """Serialize full project for saving to .epwlogic file."""
         return {
             "settings": self.settings,
             "blocks": [b.serialize() for b in self.blocks]
         }
+
+    def save_to_file(self, filepath: str):
+        with open(filepath, 'w') as f:
+            json.dump(self.serialize(), f, indent=4)
+
+    @classmethod
+    def load_from_file(cls, filepath: str):
+        with open(filepath, 'r') as f:
+            data = json.load(f)
+        return cls.deserialize(data)
 
     @classmethod
     def deserialize(cls, data: dict):
@@ -39,8 +50,6 @@ class Project:
         # 1. Instantiate blocks without connections
         block_map = {}
         for b_data in block_data_list:
-            # We need the class to deserialize
-            # Simple approach: Search registry by name/cat
             block_class = None
             for cat in BlockRegistry.get_categories():
                 if b_data.get("display_name") in BlockRegistry.get_blocks_in_category(cat):
@@ -50,9 +59,6 @@ class Project:
             if block_class:
                 block = block_class.deserialize(b_data)
 
-                # Restore Pins manually here
-                # In production, pin deserialization is complex (matching by name or UUID)
-                # For Phase 1 we assume the inputs/outputs length matches the class defaults.
                 for i, pin_data in enumerate(b_data.get("inputs", [])):
                     if i < len(block.inputs):
                         block.inputs[i].uuid = pin_data.get("uuid")

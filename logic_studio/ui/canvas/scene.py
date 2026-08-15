@@ -18,6 +18,52 @@ class LogicScene(QGraphicsScene):
         self.current_wire = None
         self.wiring_start_port = None
 
+    def delete_selected_items(self):
+        from logic_studio.ui.canvas.block_item import BlockItem
+        from logic_studio.ui.canvas.wire_item import WireItem
+
+        window = self.views()[0].window()
+        project = getattr(window, 'project', None)
+
+        for item in self.selectedItems():
+            if isinstance(item, BlockItem):
+                if project:
+                    project.remove_block(item.logic_block)
+                self.removeItem(item)
+            elif isinstance(item, WireItem):
+                if item.source_port and item.dest_port:
+                    item.source_port.pin.disconnect(item.dest_port.pin)
+                self.removeItem(item)
+
+    def duplicate_selected_items(self):
+        from logic_studio.ui.canvas.block_item import BlockItem
+
+        new_items = []
+        for item in self.selectedItems():
+            if isinstance(item, BlockItem):
+                new_block = item.logic_block.clone()
+                # Offset position slightly
+                new_block.set_position(new_block.x + 20, new_block.y + 20)
+
+                new_item = BlockItem(new_block)
+                new_items.append(new_item)
+
+        self.clearSelection()
+        for new_item in new_items:
+            self.addItem(new_item)
+            new_item.setSelected(True)
+
+    def refresh_live_states(self):
+        """Called by ExecutionEngine after a cycle to repaint dynamic values."""
+        from logic_studio.ui.canvas.wire_item import WireItem
+        from logic_studio.ui.canvas.port_item import PortItem
+
+        for item in self.items():
+            if isinstance(item, WireItem):
+                item.update_live_state()
+            elif isinstance(item, PortItem):
+                item.update_live_state()
+
     def add_block_from_library(self, block_name: str, x: float, y: float):
         """Called by the view upon drop event. Instantiates and adds to scene."""
         from logic_studio.blocks.registry import BlockRegistry
@@ -38,6 +84,13 @@ class LogicScene(QGraphicsScene):
 
         item = BlockItem(block)
         self.addItem(item)
+
+        # Add to project state
+        from logic_studio.ui.main_window import MainWindow
+        # Find main window to get project
+        window = self.views()[0].window()
+        if hasattr(window, 'project'):
+            window.project.add_block(block)
 
         # Add to project state (later)
         # project.add_block(block)
@@ -83,6 +136,16 @@ class LogicScene(QGraphicsScene):
 
         super().mouseMoveEvent(event)
 
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Delete:
+            self.delete_selected_items()
+            event.accept()
+        elif event.key() == Qt.Key_D and event.modifiers() & Qt.ControlModifier:
+            self.duplicate_selected_items()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
     def mouseReleaseEvent(self, event):
         if self.current_wire:
             item = self.itemAt(event.scenePos(), self.views()[0].transform())
@@ -95,6 +158,7 @@ class LogicScene(QGraphicsScene):
                 if success:
                     self.current_wire.dest_port = item
                     self.current_wire.update_path()
+                    # Trigger project modified?
                 else:
                     self.removeItem(self.current_wire)
             else:

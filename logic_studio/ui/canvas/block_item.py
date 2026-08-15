@@ -1,5 +1,6 @@
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsRectItem, QGraphicsTextItem, QStyleOptionGraphicsItem
-from PySide6.QtGui import QPainter, QPen, QBrush, QColor, QFont
+from PySide6.QtGui import QPainter, QPen, QBrush, QColor, QFont, QCursor
+from PySide6.QtWidgets import QMenu
 from PySide6.QtCore import Qt, QRectF
 
 class BlockItem(QGraphicsItem):
@@ -80,6 +81,33 @@ class BlockItem(QGraphicsItem):
         font = QFont("Arial", 9, QFont.Bold)
         painter.setFont(font)
         painter.drawText(header_rect, Qt.AlignCenter, self.logic_block.display_name)
+
+    def contextMenuEvent(self, event):
+        menu = QMenu()
+        menu.setStyleSheet("""
+            QMenu { background-color: #C0C0C0; border: 2px solid #FFFFFF; border-bottom-color: #808080; border-right-color: #808080; }
+            QMenu::item { padding: 4px 20px; color: black; }
+            QMenu::item:selected { background-color: #000080; color: white; }
+        """)
+
+        prop_action = menu.addAction("Properties")
+        menu.addSeparator()
+        dup_action = menu.addAction("Duplicate")
+        del_action = menu.addAction("Delete")
+
+        action = menu.exec(QCursor.pos())
+        if action == del_action:
+            if self.scene():
+                self.scene().delete_selected_items()
+        elif action == dup_action:
+            if self.scene():
+                self.scene().duplicate_selected_items()
+        elif action == prop_action:
+            # Tell scene to focus this
+            self.setSelected(True)
+            # Future: emit signal to specifically pop a property dialog if desired,
+            # or rely on PropertyGrid tracking selection.
+            pass
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemPositionHasChanged:

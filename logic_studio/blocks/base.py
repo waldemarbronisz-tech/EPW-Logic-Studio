@@ -22,13 +22,16 @@ class BaseLogicBlock:
         # Basic properties
         self.execution_state: str = "Idle"
         self.execution_priority: int = 1
-        self.color: str = "#E0E0E0"  # Default industrial grey
+        self.color: str = "#C0C0C0"  # Classic Win98 grey
         self.visibility: bool = True
         self.enabled: bool = True
         self.simulation_state: dict = {}
 
         # Extensible properties mapped by string key
-        self.properties: dict = {}
+        self.properties: dict = {
+            "Address": "",
+            "Comment": ""
+        }
 
     def serialize(self) -> dict:
         """Serialize block to a dictionary for JSON."""
@@ -73,6 +76,13 @@ class BaseLogicBlock:
         new_block.height = self.height
         new_block.color = self.color
         new_block.properties = self.properties.copy()
+
+        # Adjust dynamic inputs/outputs lengths if needed
+        # (This helps blocks with dynamic port counts)
+        while len(new_block.inputs) < len(self.inputs):
+            from logic_studio.blocks.pin import Pin
+            p = self.inputs[len(new_block.inputs)]
+            new_block.inputs.append(Pin(p.name, p.direction, p.data_type))
 
         # We don't clone UUID, position, or connections.
         return new_block
