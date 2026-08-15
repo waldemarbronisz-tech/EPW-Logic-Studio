@@ -11,9 +11,13 @@ class BaseLogicBlock:
         self.x: float = 0.0
         self.y: float = 0.0
 
-        # I/O Pins will be stored here. In future phase: Pin objects
-        self.inputs: dict = {}
-        self.outputs: dict = {}
+        # Size
+        self.width: float = 120.0
+        self.height: float = 80.0
+
+        # I/O Pins
+        self.inputs: list = []  # List of Pin objects
+        self.outputs: list = [] # List of Pin objects
 
         # Basic properties
         self.execution_state: str = "Idle"
@@ -34,8 +38,9 @@ class BaseLogicBlock:
             "category": self.category,
             "description": self.description,
             "position": {"x": self.x, "y": self.y},
-            "inputs": self.inputs, # Expand when Pin class exists
-            "outputs": self.outputs,
+            "size": {"width": self.width, "height": self.height},
+            "inputs": [pin.serialize() for pin in self.inputs],
+            "outputs": [pin.serialize() for pin in self.outputs],
             "execution_state": self.execution_state,
             "execution_priority": self.execution_priority,
             "color": self.color,
@@ -44,6 +49,49 @@ class BaseLogicBlock:
             "simulation_state": self.simulation_state,
             "properties": self.properties
         }
+
+    @classmethod
+    def deserialize(cls, data: dict):
+        """Reconstruct block from JSON dict. Overridden by subclasses."""
+        block = cls(data.get("display_name", ""), data.get("category", ""), data.get("description", ""))
+        block.uuid = data.get("uuid", block.uuid)
+        pos = data.get("position", {"x": 0.0, "y": 0.0})
+        block.set_position(pos["x"], pos["y"])
+        size = data.get("size", {"width": 120.0, "height": 80.0})
+        block.width = size["width"]
+        block.height = size["height"]
+        block.execution_priority = data.get("execution_priority", 1)
+        block.color = data.get("color", "#E0E0E0")
+        block.properties = data.get("properties", {})
+        # Pin deserialization is handled by the project loader
+        return block
+
+    def clone(self):
+        """Creates a deep copy of the block with a new UUID."""
+        new_block = self.__class__(self.display_name, self.category, self.description)
+        new_block.width = self.width
+        new_block.height = self.height
+        new_block.color = self.color
+        new_block.properties = self.properties.copy()
+
+        # We don't clone UUID, position, or connections.
+        return new_block
+
+    def evaluate(self):
+        """Execute block logic. Overridden by subclasses."""
+        pass
+
+    def validate(self) -> list:
+        """Validate block configuration. Returns list of errors."""
+        errors = []
+        if not self.enabled:
+            return errors
+
+        for pin in self.inputs:
+            # Depending on strictness, check if connected
+            pass
+
+        return errors
 
     def set_position(self, x: float, y: float):
         self.x = x

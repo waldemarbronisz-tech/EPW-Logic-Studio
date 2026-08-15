@@ -6,6 +6,7 @@ class LogicView(QGraphicsView):
     def __init__(self, scene, parent=None):
         super().__init__(scene, parent)
         self.setRenderHint(QPainter.Antialiasing)
+        self.setAcceptDrops(True)
         self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -61,3 +62,30 @@ class LogicView(QGraphicsView):
             event.accept()
             return
         super().mouseMoveEvent(event)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasText():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasText():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        if event.mimeData().hasText():
+            block_type = event.mimeData().text()
+            scene_pos = self.mapToScene(event.position().toPoint())
+
+            # Snap to grid
+            grid = self.scene().grid_size
+            x = round(scene_pos.x() / grid) * grid
+            y = round(scene_pos.y() / grid) * grid
+
+            self.scene().add_block_from_library(block_type, x, y)
+            event.acceptProposedAction()
+        else:
+            event.ignore()

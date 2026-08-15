@@ -22,25 +22,28 @@ class LibraryPanel(QWidget):
         self._populate_categories()
 
     def _populate_categories(self):
-        categories = [
+        from logic_studio.blocks.registry import BlockRegistry
+
+        # We ensure standard categories are created even if empty yet
+        standard_categories = [
             "Logic Gates", "Timers", "Memory", "Inputs", "Outputs",
             "Mathematics", "Comparators", "Electrical Protection",
             "Environmental Protection", "Automation", "Switching",
             "Counters", "Communication", "System", "Simulation"
         ]
 
-        for cat in categories:
+        all_cats = list(set(standard_categories + BlockRegistry.get_categories()))
+        all_cats.sort()
+
+        for cat in all_cats:
             item = QTreeWidgetItem(self.tree)
             item.setText(0, cat)
-            # Add some placeholder items inside
-            child = QTreeWidgetItem(item)
-            child.setText(0, f"Basic {cat} Component")
+            item.setFlags(item.flags() & ~Qt.ItemIsDragEnabled) # Category can't be dragged
 
-            # For logic gates, add standard ones
-            if cat == "Logic Gates":
-                QTreeWidgetItem(item, ["AND Gate"])
-                QTreeWidgetItem(item, ["OR Gate"])
-                QTreeWidgetItem(item, ["NOT Gate"])
+            blocks = BlockRegistry.get_blocks_in_category(cat)
+            for block_name in blocks:
+                child = QTreeWidgetItem(item)
+                child.setText(0, block_name)
 
     def _filter_library(self, text):
         text = text.lower()
