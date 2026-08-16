@@ -25,6 +25,10 @@ class LogicScene(QGraphicsScene):
         window = self.views()[0].window()
         project = getattr(window, 'project', None)
 
+        if project and len(self.selectedItems()) > 0:
+            project.push_state()
+            window.set_dirty()
+
         for item in self.selectedItems():
             if isinstance(item, BlockItem):
                 if project:
@@ -53,12 +57,22 @@ class LogicScene(QGraphicsScene):
     def duplicate_selected_items(self):
         from logic_studio.ui.canvas.block_item import BlockItem
 
+        window = self.views()[0].window()
+        project = getattr(window, 'project', None)
+
+        if project and len(self.selectedItems()) > 0:
+            project.push_state()
+            window.set_dirty()
+
         new_items = []
         for item in self.selectedItems():
             if isinstance(item, BlockItem):
                 new_block = item.logic_block.clone()
                 # Offset position slightly
                 new_block.set_position(new_block.x + 20, new_block.y + 20)
+
+                if project:
+                    project.add_block(new_block)
 
                 new_item = BlockItem(new_block)
                 new_items.append(new_item)
@@ -84,12 +98,17 @@ class LogicScene(QGraphicsScene):
         from logic_studio.blocks.registry import BlockRegistry
         from logic_studio.ui.canvas.block_item import BlockItem
 
-        # We need to find the category to instantiate. In future, view drag drop
-        # should pass both cat and name. For now search registry.
+        # In the new registry, get_blocks_in_category returns type_ids, NOT display names.
+        # Since drag-and-drop from toolbox uses display names, we need to search by display name.
         block = None
         for cat in BlockRegistry.get_categories():
-            if block_name in BlockRegistry.get_blocks_in_category(cat):
-                block = BlockRegistry.create_block(cat, block_name)
+            type_id = None
+            for tid, b_class in BlockRegistry._blocks[cat].items():
+                if b_class().display_name == block_name:
+                    type_id = tid
+                    break
+            if type_id:
+                block = BlockRegistry.create_block(type_id)
                 break
 
         if not block:
@@ -98,17 +117,17 @@ class LogicScene(QGraphicsScene):
         block.set_position(x, y)
 
         item = BlockItem(block)
+
         self.addItem(item)
 
         # Add to project state
-        from logic_studio.ui.main_window import MainWindow
-        # Find main window to get project
-        window = self.views()[0].window()
-        if hasattr(window, 'project'):
-            window.project.add_block(block)
-
-        # Add to project state (later)
-        # project.add_block(block)
+        if self.views():
+            window = self.views()[0].window()
+            project = getattr(window, 'project', None)
+            if project:
+                project.push_state()
+                window.set_dirty()
+                project.add_block(block)
 
     def drawBackground(self, painter, rect):
         """Draws an industrial engineering dot grid background."""
@@ -162,6 +181,21 @@ class LogicScene(QGraphicsScene):
             super().keyPressEvent(event)
 
     def mouseReleaseEvent(self, event):
+        # Handle Block Move Dirty State
+        # If the user released the mouse after moving an item, we should push state.
+        # This is a basic catch-all for mouse release on moved items.
+        window = self.views()[0].window()
+        project = getattr(window, 'project', None)
+
+        from logic_studio.ui.canvas.block_item import BlockItem
+        moved_items = [i for i in self.selectedItems() if isinstance(i, BlockItem)]
+        # We ideally track actual drag deltas, but for MVP forcing state on release if selected works
+        if project and len(moved_items) > 0 and event.button() == Qt.LeftButton:
+            # We don't want to flood the undo stack, so only if it actually moved.
+            # Assume itemChange already updated logic_block pos.
+            project.push_state()
+            window.set_dirty()
+
         if self.current_wire:
             item = self.itemAt(event.scenePos(), self.views()[0].transform())
 

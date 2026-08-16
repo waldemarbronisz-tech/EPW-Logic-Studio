@@ -1,0 +1,51 @@
+{
+    "settings": {
+        "name": "ENTRY GATE TEST",
+        "version": "1.0",
+        "cycle_time_ms": 100
+    },
+    "blocks": [
+        {
+            "uuid": "ela1-block",
+            "type_id": "input.di",
+            "display_name": "DI",
+            "category": "Inputs",
+            "description": "Electrical Digital Input (ELA)",
+            "position": {"x": 100.0, "y": 200.0},
+            "size": {"width": 100.0, "height": 60.0},
+            "inputs": [],
+            "outputs": [{"uuid": "ela1-out", "name": "State", "direction": "output", "data_type": "Boolean", "connections": ["not-in"]}],
+            "execution_state": "Idle", "execution_priority": 1, "color": "#008000", "visibility": true, "enabled": true,
+            "simulation_state": {},
+            "properties": {"Address": "ELA1", "Force Value": false}
+        },
+        {
+            "uuid": "not-block",
+            "type_id": "logic.not",
+            "display_name": "NEGATE_TEST",
+            "category": "Logic Gates",
+            "description": "Logical NOT operator",
+            "position": {"x": 300.0, "y": 200.0},
+            "size": {"width": 60.0, "height": 60.0},
+            "inputs": [{"uuid": "not-in", "name": "In", "direction": "input", "data_type": "Boolean", "connections": ["ela1-out"]}],
+            "outputs": [{"uuid": "not-out", "name": "Out", "direction": "output", "data_type": "Boolean", "connections": ["ada1-in"]}],
+            "execution_state": "Idle", "execution_priority": 1, "color": "#00557f", "visibility": true, "enabled": true,
+            "simulation_state": {},
+            "properties": {"Address": "", "Comment": ""}
+        },
+        {
+            "uuid": "ada1-block",
+            "type_id": "output.do",
+            "display_name": "DO",
+            "category": "Outputs",
+            "description": "Automation Digital Output (ADA)",
+            "position": {"x": 500.0, "y": 200.0},
+            "size": {"width": 100.0, "height": 60.0},
+            "inputs": [{"uuid": "ada1-in", "name": "Cmd", "direction": "input", "data_type": "Boolean", "connections": ["not-out"]}],
+            "outputs": [],
+            "execution_state": "Idle", "execution_priority": 1, "color": "#800000", "visibility": true, "enabled": true,
+            "simulation_state": {},
+            "properties": {"Address": "ADA1"}
+        }
+    ]
+}

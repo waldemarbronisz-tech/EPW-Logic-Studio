@@ -1,9 +1,10 @@
 import uuid
 
 class BaseLogicBlock:
-    def __init__(self, name: str, category: str, description: str = ""):
+    def __init__(self, type_id: str, default_name: str, category: str, description: str = ""):
         self.uuid: str = str(uuid.uuid4())
-        self.display_name: str = name
+        self.type_id: str = type_id
+        self.display_name: str = default_name # instance_name
         self.category: str = category
         self.description: str = description
 
@@ -59,7 +60,8 @@ class BaseLogicBlock:
         """Serialize block to a dictionary for JSON."""
         return {
             "uuid": self.uuid,
-            "display_name": self.display_name,
+            "type_id": self.type_id,
+            "display_name": self.display_name, # instance_name
             "category": self.category,
             "description": self.description,
             "position": {"x": self.x, "y": self.y},
@@ -78,7 +80,11 @@ class BaseLogicBlock:
     @classmethod
     def deserialize(cls, data: dict):
         """Reconstruct block from JSON dict. Overridden by subclasses."""
-        block = cls(data.get("display_name", ""), data.get("category", ""), data.get("description", ""))
+        # type_id must match the class definition. display_name handles instance_name loading.
+        block = cls() # Subclasses handle their own static type_id, category, description
+        if "display_name" in data:
+            block.display_name = data["display_name"]
+
         block.uuid = data.get("uuid", block.uuid)
         pos = data.get("position", {"x": 0.0, "y": 0.0})
         block.set_position(pos["x"], pos["y"])
@@ -93,7 +99,8 @@ class BaseLogicBlock:
 
     def clone(self):
         """Creates a deep copy of the block with a new UUID."""
-        new_block = self.__class__(self.display_name, self.category, self.description)
+        new_block = self.__class__()
+        new_block.display_name = self.display_name
         new_block.width = self.width
         new_block.height = self.height
         new_block.color = self.color

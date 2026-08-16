@@ -43,7 +43,18 @@ class PropertyGridPanel(QWidget):
         if key_item and item.column() == 1:
             key = key_item.text()
             val = item.text()
+
+            # Hook into MainWindow to mark dirty / push state
+            window = self.window()
+            if hasattr(window, 'project'):
+                window.project.push_state()
+                window.set_dirty()
+
             self.current_block.update_property(key, val)
+
+            # Request visual repaint
+            if hasattr(window, 'scene'):
+                window.scene.update()
 
     def _set_empty_state(self):
         self.table.setRowCount(1)

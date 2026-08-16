@@ -4,8 +4,8 @@ from logic_studio.blocks.registry import BlockRegistry
 import time
 
 class TimerBase(BaseLogicBlock):
-    def __init__(self, name, category, description):
-        super().__init__(name, category, description)
+    def __init__(self, type_id, default_name, category, description):
+        super().__init__(type_id, default_name, category, description)
         self.color = "#008080" # Classic Teal for timers
         self.width = 100
         self.height = 100
@@ -29,8 +29,8 @@ class TimerBase(BaseLogicBlock):
 
 @BlockRegistry.register
 class TON(TimerBase):
-    def __init__(self, name="TON", category="Timers", description="Timer On Delay"):
-        super().__init__(name, category, description)
+    def __init__(self, type_id="timer.ton", default_name="TON", category="Timers", description="Timer On Delay"):
+        super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
         in_state = bool(self.inputs[0].value)
@@ -54,8 +54,8 @@ class TON(TimerBase):
 
 @BlockRegistry.register
 class TOF(TimerBase):
-    def __init__(self, name="TOF", category="Timers", description="Timer Off Delay"):
-        super().__init__(name, category, description)
+    def __init__(self, type_id="timer.tof", default_name="TOF", category="Timers", description="Timer Off Delay"):
+        super().__init__(type_id, default_name, category, description)
         self.outputs[0].value = False
 
     def evaluate(self):
@@ -80,14 +80,19 @@ class TOF(TimerBase):
 
 @BlockRegistry.register
 class TP(TimerBase):
-    def __init__(self, name="TP", category="Timers", description="Pulse Timer"):
-        super().__init__(name, category, description)
+    def __init__(self, type_id="timer.tp", default_name="TP", category="Timers", description="Pulse Timer"):
+        super().__init__(type_id, default_name, category, description)
+        self.simulation_state["last_in"] = False
 
     def evaluate(self):
         in_state = bool(self.inputs[0].value)
         pt = self.get_preset()
 
-        if in_state and not self.running and not self.outputs[0].value:
+        # Rising edge detection
+        rising_edge = in_state and not self.simulation_state["last_in"]
+        self.simulation_state["last_in"] = in_state
+
+        if rising_edge and not self.running:
             # Trigger
             self.running = True
             self.start_time = time.time() * 1000
@@ -101,3 +106,4 @@ class TP(TimerBase):
                 self.running = False
         else:
             self.outputs[1].value = 0
+            self.outputs[0].value = False

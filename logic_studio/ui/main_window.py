@@ -35,9 +35,12 @@ class MainWindow(QMainWindow):
         edit_menu.addAction("Undo")
         edit_menu.addAction("Redo")
         edit_menu.addSeparator()
-        edit_menu.addAction("Cut")
-        edit_menu.addAction("Copy")
-        edit_menu.addAction("Paste")
+        act_cut = edit_menu.addAction("Cut")
+        act_copy = edit_menu.addAction("Copy")
+        act_paste = edit_menu.addAction("Paste")
+        act_cut.setEnabled(False)
+        act_copy.setEnabled(False)
+        act_paste.setEnabled(False)
         edit_menu.addAction("Delete")
 
         view_menu = menubar.addMenu("View")
@@ -54,6 +57,7 @@ class MainWindow(QMainWindow):
 
         logic_menu = menubar.addMenu("Logic")
         logic_menu.addAction("Compile")
+        logic_menu.addAction("Export Runtime")
 
         sim_menu = menubar.addMenu("Simulation")
         sim_menu.addAction("Start")
@@ -171,11 +175,44 @@ class MainWindow(QMainWindow):
         self.engine.cycle_completed.connect(self.scene.refresh_live_states)
         self.engine.cycle_completed.connect(self._update_simulation_panel)
 
+        self.current_file = None
+        self.is_dirty = False
+
         # Connect Actions
         self._connect_actions()
 
+        self.update_title()
+
         # Connect Selection
         self.scene.selectionChanged.connect(self._on_selection_changed)
+
+    def closeEvent(self, event):
+        if not self.check_dirty_prompt():
+            event.ignore()
+            return
+
+        self.stop_simulation()
+        # Clean up C++ items to prevent pointer crash on exit
+        self.scene.clear()
+        event.accept()
+
+    def update_title(self):
+        title = "EPW Logic Studio"
+        if self.current_file:
+            import os
+            title += f" — {os.path.basename(self.current_file)}"
+        else:
+            title += " — New Project"
+
+        if self.is_dirty:
+            title += " *"
+
+        self.setWindowTitle(title)
+
+    def set_dirty(self):
+        if not self.is_dirty:
+            self.is_dirty = True
+            self.update_title()
 
     def _connect_actions(self):
         from PySide6.QtGui import QAction
@@ -186,14 +223,49 @@ class MainWindow(QMainWindow):
                 action.triggered.connect(self.start_simulation)
             elif t == "Pause":
                 action.triggered.connect(self.engine.pause)
+            elif t == "Undo":
+                action.triggered.connect(self._undo)
+            elif t == "Redo":
+                action.triggered.connect(self._redo)
             elif t == "Stop":
                 action.triggered.connect(self.stop_simulation)
             elif t == "Compile":
                 action.triggered.connect(self.compile_project)
+            elif t == "Export Runtime":
+                action.triggered.connect(self._export_runtime)
             elif t == "Save":
                 action.triggered.connect(self._save_project)
+            elif t in ["Save As", "Save As..."]:
+                action.triggered.connect(self._save_as_project)
             elif t in ["Open", "Open..."]:
                 action.triggered.connect(self._open_project)
+            elif t == "New":
+                action.triggered.connect(self._new_project)
+
+    def _export_runtime(self):
+        if not self.engine.execution_order:
+            self.compile_project()
+
+        if not self.engine.execution_order:
+            return # Compilation failed
+
+        from PySide6.QtWidgets import QFileDialog
+        import os
+        import json
+
+        path, _ = QFileDialog.getSaveFileName(self, "Export Runtime", "", "EPW Runtime Files (*.epwlogic.runtime.json)")
+        if path:
+            if not path.endswith(".epwlogic.runtime.json"):
+                path += ".epwlogic.runtime.json"
+
+            from logic_studio.compiler.exporter import Exporter
+            exporter = Exporter(self.project, self.engine.execution_order)
+            runtime_data = exporter.export()
+
+            with open(path, 'w') as f:
+                json.dump(runtime_data, f, indent=4)
+
+            self.output_panel.log_message(f"Runtime exported to {path}")
 
     def compile_project(self):
         from logic_studio.compiler.core import Compiler
@@ -216,8 +288,14 @@ class MainWindow(QMainWindow):
             self.engine.execution_order = res["execution_order"]
 
     def start_simulation(self):
+        # Force a fresh compile before every run to ensure safety
+        self.compile_project()
+
         if not self.engine.execution_order:
-            self.compile_project()
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "Simulation Error", "Cannot start simulation. Project compilation failed.")
+            return
+
         self.engine.start()
         self.lbl_sim.setText("Simulation: Running")
 
@@ -230,66 +308,144 @@ class MainWindow(QMainWindow):
                 p.value = None
         self.scene.refresh_live_states()
 
+    def check_dirty_prompt(self):
+        """Returns False if user cancels, True to proceed."""
+        if not self.is_dirty:
+            return True
+
+        from PySide6.QtWidgets import QMessageBox
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Unsaved Changes")
+        msg.setText("Do you want to save your changes?")
+        msg.setStandardButtons(QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
+        ret = msg.exec()
+
+        if ret == QMessageBox.Save:
+            self._save_project()
+            return not self.is_dirty
+        elif ret == QMessageBox.Cancel:
+            return False
+        return True
+
+    def _undo(self):
+        state = self.project.undo()
+        if state:
+            self._apply_state(state)
+
+    def _redo(self):
+        state = self.project.redo()
+        if state:
+            self._apply_state(state)
+
+    def _apply_state(self, state_dict):
+        from logic_studio.core.project import Project
+        self.stop_simulation()
+        self.scene.clear()
+
+        # Preserve undo/redo stacks
+        undo_s = self.project.undo_stack
+        redo_s = self.project.redo_stack
+
+        self.project = Project.deserialize(state_dict)
+        self.project.undo_stack = undo_s
+        self.project.redo_stack = redo_s
+        self.engine.project = self.project
+
+        # Reconstruct Scene
+        self._reconstruct_scene()
+
+    def _reconstruct_scene(self):
+        from logic_studio.ui.canvas.block_item import BlockItem
+        from logic_studio.ui.canvas.wire_item import WireItem
+
+        block_items = {}
+        for block in self.project.blocks:
+            item = BlockItem(block)
+            self.scene.addItem(item)
+            block_items[block.uuid] = item
+
+        for block in self.project.blocks:
+            item = block_items.get(block.uuid)
+            if not item: continue
+            for out_pin in block.outputs:
+                for conn_uuid in out_pin.connections:
+                    for dest_block in self.project.blocks:
+                        dest_item = block_items.get(dest_block.uuid)
+                        if not dest_item: continue
+                        for in_pin in dest_block.inputs:
+                            if in_pin.uuid == conn_uuid:
+                                source_port = None
+                                dest_port = None
+                                from logic_studio.ui.canvas.port_item import PortItem
+                                for child in item.childItems():
+                                    if isinstance(child, PortItem) and child.pin.uuid == out_pin.uuid:
+                                        source_port = child
+                                        break
+                                for child in dest_item.childItems():
+                                    if isinstance(child, PortItem) and child.pin.uuid == in_pin.uuid:
+                                        dest_port = child
+                                        break
+                                if source_port and dest_port:
+                                    wire = WireItem(source_port, dest_port)
+                                    self.scene.addItem(wire)
+
+    def _new_project(self):
+        if not self.check_dirty_prompt():
+            return
+
+        from logic_studio.core.project import Project
+        self.stop_simulation()
+        self.scene.clear()
+        self.project = Project()
+        self.engine.project = self.project
+        self.current_file = None
+        self.is_dirty = False
+        self.update_title()
+
     def _save_project(self):
+        if self.current_file:
+            self.project.save_to_file(self.current_file)
+            self.is_dirty = False
+            self.update_title()
+        else:
+            self._save_as_project()
+
+    def _save_as_project(self):
         from PySide6.QtWidgets import QFileDialog
-        import os
         path, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "EPW Logic Files (*.epwlogic)")
         if path:
-            self.project.save_to_file(path)
-            self.lbl_modified.setText("")
+            if not path.endswith(".epwlogic"):
+                path += ".epwlogic"
+            self.current_file = path
+            self.project.save_to_file(self.current_file)
+            self.is_dirty = False
+            self.update_title()
 
     def _open_project(self):
-        from PySide6.QtWidgets import QFileDialog
+        if not self.check_dirty_prompt():
+            return
+
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
         from logic_studio.core.project import Project
         import os
         path, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "EPW Logic Files (*.epwlogic)")
         if path and os.path.exists(path):
             self.stop_simulation()
+
+            try:
+                new_proj = Project.load_from_file(path)
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to open project:\n{str(e)}")
+                return
+
             self.scene.clear()
-            self.project = Project.load_from_file(path)
+            self.project = new_proj
+            self.engine.project = self.project
+            self.current_file = path
+            self.is_dirty = False
+            self.update_title()
 
-            # Reconstruct scene
-            from logic_studio.ui.canvas.block_item import BlockItem
-            from logic_studio.ui.canvas.wire_item import WireItem
-
-            block_items = {}
-            for block in self.project.blocks:
-                item = BlockItem(block)
-                self.scene.addItem(item)
-                block_items[block.uuid] = item
-
-            # Reconstruct wires visually
-            for block in self.project.blocks:
-                item = block_items.get(block.uuid)
-                if not item: continue
-
-                for out_pin in block.outputs:
-                    for conn_uuid in out_pin.connections:
-                        # Find destination port
-                        for dest_block in self.project.blocks:
-                            dest_item = block_items.get(dest_block.uuid)
-                            if not dest_item: continue
-
-                            for in_pin in dest_block.inputs:
-                                if in_pin.uuid == conn_uuid:
-                                    # Found match, create wire
-                                    # Note: port graphic items are children of BlockItem
-                                    source_port = None
-                                    dest_port = None
-
-                                    from logic_studio.ui.canvas.port_item import PortItem
-                                    for child in item.childItems():
-                                        if isinstance(child, PortItem) and child.pin.uuid == out_pin.uuid:
-                                            source_port = child
-                                            break
-                                    for child in dest_item.childItems():
-                                        if isinstance(child, PortItem) and child.pin.uuid == in_pin.uuid:
-                                            dest_port = child
-                                            break
-
-                                    if source_port and dest_port:
-                                        wire = WireItem(source_port, dest_port)
-                                        self.scene.addItem(wire)
+            self._reconstruct_scene()
 
     def _update_simulation_panel(self):
         # Sync ELA/ADA block states to the UI

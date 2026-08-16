@@ -3,8 +3,8 @@ from logic_studio.blocks.pin import Pin
 from logic_studio.blocks.registry import BlockRegistry
 
 class ComparatorBase(BaseLogicBlock):
-    def __init__(self, name, category, description):
-        super().__init__(name, category, description)
+    def __init__(self, type_id, default_name, category, description):
+        super().__init__(type_id, default_name, category, description)
         self.color = "#000080" # Classic Navy for comparators
         self.width = 80
         self.height = 80
@@ -20,8 +20,8 @@ class ComparatorBase(BaseLogicBlock):
 
 @BlockRegistry.register
 class GreaterBlock(ComparatorBase):
-    def __init__(self, name=">", category="Comparators", description="Greater Than"):
-        super().__init__(name, category, description)
+    def __init__(self, type_id="compare.gt", default_name=">", category="Comparators", description="Greater Than"):
+        super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
         v1, v2 = self._get_vals()
@@ -29,8 +29,8 @@ class GreaterBlock(ComparatorBase):
 
 @BlockRegistry.register
 class LessBlock(ComparatorBase):
-    def __init__(self, name="<", category="Comparators", description="Less Than"):
-        super().__init__(name, category, description)
+    def __init__(self, type_id="compare.lt", default_name="<", category="Comparators", description="Less Than"):
+        super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
         v1, v2 = self._get_vals()
@@ -38,8 +38,8 @@ class LessBlock(ComparatorBase):
 
 @BlockRegistry.register
 class GreaterEqBlock(ComparatorBase):
-    def __init__(self, name=">=", category="Comparators", description="Greater Than or Equal"):
-        super().__init__(name, category, description)
+    def __init__(self, type_id="compare.gte", default_name=">=", category="Comparators", description="Greater Than or Equal"):
+        super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
         v1, v2 = self._get_vals()
@@ -47,8 +47,8 @@ class GreaterEqBlock(ComparatorBase):
 
 @BlockRegistry.register
 class LessEqBlock(ComparatorBase):
-    def __init__(self, name="<=", category="Comparators", description="Less Than or Equal"):
-        super().__init__(name, category, description)
+    def __init__(self, type_id="compare.lte", default_name="<=", category="Comparators", description="Less Than or Equal"):
+        super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
         v1, v2 = self._get_vals()
@@ -56,8 +56,8 @@ class LessEqBlock(ComparatorBase):
 
 @BlockRegistry.register
 class EqualBlock(ComparatorBase):
-    def __init__(self, name="==", category="Comparators", description="Equal"):
-        super().__init__(name, category, description)
+    def __init__(self, type_id="compare.eq", default_name="==", category="Comparators", description="Equal"):
+        super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
         v1, v2 = self._get_vals()
@@ -65,8 +65,8 @@ class EqualBlock(ComparatorBase):
 
 @BlockRegistry.register
 class NotEqualBlock(ComparatorBase):
-    def __init__(self, name="!=", category="Comparators", description="Not Equal"):
-        super().__init__(name, category, description)
+    def __init__(self, type_id="compare.neq", default_name="!=", category="Comparators", description="Not Equal"):
+        super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
         v1, v2 = self._get_vals()
@@ -74,8 +74,8 @@ class NotEqualBlock(ComparatorBase):
 
 @BlockRegistry.register
 class BetweenBlock(BaseLogicBlock):
-    def __init__(self, name="Between", category="Comparators", description="Between Limits"):
-        super().__init__(name, category, description)
+    def __init__(self, type_id="compare.between", default_name="Between", category="Comparators", description="Between Limits"):
+        super().__init__(type_id, default_name, category, description)
         self.color = "#000080"
         self.width = 80
         self.height = 100

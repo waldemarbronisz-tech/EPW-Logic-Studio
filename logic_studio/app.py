@@ -205,6 +205,10 @@ class LogicStudioApp(QApplication):
 from logic_studio.ui.main_window import MainWindow
 
 def main():
+    # Explicitly register all blocks so they don't depend on accidental UI imports
+    from logic_studio.blocks import register_builtin_blocks
+    register_builtin_blocks()
+
     app = LogicStudioApp(sys.argv)
 
     window = MainWindow()

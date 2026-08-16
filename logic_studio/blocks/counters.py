@@ -3,8 +3,8 @@ from logic_studio.blocks.pin import Pin
 from logic_studio.blocks.registry import BlockRegistry
 
 class CounterBase(BaseLogicBlock):
-    def __init__(self, name, category, description):
-        super().__init__(name, category, description)
+    def __init__(self, type_id, default_name, category, description):
+        super().__init__(type_id, default_name, category, description)
         self.color = "#008080" # Classic Teal (similar to Timers)
         self.width = 100
         self.height = 120
@@ -18,8 +18,8 @@ class CounterBase(BaseLogicBlock):
 
 @BlockRegistry.register
 class CTU(CounterBase):
-    def __init__(self, name="CTU", category="Counters", description="Count Up"):
-        super().__init__(name, category, description)
+    def __init__(self, type_id="counter.ctu", default_name="CTU", category="Counters", description="Count Up"):
+        super().__init__(type_id, default_name, category, description)
         self.inputs.append(Pin("CU", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
         self.inputs.append(Pin("R", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
         self.inputs.append(Pin("PV", Pin.DIR_INPUT, Pin.TYPE_INTEGER))
@@ -45,8 +45,8 @@ class CTU(CounterBase):
 
 @BlockRegistry.register
 class CTD(CounterBase):
-    def __init__(self, name="CTD", category="Counters", description="Count Down"):
-        super().__init__(name, category, description)
+    def __init__(self, type_id="counter.ctd", default_name="CTD", category="Counters", description="Count Down"):
+        super().__init__(type_id, default_name, category, description)
         self.inputs.append(Pin("CD", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
         self.inputs.append(Pin("LD", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
         self.inputs.append(Pin("PV", Pin.DIR_INPUT, Pin.TYPE_INTEGER))
@@ -72,8 +72,8 @@ class CTD(CounterBase):
 
 @BlockRegistry.register
 class CTUD(CounterBase):
-    def __init__(self, name="CTUD", category="Counters", description="Count Up Down"):
-        super().__init__(name, category, description)
+    def __init__(self, type_id="counter.ctud", default_name="CTUD", category="Counters", description="Count Up Down"):
+        super().__init__(type_id, default_name, category, description)
         self.height = 140
         self.inputs.append(Pin("CU", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
         self.inputs.append(Pin("CD", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))

@@ -43,7 +43,10 @@ class GraphBuilder:
                     queue.append(v)
 
         if len(execution_order) != len(self.project.blocks):
-            errors.append("Execution Loop Detected. Cyclic logic is not supported without a delay block.")
+            # Identify which blocks are in the loop
+            missing = [block for block in self.project.blocks if block.uuid not in execution_order]
+            names = [b.display_name for b in missing]
+            errors.append(f"Execution Loop Detected. Combinational cyclic logic is not supported. Affected blocks: {', '.join(names)}")
             return []
 
         return execution_order

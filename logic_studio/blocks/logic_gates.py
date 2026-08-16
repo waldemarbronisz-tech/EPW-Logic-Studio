@@ -4,8 +4,8 @@ from logic_studio.blocks.registry import BlockRegistry
 
 # Helper to support dynamic inputs
 class LogicGateBase(BaseLogicBlock):
-    def __init__(self, name, category, description, default_inputs=2):
-        super().__init__(name, category, description)
+    def __init__(self, type_id, default_name, category, description, default_inputs=2):
+        super().__init__(type_id, default_name, category, description)
         self.color = "#00557f" # Industrial deep blue
         self.width = 60
         self.height = max(60, 20 + default_inputs * 20)
@@ -17,8 +17,8 @@ class LogicGateBase(BaseLogicBlock):
 
 @BlockRegistry.register
 class AndGate(LogicGateBase):
-    def __init__(self, name="AND", category="Logic Gates", description="Logical AND operator"):
-        super().__init__(name, category, description)
+    def __init__(self, type_id="logic.and", default_name="AND", category="Logic Gates", description="Logical AND operator"):
+        super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
         result = True
@@ -29,8 +29,8 @@ class AndGate(LogicGateBase):
 
 @BlockRegistry.register
 class OrGate(LogicGateBase):
-    def __init__(self, name="OR", category="Logic Gates", description="Logical OR operator"):
-        super().__init__(name, category, description)
+    def __init__(self, type_id="logic.or", default_name="OR", category="Logic Gates", description="Logical OR operator"):
+        super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
         result = False
@@ -41,8 +41,8 @@ class OrGate(LogicGateBase):
 
 @BlockRegistry.register
 class NotGate(LogicGateBase):
-    def __init__(self, name="NOT", category="Logic Gates", description="Logical NOT operator"):
-        super().__init__(name, category, description, default_inputs=1)
+    def __init__(self, type_id="logic.not", default_name="NOT", category="Logic Gates", description="Logical NOT operator"):
+        super().__init__(type_id, default_name, category, description, default_inputs=1)
 
     def evaluate(self):
         v1 = self.inputs[0].value
@@ -53,8 +53,8 @@ class NotGate(LogicGateBase):
 
 @BlockRegistry.register
 class XorGate(LogicGateBase):
-    def __init__(self, name="XOR", category="Logic Gates", description="Logical Exclusive OR"):
-        super().__init__(name, category, description, default_inputs=2)
+    def __init__(self, type_id="logic.xor", default_name="XOR", category="Logic Gates", description="Logical Exclusive OR"):
+        super().__init__(type_id, default_name, category, description, default_inputs=2)
 
     def evaluate(self):
         # XOR is true if odd number of true inputs
@@ -63,8 +63,8 @@ class XorGate(LogicGateBase):
 
 @BlockRegistry.register
 class NandGate(LogicGateBase):
-    def __init__(self, name="NAND", category="Logic Gates", description="Logical NAND"):
-        super().__init__(name, category, description)
+    def __init__(self, type_id="logic.nand", default_name="NAND", category="Logic Gates", description="Logical NAND"):
+        super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
         result = True
@@ -75,8 +75,8 @@ class NandGate(LogicGateBase):
 
 @BlockRegistry.register
 class NorGate(LogicGateBase):
-    def __init__(self, name="NOR", category="Logic Gates", description="Logical NOR"):
-        super().__init__(name, category, description)
+    def __init__(self, type_id="logic.nor", default_name="NOR", category="Logic Gates", description="Logical NOR"):
+        super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
         result = False
@@ -87,8 +87,8 @@ class NorGate(LogicGateBase):
 
 @BlockRegistry.register
 class XnorGate(LogicGateBase):
-    def __init__(self, name="XNOR", category="Logic Gates", description="Logical Exclusive NOR"):
-        super().__init__(name, category, description, default_inputs=2)
+    def __init__(self, type_id="logic.xnor", default_name="XNOR", category="Logic Gates", description="Logical Exclusive NOR"):
+        super().__init__(type_id, default_name, category, description, default_inputs=2)
 
     def evaluate(self):
         trues = sum([1 for p in self.inputs if p.value])
@@ -96,8 +96,8 @@ class XnorGate(LogicGateBase):
 
 @BlockRegistry.register
 class BufferGate(LogicGateBase):
-    def __init__(self, name="BUFFER", category="Logic Gates", description="Logical BUFFER"):
-        super().__init__(name, category, description, default_inputs=1)
+    def __init__(self, type_id="logic.buffer", default_name="BUFFER", category="Logic Gates", description="Logical BUFFER"):
+        super().__init__(type_id, default_name, category, description, default_inputs=1)
 
     def evaluate(self):
         self.outputs[0].value = self.inputs[0].value if self.inputs[0].value is not None else False

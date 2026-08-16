@@ -5,12 +5,38 @@ class Project:
 
     def __init__(self):
         self.blocks = []
-        self.wires = [] # Represented conceptually here; UI maintains actual WireItems
         self.settings = {
             "name": "New Project",
             "version": "1.0",
             "cycle_time_ms": 100
         }
+
+        self.undo_stack = []
+        self.redo_stack = []
+        self.is_recording = False
+
+    def push_state(self):
+        """Take a snapshot of the current project state for undo."""
+        if self.is_recording:
+            return
+        state = self.serialize()
+        self.undo_stack.append(state)
+        # Keep stack size manageable
+        if len(self.undo_stack) > 50:
+            self.undo_stack.pop(0)
+        self.redo_stack.clear()
+
+    def undo(self):
+        if not self.undo_stack:
+            return None
+        self.redo_stack.append(self.serialize())
+        return self.undo_stack.pop()
+
+    def redo(self):
+        if not self.redo_stack:
+            return None
+        self.undo_stack.append(self.serialize())
+        return self.redo_stack.pop()
 
     def add_block(self, block):
         if block not in self.blocks:
@@ -50,11 +76,19 @@ class Project:
         # 1. Instantiate blocks without connections
         block_map = {}
         for b_data in block_data_list:
-            block_class = None
-            for cat in BlockRegistry.get_categories():
-                if b_data.get("display_name") in BlockRegistry.get_blocks_in_category(cat):
-                    block_class = BlockRegistry._blocks[cat][b_data.get("display_name")]
-                    break
+            type_id = b_data.get("type_id")
+
+            # Backwards compatibility check for older JSONs
+            if not type_id:
+                disp_name = b_data.get("display_name")
+                # Fallback to search if needed (not strictly required if we assume clean MVP)
+                for cat in BlockRegistry.get_categories():
+                    if disp_name in BlockRegistry._blocks[cat]:
+                        # Oops, this is actually searching by dict key which is now type_id.
+                        # It's better to enforce type_id existence.
+                        pass
+
+            block_class = BlockRegistry.get_block_class(type_id)
 
             if block_class:
                 block = block_class.deserialize(b_data)

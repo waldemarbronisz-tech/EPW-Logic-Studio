@@ -3,8 +3,8 @@ from logic_studio.blocks.pin import Pin
 from logic_studio.blocks.registry import BlockRegistry
 
 class MathBase(BaseLogicBlock):
-    def __init__(self, name, category, description):
-        super().__init__(name, category, description)
+    def __init__(self, type_id, default_name, category, description):
+        super().__init__(type_id, default_name, category, description)
         self.color = "#800080" # Classic Purple for math
         self.width = 80
         self.height = 80
@@ -20,8 +20,8 @@ class MathBase(BaseLogicBlock):
 
 @BlockRegistry.register
 class AddBlock(MathBase):
-    def __init__(self, name="ADD", category="Mathematics", description="Addition"):
-        super().__init__(name, category, description)
+    def __init__(self, type_id="math.add", default_name="ADD", category="Mathematics", description="Addition"):
+        super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
         v1, v2 = self._get_vals()
@@ -29,8 +29,8 @@ class AddBlock(MathBase):
 
 @BlockRegistry.register
 class SubBlock(MathBase):
-    def __init__(self, name="SUB", category="Mathematics", description="Subtraction"):
-        super().__init__(name, category, description)
+    def __init__(self, type_id="math.sub", default_name="SUB", category="Mathematics", description="Subtraction"):
+        super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
         v1, v2 = self._get_vals()
@@ -38,8 +38,8 @@ class SubBlock(MathBase):
 
 @BlockRegistry.register
 class MulBlock(MathBase):
-    def __init__(self, name="MUL", category="Mathematics", description="Multiplication"):
-        super().__init__(name, category, description)
+    def __init__(self, type_id="math.mul", default_name="MUL", category="Mathematics", description="Multiplication"):
+        super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
         v1, v2 = self._get_vals()
@@ -47,20 +47,21 @@ class MulBlock(MathBase):
 
 @BlockRegistry.register
 class DivBlock(MathBase):
-    def __init__(self, name="DIV", category="Mathematics", description="Division"):
-        super().__init__(name, category, description)
+    def __init__(self, type_id="math.div", default_name="DIV", category="Mathematics", description="Division"):
+        super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
         v1, v2 = self._get_vals()
         if v2 != 0:
             self.outputs[0].value = v1 / v2
         else:
-            self.outputs[0].value = 0.0 # Standard PLC fallback for division by zero
+            # Deterministic safe value on div/0
+            self.outputs[0].value = 0.0
 
 @BlockRegistry.register
 class AbsBlock(MathBase):
-    def __init__(self, name="ABS", category="Mathematics", description="Absolute Value"):
-        super().__init__(name, category, description)
+    def __init__(self, type_id="math.abs", default_name="ABS", category="Mathematics", description="Absolute Value"):
+        super().__init__(type_id, default_name, category, description)
         self.inputs.pop() # Only 1 input
 
     def evaluate(self):
@@ -69,8 +70,8 @@ class AbsBlock(MathBase):
 
 @BlockRegistry.register
 class MinBlock(MathBase):
-    def __init__(self, name="MIN", category="Mathematics", description="Minimum"):
-        super().__init__(name, category, description)
+    def __init__(self, type_id="math.min", default_name="MIN", category="Mathematics", description="Minimum"):
+        super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
         v1, v2 = self._get_vals()
@@ -78,8 +79,8 @@ class MinBlock(MathBase):
 
 @BlockRegistry.register
 class MaxBlock(MathBase):
-    def __init__(self, name="MAX", category="Mathematics", description="Maximum"):
-        super().__init__(name, category, description)
+    def __init__(self, type_id="math.max", default_name="MAX", category="Mathematics", description="Maximum"):
+        super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
         v1, v2 = self._get_vals()

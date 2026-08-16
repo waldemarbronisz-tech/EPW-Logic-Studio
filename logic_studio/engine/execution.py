@@ -40,7 +40,14 @@ class ExecutionEngine(QObject):
         # We process inputs/outputs via specialized blocks.
         # (ELA / ADA blocks will read/write to simulation_panel internally during evaluate)
 
-        # Execute logic graph in topological order
+        # 1. Read ELA inputs (These blocks are handled independently or evaluated first naturally
+        # but to enforce strict propagation, we can pre-evaluate input blocks)
+        for uuid in self.execution_order:
+            b = block_map.get(uuid)
+            if b and b.__class__.__name__ == "DigitalInputBlock":
+                b.evaluate()
+
+        # 2. Execute remaining logic graph in topological order
         for uuid in self.execution_order:
             if uuid in block_map:
                 block = block_map[uuid]
@@ -48,14 +55,15 @@ class ExecutionEngine(QObject):
                 # Signal propagation: Copy output values from upstream connections to this block's inputs
                 for pin in block.inputs:
                     for conn_uuid in pin.connections:
-                        # Find source pin
                         source_pin = self._find_pin_by_uuid(conn_uuid, block_map)
                         if source_pin:
                             pin.value = source_pin.value
 
-                # Execute block specific logic
-                block.evaluate()
+                # Execute block specific logic (skip DI since they were pre-evaluated)
+                if block.__class__.__name__ != "DigitalInputBlock":
+                    block.evaluate()
 
+        # 3. Output ADA states handled by update_simulation_panel in MainWindow
         self.cycle_completed.emit()
 
     def _find_pin_by_uuid(self, pin_uuid, block_map):
