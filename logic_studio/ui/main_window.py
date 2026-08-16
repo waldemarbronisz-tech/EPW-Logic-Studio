@@ -449,28 +449,23 @@ class MainWindow(QMainWindow):
 
     def _update_simulation_panel(self):
         # Sync ELA/ADA block states to the UI
-        # 1. Read Inputs from Panel -> ELA Blocks
-        # 2. Write ADA Blocks -> Panel LEDs
-        # (This is a simplified binding for milestone 3)
+        from logic_studio.core.device_model import DeviceModel
+        ela_addrs = DeviceModel.get_ela_addresses()
+        ada_addrs = DeviceModel.get_ada_addresses()
+
         for block in self.project.blocks:
             if block.__class__.__name__ == "DigitalInputBlock":
                 addr = block.properties.get("Address", "")
-                if addr.startswith("ELA"):
-                    try:
-                        idx = int(addr[3:]) - 1
-                        val = self.simulation_panel.get_ela_state(idx)
-                        block.simulation_state["sim_value"] = val
-                    except ValueError:
-                        pass
+                if addr in ela_addrs:
+                    idx = ela_addrs.index(addr)
+                    val = self.simulation_panel.get_ela_state(idx)
+                    block.simulation_state["sim_value"] = val
             elif block.__class__.__name__ == "DigitalOutputBlock":
                 addr = block.properties.get("Address", "")
-                if addr.startswith("ADA"):
-                    try:
-                        idx = int(addr[3:]) - 1
-                        val = block.simulation_state.get("sim_value", False)
-                        self.simulation_panel.set_ada_state(idx, val)
-                    except ValueError:
-                        pass
+                if addr in ada_addrs:
+                    idx = ada_addrs.index(addr)
+                    val = block.simulation_state.get("sim_value", False)
+                    self.simulation_panel.set_ada_state(idx, val)
 
     def _on_selection_changed(self):
         selected = self.scene.selectedItems()

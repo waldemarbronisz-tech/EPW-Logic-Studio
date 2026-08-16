@@ -21,14 +21,16 @@ class Validator:
                     warnings.append(f"[{block.display_name}] Input '{pin.name}' is unconnected.")
 
             # 3. Explicit IO Address Validation
+            from logic_studio.core.device_model import DeviceModel
+
             if block.__class__.__name__ == "DigitalInputBlock":
                 addr = block.properties.get("Address", "")
-                if not addr.startswith("ELA") or not addr[3:].isdigit() or not (1 <= int(addr[3:]) <= 32):
-                    errors.append(f"[{block.display_name}] Invalid DI Address: '{addr}'. Must be ELA1 to ELA32.")
+                if addr not in DeviceModel.get_ela_addresses():
+                    errors.append(f"[{block.display_name}] Invalid DI Address: '{addr}'. Must be valid DI01 to DI32.")
             elif block.__class__.__name__ == "DigitalOutputBlock":
                 addr = block.properties.get("Address", "")
-                if not addr.startswith("ADA") or not addr[3:].isdigit() or not (1 <= int(addr[3:]) <= 32):
-                    errors.append(f"[{block.display_name}] Invalid DO Address: '{addr}'. Must be ADA1 to ADA32.")
+                if addr not in DeviceModel.get_ada_addresses():
+                    errors.append(f"[{block.display_name}] Invalid DO Address: '{addr}'. Must be valid DO01 to DO32.")
 
         # 4. Duplicate Output Detection
         output_addresses = {}

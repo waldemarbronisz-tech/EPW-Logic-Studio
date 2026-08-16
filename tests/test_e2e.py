@@ -17,9 +17,9 @@ def test_e2e_simulation_loop():
     m.scene.clear()
 
     # 2. Add blocks
-    m.scene.add_block_from_library('DI', 0, 0)
-    m.scene.add_block_from_library('NOT', 100, 0)
-    m.scene.add_block_from_library('DO', 200, 0)
+    m.scene.add_block_from_library('input.di', 0, 0)
+    m.scene.add_block_from_library('logic.not', 100, 0)
+    m.scene.add_block_from_library('output.do', 200, 0)
 
     # Get blocks
     di = m.project.blocks[0]
@@ -27,8 +27,8 @@ def test_e2e_simulation_loop():
     do = m.project.blocks[2]
 
     # 3. Configure
-    di.update_property("Address", "ELA1")
-    do.update_property("Address", "ADA1")
+    di.update_property("Address", "DI01")
+    do.update_property("Address", "DO01")
     no.update_property("Name", "NEGATE_TEST")
 
     # 4. Connect

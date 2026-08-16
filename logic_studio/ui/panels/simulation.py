@@ -12,15 +12,19 @@ class SimulationPanel(QWidget):
         content = QWidget()
         self.grid = QGridLayout(content)
 
+        from logic_studio.core.device_model import DeviceModel
+
         # ELA Inputs (Checkboxes)
         in_group = QGroupBox("ELA Inputs (DI)")
         in_layout = QGridLayout(in_group)
         self.ela_boxes = []
-        for i in range(1, 33):
-            cb = QCheckBox(f"ELA{i}")
+
+        ela_addrs = DeviceModel.get_ela_addresses()
+        for i, addr in enumerate(ela_addrs):
+            cb = QCheckBox(addr)
             # Layout in 4 columns
-            row = (i - 1) // 4
-            col = (i - 1) % 4
+            row = i // 4
+            col = i % 4
             in_layout.addWidget(cb, row, col)
             self.ela_boxes.append(cb)
 
@@ -30,8 +34,10 @@ class SimulationPanel(QWidget):
         out_group = QGroupBox("ADA Outputs (DO)")
         out_layout = QGridLayout(out_group)
         self.ada_leds = []
-        for i in range(1, 33):
-            lbl = QLabel(f"ADA{i}")
+
+        ada_addrs = DeviceModel.get_ada_addresses()
+        for i, addr in enumerate(ada_addrs):
+            lbl = QLabel(addr)
             lbl.setStyleSheet("background-color: darkgray; color: white; padding: 2px; border: 1px solid black;")
             lbl.setAlignment(Qt.AlignCenter)
 

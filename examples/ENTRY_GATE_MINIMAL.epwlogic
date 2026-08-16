@@ -17,7 +17,7 @@
             "outputs": [{"uuid": "ela1-out", "name": "State", "direction": "output", "data_type": "Boolean", "connections": ["not-in"]}],
             "execution_state": "Idle", "execution_priority": 1, "color": "#008000", "visibility": true, "enabled": true,
             "simulation_state": {},
-            "properties": {"Address": "ELA1", "Force Value": false}
+            "properties": {"Address": "DI01", "Force Value": false}
         },
         {
             "uuid": "not-block",
@@ -45,7 +45,7 @@
             "outputs": [],
             "execution_state": "Idle", "execution_priority": 1, "color": "#800000", "visibility": true, "enabled": true,
             "simulation_state": {},
-            "properties": {"Address": "ADA1"}
+            "properties": {"Address": "DO01"}
         }
     ]
 }

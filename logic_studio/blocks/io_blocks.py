@@ -9,7 +9,7 @@ class DigitalInputBlock(BaseLogicBlock):
         self.color = "#008000" # Classic dark green
         self.width = 100
         self.height = 60
-        self.properties["Address"] = "ELA1"
+        self.properties["Address"] = "DI01"
         self.properties["Force Value"] = False
 
         out1 = Pin("State", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN)
@@ -30,7 +30,7 @@ class DigitalOutputBlock(BaseLogicBlock):
         self.color = "#800000" # Classic dark red
         self.width = 100
         self.height = 60
-        self.properties["Address"] = "ADA1"
+        self.properties["Address"] = "DO01"
 
         in1 = Pin("Cmd", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN)
         self.inputs = [in1]

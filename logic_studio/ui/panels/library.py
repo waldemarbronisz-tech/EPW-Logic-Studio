@@ -3,11 +3,12 @@ from PySide6.QtGui import QDrag
 from PySide6.QtCore import Qt, QMimeData
 
 class BlockDragButton(QPushButton):
-    def __init__(self, text, parent=None):
-        super().__init__(text, parent)
-        self.block_name = text
+    def __init__(self, display_name, type_id, parent=None):
+        super().__init__(display_name, parent)
+        self.display_name = display_name
+        self.type_id = type_id
         # Make it look like a classic block icon button
-        self.setFixedSize(50, 40)
+        self.setFixedSize(60, 40)
         self.setStyleSheet("""
             QPushButton {
                 background: #C0C0C0;
@@ -27,10 +28,26 @@ class BlockDragButton(QPushButton):
         if event.buttons() == Qt.LeftButton:
             drag = QDrag(self)
             mime = QMimeData()
-            mime.setText(self.block_name)
+            mime.setText(self.type_id)
             drag.setMimeData(mime)
             drag.exec(Qt.CopyAction)
         super().mouseMoveEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            # Emulate dropping the block in the center of the canvas view
+            window = self.window()
+            if hasattr(window, 'view'):
+                view = window.view
+                scene_pos = view.mapToScene(view.viewport().rect().center())
+
+                # Snap to grid
+                grid = view.scene().grid_size
+                x = round(scene_pos.x() / grid) * grid
+                y = round(scene_pos.y() / grid) * grid
+
+                view.scene().add_block_from_library(self.type_id, x, y)
+        super().mouseDoubleClickEvent(event)
 
 class LibraryPanel(QWidget):
     def __init__(self, parent=None):
@@ -92,8 +109,13 @@ class LibraryPanel(QWidget):
 
             col = 0
             row = 0
-            for block_name in blocks:
-                btn = BlockDragButton(block_name)
+            for type_id in blocks:
+                b_class = BlockRegistry.get_block_class(type_id)
+                if not b_class:
+                    continue
+                # Instantiate a dummy to get the friendly display name
+                dummy = b_class()
+                btn = BlockDragButton(dummy.display_name, type_id)
                 group_layout.addWidget(btn, row, col)
                 self.block_buttons.append((btn, group))
 
@@ -112,7 +134,7 @@ class LibraryPanel(QWidget):
 
         # Hide/show logic
         for btn, group in self.block_buttons:
-            if text in btn.block_name.lower():
+            if text in btn.display_name.lower():
                 btn.show()
             else:
                 btn.hide()

@@ -93,23 +93,12 @@ class LogicScene(QGraphicsScene):
             elif isinstance(item, PortItem):
                 item.update_live_state()
 
-    def add_block_from_library(self, block_name: str, x: float, y: float):
+    def add_block_from_library(self, type_id: str, x: float, y: float):
         """Called by the view upon drop event. Instantiates and adds to scene."""
         from logic_studio.blocks.registry import BlockRegistry
         from logic_studio.ui.canvas.block_item import BlockItem
 
-        # In the new registry, get_blocks_in_category returns type_ids, NOT display names.
-        # Since drag-and-drop from toolbox uses display names, we need to search by display name.
-        block = None
-        for cat in BlockRegistry.get_categories():
-            type_id = None
-            for tid, b_class in BlockRegistry._blocks[cat].items():
-                if b_class().display_name == block_name:
-                    type_id = tid
-                    break
-            if type_id:
-                block = BlockRegistry.create_block(type_id)
-                break
+        block = BlockRegistry.create_block(type_id)
 
         if not block:
             return # Invalid drop
