@@ -37,8 +37,10 @@ class BaseLogicBlock:
     def update_property(self, key: str, value: str):
         """Update property, casting to correct type if necessary."""
         if key in self.properties:
-            # Simple type inference for Phase 4
-            if isinstance(self.properties[key], int):
+            # Simple type inference for Phase 4/5
+            if isinstance(self.properties[key], bool):
+                self.properties[key] = value.lower() in ["true", "1", "t", "yes", "y"]
+            elif isinstance(self.properties[key], int) and not isinstance(self.properties[key], bool):
                 try:
                     self.properties[key] = int(value)
                 except ValueError:

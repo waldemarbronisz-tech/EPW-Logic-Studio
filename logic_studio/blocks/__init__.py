@@ -7,3 +7,8 @@ def register_builtin_blocks():
     import logic_studio.blocks.memory
     import logic_studio.blocks.math_blocks
     import logic_studio.blocks.comparators
+    import logic_studio.blocks.virtual_io
+    import logic_studio.blocks.system_signals
+    import logic_studio.blocks.constants
+    import logic_studio.blocks.edges
+    import logic_studio.blocks.analog_processing

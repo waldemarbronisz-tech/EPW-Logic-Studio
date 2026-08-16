@@ -28,7 +28,8 @@ class Pin:
         if self.direction == other_pin.direction:
             return False # Cannot connect Input-Input or Output-Output
 
-        # Basic type checking (expand for implicit casting later)
+        # Strict type checking: prevent connecting BOOL to REAL/INT directly
+        # Allow connecting ANY to anything, but specific types must match.
         if self.data_type != self.TYPE_ANY and other_pin.data_type != self.TYPE_ANY:
             if self.data_type != other_pin.data_type:
                 return False

@@ -1,0 +1,231 @@
+{
+    "settings": {
+        "name": "New Project",
+        "version": "1.0",
+        "cycle_time_ms": 100
+    },
+    "blocks": [
+        {
+            "uuid": "7945c98f-4c86-4964-8d48-82bf29188c90",
+            "type_id": "virtual.input",
+            "display_name": "Virtual IN",
+            "category": "Virtual I/O",
+            "description": "Virtual Boolean Input",
+            "position": {
+                "x": 0,
+                "y": 0
+            },
+            "size": {
+                "width": 100,
+                "height": 60
+            },
+            "inputs": [],
+            "outputs": [
+                {
+                    "uuid": "fb74f8b6-a2a3-44f9-9ce1-e806d0e2a32e",
+                    "name": "State",
+                    "direction": "output",
+                    "data_type": "Boolean",
+                    "connections": [
+                        "a8172443-6374-48cb-aeac-3eba6a44db19"
+                    ]
+                }
+            ],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#006400",
+            "visibility": true,
+            "enabled": true,
+            "simulation_state": {},
+            "properties": {
+                "Address": "",
+                "Comment": "",
+                "Tag": "VI.NEW_INPUT",
+                "Force Value": true
+            }
+        },
+        {
+            "uuid": "861a13bf-0d3b-4b75-85c0-70b6cf6ab487",
+            "type_id": "edge.rtrig",
+            "display_name": "R_TRIG",
+            "category": "Edges",
+            "description": "Rising Edge Trigger",
+            "position": {
+                "x": 150.0,
+                "y": 0.0
+            },
+            "size": {
+                "width": 60,
+                "height": 60
+            },
+            "inputs": [
+                {
+                    "uuid": "a8172443-6374-48cb-aeac-3eba6a44db19",
+                    "name": "In",
+                    "direction": "input",
+                    "data_type": "Boolean",
+                    "connections": [
+                        "fb74f8b6-a2a3-44f9-9ce1-e806d0e2a32e"
+                    ]
+                }
+            ],
+            "outputs": [
+                {
+                    "uuid": "22da4959-21d6-46c3-874f-1d402ab3a96f",
+                    "name": "Out",
+                    "direction": "output",
+                    "data_type": "Boolean",
+                    "connections": []
+                }
+            ],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#8A2BE2",
+            "visibility": true,
+            "enabled": true,
+            "simulation_state": {
+                "last_in": true
+            },
+            "properties": {
+                "Address": "",
+                "Comment": ""
+            }
+        },
+        {
+            "uuid": "850e714a-aa34-4c97-bfea-deddd9317de7",
+            "type_id": "const.real",
+            "display_name": "REAL",
+            "category": "Constants",
+            "description": "Real Constant",
+            "position": {
+                "x": 0.0,
+                "y": 150.0
+            },
+            "size": {
+                "width": 60,
+                "height": 60
+            },
+            "inputs": [],
+            "outputs": [
+                {
+                    "uuid": "8a69495e-ece3-4b2d-8600-8417e8a25b9a",
+                    "name": "Out",
+                    "direction": "output",
+                    "data_type": "Float",
+                    "connections": [
+                        "76e70727-8581-4cce-afa0-6f2d354dbf3a"
+                    ]
+                }
+            ],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#555555",
+            "visibility": true,
+            "enabled": true,
+            "simulation_state": {},
+            "properties": {
+                "Address": "",
+                "Comment": "",
+                "Value": 50.0
+            }
+        },
+        {
+            "uuid": "17a2ae0b-398c-4337-9307-42bd87f2210a",
+            "type_id": "analog.scale",
+            "display_name": "SCALE",
+            "category": "Analog Processing",
+            "description": "Linear Scaling",
+            "position": {
+                "x": 150.0,
+                "y": 150.0
+            },
+            "size": {
+                "width": 100,
+                "height": 80
+            },
+            "inputs": [
+                {
+                    "uuid": "76e70727-8581-4cce-afa0-6f2d354dbf3a",
+                    "name": "In",
+                    "direction": "input",
+                    "data_type": "Float",
+                    "connections": [
+                        "8a69495e-ece3-4b2d-8600-8417e8a25b9a"
+                    ]
+                }
+            ],
+            "outputs": [
+                {
+                    "uuid": "bebdd612-9a7b-4dcf-bd33-9826e6942f92",
+                    "name": "Out",
+                    "direction": "output",
+                    "data_type": "Float",
+                    "connections": [
+                        "0ce9f2f0-54d5-4f90-94bc-9e5892a5b8d7"
+                    ]
+                }
+            ],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#FF8C00",
+            "visibility": true,
+            "enabled": true,
+            "simulation_state": {},
+            "properties": {
+                "Address": "",
+                "Comment": "",
+                "In Min": 0.0,
+                "In Max": 100.0,
+                "Out Min": 0.0,
+                "Out Max": 1000.0
+            }
+        },
+        {
+            "uuid": "3bc33b84-3a2e-4103-b302-880a169786dc",
+            "type_id": "analog.limit",
+            "display_name": "LIMIT",
+            "category": "Analog Processing",
+            "description": "Clamp Value",
+            "position": {
+                "x": 300.0,
+                "y": 150.0
+            },
+            "size": {
+                "width": 100,
+                "height": 80
+            },
+            "inputs": [
+                {
+                    "uuid": "0ce9f2f0-54d5-4f90-94bc-9e5892a5b8d7",
+                    "name": "In",
+                    "direction": "input",
+                    "data_type": "Float",
+                    "connections": [
+                        "bebdd612-9a7b-4dcf-bd33-9826e6942f92"
+                    ]
+                }
+            ],
+            "outputs": [
+                {
+                    "uuid": "a408df5e-a8cf-41ef-a9f2-ff57285c2de0",
+                    "name": "Out",
+                    "direction": "output",
+                    "data_type": "Float",
+                    "connections": []
+                }
+            ],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#FF8C00",
+            "visibility": true,
+            "enabled": true,
+            "simulation_state": {},
+            "properties": {
+                "Address": "",
+                "Comment": "",
+                "Min": 0.0,
+                "Max": 800.0
+            }
+        }
+    ]
+}

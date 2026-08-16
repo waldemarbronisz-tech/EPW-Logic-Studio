@@ -82,13 +82,44 @@ class BlockItem(QGraphicsItem):
         painter.setFont(font)
         painter.drawText(header_rect.adjusted(4, 0, 0, 0), Qt.AlignLeft | Qt.AlignVCenter, self.logic_block.display_name)
 
-        # Draw Address/State (If applicable)
+        # Draw Address / Tag (If applicable)
         addr = self.logic_block.properties.get("Address", "")
-        if addr:
+        tag = self.logic_block.properties.get("Tag", "")
+        display_text = addr if addr else tag
+
+        if display_text:
             painter.setPen(QPen(Qt.black))
             font = QFont("MS Sans Serif", 7)
             painter.setFont(font)
-            painter.drawText(rect.adjusted(4, 25, -4, -4), Qt.AlignTop | Qt.AlignRight, addr)
+            painter.drawText(rect.adjusted(4, 25, -4, -4), Qt.AlignTop | Qt.AlignRight, display_text)
+
+        # Draw Dynamic Live Value (If simulation is pushing it)
+        # We selectively print simulation states depending on the block type.
+        sim_text = ""
+        cat = self.logic_block.category
+        state = self.logic_block.simulation_state
+
+        if cat == "Timers" and "running" in state:
+            # We don't have ET explicitly in state, but outputs[1] is ET.
+            # In a robust implementation, outputs update themselves, but here we can poll them.
+            if len(self.logic_block.outputs) > 1:
+                val = self.logic_block.outputs[1].value
+                if val is not None:
+                    sim_text = f"ET: {val}ms"
+        elif cat == "Counters" and "count" in state:
+            sim_text = f"CV: {state['count']}"
+        elif cat == "Mathematics" or cat == "Analog Processing" or cat == "Constants":
+            if len(self.logic_block.outputs) > 0:
+                val = self.logic_block.outputs[0].value
+                if val is not None:
+                    # formatting float safely
+                    sim_text = f"{val:.2f}" if isinstance(val, float) else str(val)
+
+        if sim_text:
+            painter.setPen(QPen(QColor(0, 0, 128))) # Win98 Dark Blue for live values
+            font = QFont("MS Sans Serif", 7, QFont.Bold)
+            painter.setFont(font)
+            painter.drawText(rect.adjusted(4, 40, -4, -4), Qt.AlignTop | Qt.AlignRight, sim_text)
 
         # Draw Selection Border
         if self.isSelected():

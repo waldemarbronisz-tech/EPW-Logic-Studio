@@ -421,31 +421,32 @@ class MainWindow(QMainWindow):
             self.is_dirty = False
             self.update_title()
 
-    def _open_project(self):
-        if not self.check_dirty_prompt():
-            return
-
-        from PySide6.QtWidgets import QFileDialog, QMessageBox
-        from logic_studio.core.project import Project
+    def _open_project_headless(self, path):
         import os
-        path, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "EPW Logic Files (*.epwlogic)")
+        from PySide6.QtWidgets import QMessageBox
+        from logic_studio.core.project import Project
         if path and os.path.exists(path):
             self.stop_simulation()
-
             try:
                 new_proj = Project.load_from_file(path)
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Failed to open project:\n{str(e)}")
                 return
-
             self.scene.clear()
             self.project = new_proj
             self.engine.project = self.project
             self.current_file = path
             self.is_dirty = False
             self.update_title()
-
             self._reconstruct_scene()
+
+    def _open_project(self):
+        if not self.check_dirty_prompt():
+            return
+
+        from PySide6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "EPW Logic Files (*.epwlogic)")
+        self._open_project_headless(path)
 
     def _update_simulation_panel(self):
         # Sync ELA/ADA block states to the UI
