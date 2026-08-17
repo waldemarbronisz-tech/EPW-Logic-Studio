@@ -6,7 +6,7 @@
     },
     "blocks": [
         {
-            "uuid": "af363baf-02f7-426a-9fbd-efc2e00c3fa7",
+            "uuid": "3b8aa725-a4bd-4433-b95b-b5fea29d8738",
             "type_id": "virtual.input",
             "display_name": "Virtual IN",
             "category": "Virtual I/O",
@@ -22,12 +22,12 @@
             "inputs": [],
             "outputs": [
                 {
-                    "uuid": "86671465-4612-4d4d-9ff9-8d4e23f88774",
+                    "uuid": "8af0561c-9a1a-4e17-9769-5d2bf93a192d",
                     "name": "State",
                     "direction": "output",
                     "data_type": "Boolean",
                     "connections": [
-                        "25f79362-f3af-433f-96c1-c7813f6b09b1"
+                        "1b26735d-6fda-44fe-8eca-27c5c5d09fd5"
                     ]
                 }
             ],
@@ -45,7 +45,7 @@
             }
         },
         {
-            "uuid": "397808d6-6757-4932-8d51-25c950dfff01",
+            "uuid": "29c9f20e-6dfd-4478-91c0-f97d96d34ec9",
             "type_id": "edge.rtrig",
             "display_name": "R_TRIG",
             "category": "Edges",
@@ -60,18 +60,18 @@
             },
             "inputs": [
                 {
-                    "uuid": "25f79362-f3af-433f-96c1-c7813f6b09b1",
+                    "uuid": "1b26735d-6fda-44fe-8eca-27c5c5d09fd5",
                     "name": "In",
                     "direction": "input",
                     "data_type": "Boolean",
                     "connections": [
-                        "86671465-4612-4d4d-9ff9-8d4e23f88774"
+                        "8af0561c-9a1a-4e17-9769-5d2bf93a192d"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "d76806e2-7552-405f-99e0-23cf7762720a",
+                    "uuid": "6ae5752f-4152-4735-aa06-7d999be75d3a",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Boolean",
@@ -92,7 +92,7 @@
             }
         },
         {
-            "uuid": "4a0abfdf-29a4-4a38-a736-f8631d69d192",
+            "uuid": "73d6127f-7f6a-4b5c-9096-a77eaa323af8",
             "type_id": "const.real",
             "display_name": "REAL",
             "category": "Constants",
@@ -108,12 +108,12 @@
             "inputs": [],
             "outputs": [
                 {
-                    "uuid": "240c5db5-2ce9-4279-8e4b-ac395be92141",
+                    "uuid": "cd5cc0e8-436d-4c1e-87e9-6619e1755c0d",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Float",
                     "connections": [
-                        "2b0f9546-f919-48cf-894e-f096a85a66d4"
+                        "be8e854a-c041-43c7-9e92-46007d84b441"
                     ]
                 }
             ],
@@ -130,7 +130,7 @@
             }
         },
         {
-            "uuid": "0b37b215-c8af-45bd-acc8-f24b99884c49",
+            "uuid": "bae31a45-c802-4452-af8b-a436d6b5396e",
             "type_id": "analog.scale",
             "display_name": "SCALE",
             "category": "Analog Processing",
@@ -145,23 +145,23 @@
             },
             "inputs": [
                 {
-                    "uuid": "2b0f9546-f919-48cf-894e-f096a85a66d4",
+                    "uuid": "be8e854a-c041-43c7-9e92-46007d84b441",
                     "name": "In",
                     "direction": "input",
                     "data_type": "Float",
                     "connections": [
-                        "240c5db5-2ce9-4279-8e4b-ac395be92141"
+                        "cd5cc0e8-436d-4c1e-87e9-6619e1755c0d"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "dff6bfcb-3d92-4912-a5ca-842281fe9937",
+                    "uuid": "64e92580-2c1d-45d5-9014-aa94e1280467",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Float",
                     "connections": [
-                        "f40eb4ec-fdab-4ccb-9161-31d05a968ac2"
+                        "b4c066dd-5ed9-43c4-a98e-4c8027000a98"
                     ]
                 }
             ],
@@ -181,7 +181,7 @@
             }
         },
         {
-            "uuid": "f5f6a376-2acd-4831-b5cd-8ef2c9d68111",
+            "uuid": "fb14b6c8-ed52-4180-8824-88a10ba38c17",
             "type_id": "analog.limit",
             "display_name": "LIMIT",
             "category": "Analog Processing",
@@ -196,18 +196,18 @@
             },
             "inputs": [
                 {
-                    "uuid": "f40eb4ec-fdab-4ccb-9161-31d05a968ac2",
+                    "uuid": "b4c066dd-5ed9-43c4-a98e-4c8027000a98",
                     "name": "In",
                     "direction": "input",
                     "data_type": "Float",
                     "connections": [
-                        "dff6bfcb-3d92-4912-a5ca-842281fe9937"
+                        "64e92580-2c1d-45d5-9014-aa94e1280467"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "462b630e-b217-44ea-946c-fdfa217b6458",
+                    "uuid": "e089c1b8-04cf-4752-b695-684140f3cc37",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Float",

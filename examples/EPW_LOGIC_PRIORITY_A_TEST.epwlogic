@@ -6,7 +6,7 @@
     },
     "blocks": [
         {
-            "uuid": "97f3f622-f3f9-4be3-ac86-6bb24e40e591",
+            "uuid": "56835dbe-e1fd-4909-9e32-bf0462ceac2f",
             "type_id": "virtual.input",
             "display_name": "Virtual IN",
             "category": "Virtual I/O",
@@ -22,12 +22,12 @@
             "inputs": [],
             "outputs": [
                 {
-                    "uuid": "76aa3332-84c0-408d-9f1a-b265b90ca1a4",
+                    "uuid": "a63b976d-9fc5-4d5e-82a7-2a8c75545de6",
                     "name": "State",
                     "direction": "output",
                     "data_type": "Boolean",
                     "connections": [
-                        "e33a14d3-a48a-4f3e-96d4-7d35018b9e8c"
+                        "246f9528-162d-4016-a06c-493ac0d9c153"
                     ]
                 }
             ],
@@ -45,7 +45,7 @@
             }
         },
         {
-            "uuid": "8a916abc-86c2-4d8c-8013-24abff0db62b",
+            "uuid": "a5df8329-3cc3-4f29-b226-c3b899a668dd",
             "type_id": "edge.rtrig",
             "display_name": "R_TRIG",
             "category": "Edges",
@@ -60,23 +60,23 @@
             },
             "inputs": [
                 {
-                    "uuid": "e33a14d3-a48a-4f3e-96d4-7d35018b9e8c",
+                    "uuid": "246f9528-162d-4016-a06c-493ac0d9c153",
                     "name": "In",
                     "direction": "input",
                     "data_type": "Boolean",
                     "connections": [
-                        "76aa3332-84c0-408d-9f1a-b265b90ca1a4"
+                        "a63b976d-9fc5-4d5e-82a7-2a8c75545de6"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "c2a0b2ab-ef3c-44d7-be71-1430ef23a699",
+                    "uuid": "e668e29c-63b7-4dea-8e29-4d58c60e0c28",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Boolean",
                     "connections": [
-                        "12eb6372-b7d9-427c-a4d7-5969c70f09c7"
+                        "27778a52-345b-40f8-9dc3-c27261be19e3"
                     ]
                 }
             ],
@@ -94,7 +94,7 @@
             }
         },
         {
-            "uuid": "7698d18a-eaf6-4117-a39e-2a9325755ead",
+            "uuid": "14fffcaa-d3c2-4d86-aad2-c087ab066830",
             "type_id": "system.signal",
             "display_name": "SYS SIG",
             "category": "System",
@@ -110,12 +110,12 @@
             "inputs": [],
             "outputs": [
                 {
-                    "uuid": "d96a1671-fc9c-4386-affa-8d560615e058",
+                    "uuid": "3e252cd1-fdf8-4692-8a0f-8a64677b8902",
                     "name": "State",
                     "direction": "output",
                     "data_type": "Boolean",
                     "connections": [
-                        "79cd663b-000b-4087-ad1a-a6ac6a0c1af8"
+                        "932b5e72-9b90-4956-91f5-41300dd8290f"
                     ]
                 }
             ],
@@ -132,7 +132,7 @@
             }
         },
         {
-            "uuid": "0931d59e-a5d5-416a-b20b-cda111691826",
+            "uuid": "078d1b47-f359-4ff5-be19-2be923048ec6",
             "type_id": "logic.and",
             "display_name": "AND",
             "category": "Logic Gates",
@@ -147,32 +147,32 @@
             },
             "inputs": [
                 {
-                    "uuid": "12eb6372-b7d9-427c-a4d7-5969c70f09c7",
+                    "uuid": "27778a52-345b-40f8-9dc3-c27261be19e3",
                     "name": "In1",
                     "direction": "input",
                     "data_type": "Boolean",
                     "connections": [
-                        "c2a0b2ab-ef3c-44d7-be71-1430ef23a699"
+                        "e668e29c-63b7-4dea-8e29-4d58c60e0c28"
                     ]
                 },
                 {
-                    "uuid": "79cd663b-000b-4087-ad1a-a6ac6a0c1af8",
+                    "uuid": "932b5e72-9b90-4956-91f5-41300dd8290f",
                     "name": "In2",
                     "direction": "input",
                     "data_type": "Boolean",
                     "connections": [
-                        "d96a1671-fc9c-4386-affa-8d560615e058"
+                        "3e252cd1-fdf8-4692-8a0f-8a64677b8902"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "9fe968f7-65ef-48f4-b1b9-444d0a7dc115",
+                    "uuid": "0880304a-8af7-42a1-aead-0ab119c12418",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Boolean",
                     "connections": [
-                        "b94fb658-3793-4b6d-a107-1c9fd460db48"
+                        "816358cd-de85-44f0-8699-ed32aa976acf"
                     ]
                 }
             ],
@@ -188,7 +188,7 @@
             }
         },
         {
-            "uuid": "8a48d408-64ba-48e5-b96f-2252d8d205fb",
+            "uuid": "d8f1a0f4-677f-489e-969c-790c754e5011",
             "type_id": "virtual.output",
             "display_name": "Virtual OUT",
             "category": "Virtual I/O",
@@ -203,12 +203,12 @@
             },
             "inputs": [
                 {
-                    "uuid": "b94fb658-3793-4b6d-a107-1c9fd460db48",
+                    "uuid": "816358cd-de85-44f0-8699-ed32aa976acf",
                     "name": "Cmd",
                     "direction": "input",
                     "data_type": "Boolean",
                     "connections": [
-                        "9fe968f7-65ef-48f4-b1b9-444d0a7dc115"
+                        "0880304a-8af7-42a1-aead-0ab119c12418"
                     ]
                 }
             ],
@@ -228,7 +228,7 @@
             }
         },
         {
-            "uuid": "a3f7aef6-46af-4900-9fbc-01786ae73d97",
+            "uuid": "a59aa903-ca3f-4eb3-b818-1acef20c374d",
             "type_id": "const.real",
             "display_name": "REAL",
             "category": "Constants",
@@ -244,12 +244,12 @@
             "inputs": [],
             "outputs": [
                 {
-                    "uuid": "2098df2a-88dc-49fc-bed0-97732a35e823",
+                    "uuid": "54a36a08-d385-4b66-b320-a68e0df15a20",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Float",
                     "connections": [
-                        "9375482a-ccaf-4ff0-af7b-586c0fa92733"
+                        "eeef5fb2-a217-480e-af1a-a91ac30fb52e"
                     ]
                 }
             ],
@@ -266,7 +266,7 @@
             }
         },
         {
-            "uuid": "74934c7f-d8e2-4520-a140-3240e1f45960",
+            "uuid": "505becf6-7206-4cf7-9321-4dea45ecc002",
             "type_id": "analog.scale",
             "display_name": "SCALE",
             "category": "Analog Processing",
@@ -281,23 +281,23 @@
             },
             "inputs": [
                 {
-                    "uuid": "9375482a-ccaf-4ff0-af7b-586c0fa92733",
+                    "uuid": "eeef5fb2-a217-480e-af1a-a91ac30fb52e",
                     "name": "In",
                     "direction": "input",
                     "data_type": "Float",
                     "connections": [
-                        "2098df2a-88dc-49fc-bed0-97732a35e823"
+                        "54a36a08-d385-4b66-b320-a68e0df15a20"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "cf7e430b-80b4-4c4d-9b23-83d45461ef0c",
+                    "uuid": "d1800005-5cdd-40cf-b8d0-c846fd945594",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Float",
                     "connections": [
-                        "c3176a6b-dca4-4114-95cd-76754ef94e63"
+                        "ffd8f7f1-7c18-41c3-bd06-6c413117bc4d"
                     ]
                 }
             ],
@@ -317,7 +317,7 @@
             }
         },
         {
-            "uuid": "ce8dc9c7-3160-474b-99cf-a353a9ec371d",
+            "uuid": "28fc16a8-752d-4405-9862-c9b435d9a0b9",
             "type_id": "analog.mov_avg",
             "display_name": "MOVING AVG",
             "category": "Analog Processing",
@@ -332,23 +332,23 @@
             },
             "inputs": [
                 {
-                    "uuid": "c3176a6b-dca4-4114-95cd-76754ef94e63",
+                    "uuid": "ffd8f7f1-7c18-41c3-bd06-6c413117bc4d",
                     "name": "In",
                     "direction": "input",
                     "data_type": "Float",
                     "connections": [
-                        "cf7e430b-80b4-4c4d-9b23-83d45461ef0c"
+                        "d1800005-5cdd-40cf-b8d0-c846fd945594"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "e67bc949-3a5b-4a29-9303-e1aa476348f3",
+                    "uuid": "859e6363-f5e4-459a-8771-160dfb87b9bd",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Float",
                     "connections": [
-                        "1314a5f4-b69d-4ac0-91b7-a16bece2b57f"
+                        "76d99c7e-9df4-4286-b598-c335f4519b90"
                     ]
                 }
             ],
@@ -371,7 +371,7 @@
             }
         },
         {
-            "uuid": "110c1ecb-e56b-4a1b-a5ce-1908ff09e54e",
+            "uuid": "920645c3-4184-473c-b8bf-b18bde8cbea8",
             "type_id": "analog.hysteresis",
             "display_name": "HYSTERESIS",
             "category": "Analog Processing",
@@ -386,23 +386,23 @@
             },
             "inputs": [
                 {
-                    "uuid": "1314a5f4-b69d-4ac0-91b7-a16bece2b57f",
+                    "uuid": "76d99c7e-9df4-4286-b598-c335f4519b90",
                     "name": "In",
                     "direction": "input",
                     "data_type": "Float",
                     "connections": [
-                        "e67bc949-3a5b-4a29-9303-e1aa476348f3"
+                        "859e6363-f5e4-459a-8771-160dfb87b9bd"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "c00bf399-aafa-435e-8d55-e7e0ea9fdd7b",
+                    "uuid": "2e2744a0-502e-4f76-8da6-493863b429e7",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Boolean",
                     "connections": [
-                        "282cea38-9e75-4273-ae09-656283a1d63e"
+                        "cd1c8f7d-3e13-4096-95a0-3386844aa635"
                     ]
                 }
             ],
@@ -422,7 +422,7 @@
             }
         },
         {
-            "uuid": "ce605116-4976-41f2-97a4-3af8e9626733",
+            "uuid": "5c87ad70-57d3-41af-a346-1b5bb9bc1368",
             "type_id": "timer.ton",
             "display_name": "TON",
             "category": "Timers",
@@ -437,16 +437,16 @@
             },
             "inputs": [
                 {
-                    "uuid": "282cea38-9e75-4273-ae09-656283a1d63e",
+                    "uuid": "cd1c8f7d-3e13-4096-95a0-3386844aa635",
                     "name": "IN",
                     "direction": "input",
                     "data_type": "Boolean",
                     "connections": [
-                        "c00bf399-aafa-435e-8d55-e7e0ea9fdd7b"
+                        "2e2744a0-502e-4f76-8da6-493863b429e7"
                     ]
                 },
                 {
-                    "uuid": "aaf9b4d8-db17-43c5-873d-363256229166",
+                    "uuid": "110cf786-4496-46d6-888d-0ca0ab89ca7f",
                     "name": "PT",
                     "direction": "input",
                     "data_type": "Integer",
@@ -455,16 +455,16 @@
             ],
             "outputs": [
                 {
-                    "uuid": "ab4691d3-b229-41a9-99c5-84e526826925",
+                    "uuid": "dfae2a87-3dd4-4e44-b5ee-1161cc9e86c6",
                     "name": "Q",
                     "direction": "output",
                     "data_type": "Boolean",
                     "connections": [
-                        "985802f4-e9dd-485d-b460-ac0b65240be6"
+                        "3ac2b76b-281f-4297-b127-89695abf3f12"
                     ]
                 },
                 {
-                    "uuid": "039fcb4c-9f91-4570-8f2f-eca5a49c95ba",
+                    "uuid": "a32d028e-62a7-4258-866a-1139cda868a9",
                     "name": "ET",
                     "direction": "output",
                     "data_type": "Integer",
@@ -484,7 +484,7 @@
             }
         },
         {
-            "uuid": "c28b993c-f53a-4024-97cf-86cf48932f1f",
+            "uuid": "a20d5665-4085-4bda-b753-2bc5305e1214",
             "type_id": "virtual.output",
             "display_name": "Virtual OUT",
             "category": "Virtual I/O",
@@ -499,12 +499,12 @@
             },
             "inputs": [
                 {
-                    "uuid": "985802f4-e9dd-485d-b460-ac0b65240be6",
+                    "uuid": "3ac2b76b-281f-4297-b127-89695abf3f12",
                     "name": "Cmd",
                     "direction": "input",
                     "data_type": "Boolean",
                     "connections": [
-                        "ab4691d3-b229-41a9-99c5-84e526826925"
+                        "dfae2a87-3dd4-4e44-b5ee-1161cc9e86c6"
                     ]
                 }
             ],
