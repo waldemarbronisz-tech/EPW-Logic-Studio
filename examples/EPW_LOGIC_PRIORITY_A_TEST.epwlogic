@@ -1,0 +1,527 @@
+{
+    "settings": {
+        "name": "New Project",
+        "version": "1.0",
+        "cycle_time_ms": 100
+    },
+    "blocks": [
+        {
+            "uuid": "97f3f622-f3f9-4be3-ac86-6bb24e40e591",
+            "type_id": "virtual.input",
+            "display_name": "Virtual IN",
+            "category": "Virtual I/O",
+            "description": "Virtual Boolean Input",
+            "position": {
+                "x": 0,
+                "y": 0
+            },
+            "size": {
+                "width": 100,
+                "height": 60
+            },
+            "inputs": [],
+            "outputs": [
+                {
+                    "uuid": "76aa3332-84c0-408d-9f1a-b265b90ca1a4",
+                    "name": "State",
+                    "direction": "output",
+                    "data_type": "Boolean",
+                    "connections": [
+                        "e33a14d3-a48a-4f3e-96d4-7d35018b9e8c"
+                    ]
+                }
+            ],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#006400",
+            "visibility": true,
+            "enabled": true,
+            "simulation_state": {},
+            "properties": {
+                "Address": "",
+                "Comment": "",
+                "Tag": "VI.PULSE_REQUEST",
+                "Force Value": false
+            }
+        },
+        {
+            "uuid": "8a916abc-86c2-4d8c-8013-24abff0db62b",
+            "type_id": "edge.rtrig",
+            "display_name": "R_TRIG",
+            "category": "Edges",
+            "description": "Rising Edge Trigger",
+            "position": {
+                "x": 100.0,
+                "y": 0.0
+            },
+            "size": {
+                "width": 60,
+                "height": 60
+            },
+            "inputs": [
+                {
+                    "uuid": "e33a14d3-a48a-4f3e-96d4-7d35018b9e8c",
+                    "name": "In",
+                    "direction": "input",
+                    "data_type": "Boolean",
+                    "connections": [
+                        "76aa3332-84c0-408d-9f1a-b265b90ca1a4"
+                    ]
+                }
+            ],
+            "outputs": [
+                {
+                    "uuid": "c2a0b2ab-ef3c-44d7-be71-1430ef23a699",
+                    "name": "Out",
+                    "direction": "output",
+                    "data_type": "Boolean",
+                    "connections": [
+                        "12eb6372-b7d9-427c-a4d7-5969c70f09c7"
+                    ]
+                }
+            ],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#8A2BE2",
+            "visibility": true,
+            "enabled": true,
+            "simulation_state": {
+                "last_in": false
+            },
+            "properties": {
+                "Address": "",
+                "Comment": ""
+            }
+        },
+        {
+            "uuid": "7698d18a-eaf6-4117-a39e-2a9325755ead",
+            "type_id": "system.signal",
+            "display_name": "SYS SIG",
+            "category": "System",
+            "description": "System Boolean Signal",
+            "position": {
+                "x": 0.0,
+                "y": 100.0
+            },
+            "size": {
+                "width": 120,
+                "height": 60
+            },
+            "inputs": [],
+            "outputs": [
+                {
+                    "uuid": "d96a1671-fc9c-4386-affa-8d560615e058",
+                    "name": "State",
+                    "direction": "output",
+                    "data_type": "Boolean",
+                    "connections": [
+                        "79cd663b-000b-4087-ad1a-a6ac6a0c1af8"
+                    ]
+                }
+            ],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#4B0082",
+            "visibility": true,
+            "enabled": true,
+            "simulation_state": {},
+            "properties": {
+                "Address": "",
+                "Comment": "",
+                "Tag": "SYSTEM.CORE_ONLINE"
+            }
+        },
+        {
+            "uuid": "0931d59e-a5d5-416a-b20b-cda111691826",
+            "type_id": "logic.and",
+            "display_name": "AND",
+            "category": "Logic Gates",
+            "description": "Logical AND operator",
+            "position": {
+                "x": 200.0,
+                "y": 0.0
+            },
+            "size": {
+                "width": 60,
+                "height": 60
+            },
+            "inputs": [
+                {
+                    "uuid": "12eb6372-b7d9-427c-a4d7-5969c70f09c7",
+                    "name": "In1",
+                    "direction": "input",
+                    "data_type": "Boolean",
+                    "connections": [
+                        "c2a0b2ab-ef3c-44d7-be71-1430ef23a699"
+                    ]
+                },
+                {
+                    "uuid": "79cd663b-000b-4087-ad1a-a6ac6a0c1af8",
+                    "name": "In2",
+                    "direction": "input",
+                    "data_type": "Boolean",
+                    "connections": [
+                        "d96a1671-fc9c-4386-affa-8d560615e058"
+                    ]
+                }
+            ],
+            "outputs": [
+                {
+                    "uuid": "9fe968f7-65ef-48f4-b1b9-444d0a7dc115",
+                    "name": "Out",
+                    "direction": "output",
+                    "data_type": "Boolean",
+                    "connections": [
+                        "b94fb658-3793-4b6d-a107-1c9fd460db48"
+                    ]
+                }
+            ],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#00557f",
+            "visibility": true,
+            "enabled": true,
+            "simulation_state": {},
+            "properties": {
+                "Address": "",
+                "Comment": ""
+            }
+        },
+        {
+            "uuid": "8a48d408-64ba-48e5-b96f-2252d8d205fb",
+            "type_id": "virtual.output",
+            "display_name": "Virtual OUT",
+            "category": "Virtual I/O",
+            "description": "Virtual Boolean Output",
+            "position": {
+                "x": 300.0,
+                "y": 0.0
+            },
+            "size": {
+                "width": 100,
+                "height": 60
+            },
+            "inputs": [
+                {
+                    "uuid": "b94fb658-3793-4b6d-a107-1c9fd460db48",
+                    "name": "Cmd",
+                    "direction": "input",
+                    "data_type": "Boolean",
+                    "connections": [
+                        "9fe968f7-65ef-48f4-b1b9-444d0a7dc115"
+                    ]
+                }
+            ],
+            "outputs": [],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#8B0000",
+            "visibility": true,
+            "enabled": true,
+            "simulation_state": {
+                "sim_value": false
+            },
+            "properties": {
+                "Address": "",
+                "Comment": "",
+                "Tag": "VO.NEW_OUTPUT"
+            }
+        },
+        {
+            "uuid": "a3f7aef6-46af-4900-9fbc-01786ae73d97",
+            "type_id": "const.real",
+            "display_name": "REAL",
+            "category": "Constants",
+            "description": "Real Constant",
+            "position": {
+                "x": 0.0,
+                "y": 200.0
+            },
+            "size": {
+                "width": 60,
+                "height": 60
+            },
+            "inputs": [],
+            "outputs": [
+                {
+                    "uuid": "2098df2a-88dc-49fc-bed0-97732a35e823",
+                    "name": "Out",
+                    "direction": "output",
+                    "data_type": "Float",
+                    "connections": [
+                        "9375482a-ccaf-4ff0-af7b-586c0fa92733"
+                    ]
+                }
+            ],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#555555",
+            "visibility": true,
+            "enabled": true,
+            "simulation_state": {},
+            "properties": {
+                "Address": "",
+                "Comment": "",
+                "Value": 5.0
+            }
+        },
+        {
+            "uuid": "74934c7f-d8e2-4520-a140-3240e1f45960",
+            "type_id": "analog.scale",
+            "display_name": "SCALE",
+            "category": "Analog Processing",
+            "description": "Linear Scaling",
+            "position": {
+                "x": 100.0,
+                "y": 200.0
+            },
+            "size": {
+                "width": 100,
+                "height": 80
+            },
+            "inputs": [
+                {
+                    "uuid": "9375482a-ccaf-4ff0-af7b-586c0fa92733",
+                    "name": "In",
+                    "direction": "input",
+                    "data_type": "Float",
+                    "connections": [
+                        "2098df2a-88dc-49fc-bed0-97732a35e823"
+                    ]
+                }
+            ],
+            "outputs": [
+                {
+                    "uuid": "cf7e430b-80b4-4c4d-9b23-83d45461ef0c",
+                    "name": "Out",
+                    "direction": "output",
+                    "data_type": "Float",
+                    "connections": [
+                        "c3176a6b-dca4-4114-95cd-76754ef94e63"
+                    ]
+                }
+            ],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#FF8C00",
+            "visibility": true,
+            "enabled": true,
+            "simulation_state": {},
+            "properties": {
+                "Address": "",
+                "Comment": "",
+                "In Min": 0.0,
+                "In Max": 10.0,
+                "Out Min": 0.0,
+                "Out Max": 100.0
+            }
+        },
+        {
+            "uuid": "ce8dc9c7-3160-474b-99cf-a353a9ec371d",
+            "type_id": "analog.mov_avg",
+            "display_name": "MOVING AVG",
+            "category": "Analog Processing",
+            "description": "Moving Average Filter",
+            "position": {
+                "x": 200.0,
+                "y": 200.0
+            },
+            "size": {
+                "width": 100,
+                "height": 80
+            },
+            "inputs": [
+                {
+                    "uuid": "c3176a6b-dca4-4114-95cd-76754ef94e63",
+                    "name": "In",
+                    "direction": "input",
+                    "data_type": "Float",
+                    "connections": [
+                        "cf7e430b-80b4-4c4d-9b23-83d45461ef0c"
+                    ]
+                }
+            ],
+            "outputs": [
+                {
+                    "uuid": "e67bc949-3a5b-4a29-9303-e1aa476348f3",
+                    "name": "Out",
+                    "direction": "output",
+                    "data_type": "Float",
+                    "connections": [
+                        "1314a5f4-b69d-4ac0-91b7-a16bece2b57f"
+                    ]
+                }
+            ],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#FF8C00",
+            "visibility": true,
+            "enabled": true,
+            "simulation_state": {
+                "buffer": [
+                    50.0,
+                    50.0,
+                    50.0
+                ]
+            },
+            "properties": {
+                "Address": "",
+                "Comment": "",
+                "Window Size": 5
+            }
+        },
+        {
+            "uuid": "110c1ecb-e56b-4a1b-a5ce-1908ff09e54e",
+            "type_id": "analog.hysteresis",
+            "display_name": "HYSTERESIS",
+            "category": "Analog Processing",
+            "description": "Boolean Hysteresis",
+            "position": {
+                "x": 300.0,
+                "y": 200.0
+            },
+            "size": {
+                "width": 100,
+                "height": 80
+            },
+            "inputs": [
+                {
+                    "uuid": "1314a5f4-b69d-4ac0-91b7-a16bece2b57f",
+                    "name": "In",
+                    "direction": "input",
+                    "data_type": "Float",
+                    "connections": [
+                        "e67bc949-3a5b-4a29-9303-e1aa476348f3"
+                    ]
+                }
+            ],
+            "outputs": [
+                {
+                    "uuid": "c00bf399-aafa-435e-8d55-e7e0ea9fdd7b",
+                    "name": "Out",
+                    "direction": "output",
+                    "data_type": "Boolean",
+                    "connections": [
+                        "282cea38-9e75-4273-ae09-656283a1d63e"
+                    ]
+                }
+            ],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#FF8C00",
+            "visibility": true,
+            "enabled": true,
+            "simulation_state": {
+                "state": true
+            },
+            "properties": {
+                "Address": "",
+                "Comment": "",
+                "High Threshold": 40.0,
+                "Low Threshold": 10.0
+            }
+        },
+        {
+            "uuid": "ce605116-4976-41f2-97a4-3af8e9626733",
+            "type_id": "timer.ton",
+            "display_name": "TON",
+            "category": "Timers",
+            "description": "Timer On Delay",
+            "position": {
+                "x": 400.0,
+                "y": 200.0
+            },
+            "size": {
+                "width": 100,
+                "height": 100
+            },
+            "inputs": [
+                {
+                    "uuid": "282cea38-9e75-4273-ae09-656283a1d63e",
+                    "name": "IN",
+                    "direction": "input",
+                    "data_type": "Boolean",
+                    "connections": [
+                        "c00bf399-aafa-435e-8d55-e7e0ea9fdd7b"
+                    ]
+                },
+                {
+                    "uuid": "aaf9b4d8-db17-43c5-873d-363256229166",
+                    "name": "PT",
+                    "direction": "input",
+                    "data_type": "Integer",
+                    "connections": []
+                }
+            ],
+            "outputs": [
+                {
+                    "uuid": "ab4691d3-b229-41a9-99c5-84e526826925",
+                    "name": "Q",
+                    "direction": "output",
+                    "data_type": "Boolean",
+                    "connections": [
+                        "985802f4-e9dd-485d-b460-ac0b65240be6"
+                    ]
+                },
+                {
+                    "uuid": "039fcb4c-9f91-4570-8f2f-eca5a49c95ba",
+                    "name": "ET",
+                    "direction": "output",
+                    "data_type": "Integer",
+                    "connections": []
+                }
+            ],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#008080",
+            "visibility": true,
+            "enabled": true,
+            "simulation_state": {},
+            "properties": {
+                "Address": "",
+                "Comment": "",
+                "Preset (ms)": 200
+            }
+        },
+        {
+            "uuid": "c28b993c-f53a-4024-97cf-86cf48932f1f",
+            "type_id": "virtual.output",
+            "display_name": "Virtual OUT",
+            "category": "Virtual I/O",
+            "description": "Virtual Boolean Output",
+            "position": {
+                "x": 500.0,
+                "y": 200.0
+            },
+            "size": {
+                "width": 100,
+                "height": 60
+            },
+            "inputs": [
+                {
+                    "uuid": "985802f4-e9dd-485d-b460-ac0b65240be6",
+                    "name": "Cmd",
+                    "direction": "input",
+                    "data_type": "Boolean",
+                    "connections": [
+                        "ab4691d3-b229-41a9-99c5-84e526826925"
+                    ]
+                }
+            ],
+            "outputs": [],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#8B0000",
+            "visibility": true,
+            "enabled": true,
+            "simulation_state": {
+                "sim_value": true
+            },
+            "properties": {
+                "Address": "",
+                "Comment": "",
+                "Tag": "VO.NEW_OUTPUT"
+            }
+        }
+    ]
+}
