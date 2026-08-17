@@ -2,92 +2,108 @@ from logic_studio.blocks.base import BaseLogicBlock
 from logic_studio.blocks.pin import Pin
 from logic_studio.blocks.registry import BlockRegistry
 
-class AnalogBase(BaseLogicBlock):
+class BaseAnalogBlock(BaseLogicBlock):
     def __init__(self, type_id, default_name, category, description):
         super().__init__(type_id, default_name, category, description)
-        self.color = "#FF8C00" # DarkOrange
+        self.color = "#808000" # Olive
         self.width = 100
-        self.height = 80
 
 @BlockRegistry.register
-class ScaleBlock(AnalogBase):
-    def __init__(self, type_id="analog.scale", default_name="SCALE", category="Analog Processing", description="Linear Scaling"):
+class ScaleBlock(BaseAnalogBlock):
+    def __init__(self, type_id="analog.scale", default_name="SCALE", category="Elementy Analogowe", description="Linear Scaling"):
         super().__init__(type_id, default_name, category, description)
-        self.inputs = [Pin("In", Pin.DIR_INPUT, Pin.TYPE_FLOAT)]
-        self.outputs = [Pin("Out", Pin.DIR_OUTPUT, Pin.TYPE_FLOAT)]
+        self.height = 100
 
-        self.properties.update({
-            "In Min": 0.0,
-            "In Max": 100.0,
-            "Out Min": 0.0,
-            "Out Max": 10.0
-        })
+        self.inputs.append(Pin("In", Pin.DIR_INPUT, Pin.TYPE_FLOAT))
+        self.outputs.append(Pin("Out", Pin.DIR_OUTPUT, Pin.TYPE_FLOAT))
+
+        self.properties["In Min"] = 0.0
+        self.properties["In Max"] = 100.0
+        self.properties["Out Min"] = 0.0
+        self.properties["Out Max"] = 100.0
 
     def evaluate(self):
-        val = float(self.inputs[0].value) if self.inputs[0].value is not None else 0.0
+        in_val = self.inputs[0].value
+        if in_val is not None:
+            in_min = float(self.properties["In Min"])
+            in_max = float(self.properties["In Max"])
+            out_min = float(self.properties["Out Min"])
+            out_max = float(self.properties["Out Max"])
 
-        in_min = float(self.properties.get("In Min", 0.0))
-        in_max = float(self.properties.get("In Max", 100.0))
-        out_min = float(self.properties.get("Out Min", 0.0))
-        out_max = float(self.properties.get("Out Max", 10.0))
+            # Prevent divide by zero
+            if in_max == in_min:
+                self.outputs[0].value = out_min
+                return
 
-        if in_max == in_min:
-            self.outputs[0].value = out_min
-        else:
-            scaled = (val - in_min) / (in_max - in_min) * (out_max - out_min) + out_min
+            norm = (float(in_val) - in_min) / (in_max - in_min)
+            # clamp
+            norm = max(0.0, min(1.0, norm))
+
+            scaled = out_min + norm * (out_max - out_min)
             self.outputs[0].value = scaled
 
 @BlockRegistry.register
-class LimitBlock(AnalogBase):
-    def __init__(self, type_id="analog.limit", default_name="LIMIT", category="Analog Processing", description="Clamp Value"):
+class LimitBlock(BaseAnalogBlock):
+    def __init__(self, type_id="analog.limit", default_name="LIMIT", category="Elementy Analogowe", description="Clamp Value"):
         super().__init__(type_id, default_name, category, description)
-        self.inputs = [Pin("In", Pin.DIR_INPUT, Pin.TYPE_FLOAT)]
-        self.outputs = [Pin("Out", Pin.DIR_OUTPUT, Pin.TYPE_FLOAT)]
-        self.properties.update({"Min": 0.0, "Max": 100.0})
+        self.height = 80
+        self.inputs.append(Pin("In", Pin.DIR_INPUT, Pin.TYPE_FLOAT))
+        self.outputs.append(Pin("Out", Pin.DIR_OUTPUT, Pin.TYPE_FLOAT))
+
+        self.properties["Min"] = 0.0
+        self.properties["Max"] = 100.0
 
     def evaluate(self):
-        val = float(self.inputs[0].value) if self.inputs[0].value is not None else 0.0
-        v_min = float(self.properties.get("Min", 0.0))
-        v_max = float(self.properties.get("Max", 100.0))
-        self.outputs[0].value = max(v_min, min(val, v_max))
+        val = self.inputs[0].value
+        if val is not None:
+            self.outputs[0].value = max(float(self.properties["Min"]),
+                                        min(float(self.properties["Max"]), float(val)))
 
 @BlockRegistry.register
-class HysteresisBlock(AnalogBase):
-    def __init__(self, type_id="analog.hysteresis", default_name="HYSTERESIS", category="Analog Processing", description="Boolean Hysteresis"):
+class HysteresisBlock(BaseAnalogBlock):
+    def __init__(self, type_id="analog.hysteresis", default_name="HYSTERESIS", category="Elementy Analogowe", description="Boolean Hysteresis"):
         super().__init__(type_id, default_name, category, description)
-        self.inputs = [Pin("In", Pin.DIR_INPUT, Pin.TYPE_FLOAT)]
-        self.outputs = [Pin("Out", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN)]
-        self.properties.update({"High Threshold": 80.0, "Low Threshold": 20.0})
-        self.simulation_state["state"] = False
+        self.height = 80
+
+        self.inputs.append(Pin("In", Pin.DIR_INPUT, Pin.TYPE_FLOAT))
+        self.outputs.append(Pin("Out", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN))
+
+        self.properties["High Threshold"] = 80.0
+        self.properties["Low Threshold"] = 70.0
+
+        self._last_state = False
 
     def evaluate(self):
-        val = float(self.inputs[0].value) if self.inputs[0].value is not None else 0.0
-        high = float(self.properties.get("High Threshold", 80.0))
-        low = float(self.properties.get("Low Threshold", 20.0))
+        val = self.inputs[0].value
+        if val is not None:
+            high = float(self.properties["High Threshold"])
+            low = float(self.properties["Low Threshold"])
 
-        if val >= high:
-            self.simulation_state["state"] = True
-        elif val <= low:
-            self.simulation_state["state"] = False
+            if val >= high:
+                self._last_state = True
+            elif val <= low:
+                self._last_state = False
 
-        self.outputs[0].value = self.simulation_state["state"]
+            self.outputs[0].value = self._last_state
 
 @BlockRegistry.register
-class MovingAverageBlock(AnalogBase):
-    def __init__(self, type_id="analog.mov_avg", default_name="MOVING AVG", category="Analog Processing", description="Moving Average Filter"):
+class MovingAverageBlock(BaseAnalogBlock):
+    def __init__(self, type_id="analog.mov_avg", default_name="MOVING AVG", category="Elementy Analogowe", description="Moving Average Filter"):
         super().__init__(type_id, default_name, category, description)
-        self.inputs = [Pin("In", Pin.DIR_INPUT, Pin.TYPE_FLOAT)]
-        self.outputs = [Pin("Out", Pin.DIR_OUTPUT, Pin.TYPE_FLOAT)]
-        self.properties.update({"Window Size": 5})
-        self.simulation_state["buffer"] = []
+        self.height = 60
+        self.inputs.append(Pin("In", Pin.DIR_INPUT, Pin.TYPE_FLOAT))
+        self.outputs.append(Pin("Out", Pin.DIR_OUTPUT, Pin.TYPE_FLOAT))
+        self.properties["Samples"] = 10
+        self._buffer = []
 
     def evaluate(self):
-        val = float(self.inputs[0].value) if self.inputs[0].value is not None else 0.0
-        window = max(1, int(self.properties.get("Window Size", 5)))
+        val = self.inputs[0].value
+        if val is not None:
+            self._buffer.append(float(val))
+            max_samples = int(self.properties["Samples"])
 
-        buf = self.simulation_state["buffer"]
-        buf.append(val)
-        if len(buf) > window:
-            buf.pop(0)
+            if len(self._buffer) > max_samples:
+                self._buffer.pop(0)
 
-        self.outputs[0].value = sum(buf) / len(buf)
+            if len(self._buffer) > 0:
+                self.outputs[0].value = sum(self._buffer) / len(self._buffer)

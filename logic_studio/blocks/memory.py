@@ -15,7 +15,7 @@ class MemoryBase(BaseLogicBlock):
 
 @BlockRegistry.register
 class SR(MemoryBase):
-    def __init__(self, type_id="memory.sr", default_name="SR", category="Memory", description="Set Dominant Latch"):
+    def __init__(self, type_id="memory.sr", default_name="SR", category="Przerzutniki", description="Set Dominant Latch"):
         super().__init__(type_id, default_name, category, description)
         self.inputs.append(Pin("S1", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
         self.inputs.append(Pin("R", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
@@ -33,7 +33,7 @@ class SR(MemoryBase):
 
 @BlockRegistry.register
 class RS(MemoryBase):
-    def __init__(self, type_id="memory.rs", default_name="RS", category="Memory", description="Reset Dominant Latch"):
+    def __init__(self, type_id="memory.rs", default_name="RS", category="Przerzutniki", description="Reset Dominant Latch"):
         super().__init__(type_id, default_name, category, description)
         self.inputs.append(Pin("R1", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
         self.inputs.append(Pin("S", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))

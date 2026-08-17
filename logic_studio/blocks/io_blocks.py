@@ -4,7 +4,7 @@ from logic_studio.blocks.registry import BlockRegistry
 
 @BlockRegistry.register
 class DigitalInputBlock(BaseLogicBlock):
-    def __init__(self, type_id="input.di", default_name="DI", category="Inputs", description="Electrical Digital Input (ELA)"):
+    def __init__(self, type_id="input.di", default_name="DI", category="Wejścia / Wyjścia", description="Electrical Digital Input (ELA)"):
         super().__init__(type_id, default_name, category, description)
         self.color = "#008000" # Classic dark green
         self.width = 100
@@ -25,7 +25,7 @@ class DigitalInputBlock(BaseLogicBlock):
 
 @BlockRegistry.register
 class DigitalOutputBlock(BaseLogicBlock):
-    def __init__(self, type_id="output.do", default_name="DO", category="Outputs", description="Automation Digital Output (ADA)"):
+    def __init__(self, type_id="output.do", default_name="DO", category="Wejścia / Wyjścia", description="Automation Digital Output (ADA)"):
         super().__init__(type_id, default_name, category, description)
         self.color = "#800000" # Classic dark red
         self.width = 100

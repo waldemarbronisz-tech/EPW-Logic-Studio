@@ -6,15 +6,10 @@ class PortItem(QGraphicsItem):
     def __init__(self, pin, parent=None):
         super().__init__(parent)
         self.pin = pin
-        self.radius = 4
+        self.radius = 3 # Smaller industrial pin size
         self.setFlag(QGraphicsItem.ItemIsSelectable, False)
 
-        # Color based on data type (can be expanded later)
-        self.color = QColor(100, 100, 100) # Default grey
-        if pin.data_type == pin.TYPE_BOOLEAN:
-            self.color = QColor(0, 150, 0)
-        elif pin.data_type in [pin.TYPE_INTEGER, pin.TYPE_FLOAT]:
-            self.color = QColor(0, 0, 200)
+        self.color = QColor(0, 0, 0) # Default OFF/Black
 
     def update_live_state(self):
         """Called by engine/scene to refresh UI."""
@@ -36,18 +31,22 @@ class PortItem(QGraphicsItem):
         if isinstance(self.pin.value, bool) and self.pin.value:
             fill_color = QColor(0, 255, 0) # Bright green when high
 
+        # Draw square pin like in the reference image
+        rect_pin = QRectF(-self.radius, -self.radius, self.radius*2, self.radius*2)
         painter.setBrush(QBrush(fill_color))
-        painter.drawEllipse(rect)
+        painter.drawRect(rect_pin)
 
-        # Draw label
+        # Draw label if needed (disabled for gates to match reference)
+        parent_block = self.parentItem()
+        if parent_block and getattr(parent_block, 'shape_style', '') in ["AND", "OR", "NOT", "XOR", "NAND", "NOR", "XNOR"]:
+             return # Standard gates don't have pin labels in reference
+
         painter.setPen(QPen(Qt.black))
-        font = QFont("Arial", 7)
+        font = QFont("Arial", 6)
         painter.setFont(font)
 
         from logic_studio.blocks.pin import Pin
         if self.pin.direction == Pin.DIR_INPUT:
-            # Text to the right
             painter.drawText(QRectF(self.radius + 2, -10, 50, 20), Qt.AlignLeft | Qt.AlignVCenter, self.pin.name)
         else:
-            # Text to the left
             painter.drawText(QRectF(-50 - self.radius - 2, -10, 50, 20), Qt.AlignRight | Qt.AlignVCenter, self.pin.name)

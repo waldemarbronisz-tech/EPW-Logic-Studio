@@ -4,7 +4,7 @@ from logic_studio.blocks.registry import BlockRegistry
 
 @BlockRegistry.register
 class VirtualInputBlock(BaseLogicBlock):
-    def __init__(self, type_id="virtual.input", default_name="Virtual IN", category="Virtual I/O", description="Virtual Boolean Input"):
+    def __init__(self, type_id="virtual.input", default_name="Virtual IN", category="Wejścia / Wyjścia", description="Virtual Boolean Input"):
         super().__init__(type_id, default_name, category, description)
         self.color = "#006400" # Slightly different green from ELA
         self.width = 100
@@ -24,7 +24,7 @@ class VirtualInputBlock(BaseLogicBlock):
 
 @BlockRegistry.register
 class VirtualOutputBlock(BaseLogicBlock):
-    def __init__(self, type_id="virtual.output", default_name="Virtual OUT", category="Virtual I/O", description="Virtual Boolean Output"):
+    def __init__(self, type_id="virtual.output", default_name="Virtual OUT", category="Wejścia / Wyjścia", description="Virtual Boolean Output"):
         super().__init__(type_id, default_name, category, description)
         self.color = "#8B0000" # Slightly different red from ADA
         self.width = 100

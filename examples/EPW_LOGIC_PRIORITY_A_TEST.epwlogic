@@ -6,10 +6,10 @@
     },
     "blocks": [
         {
-            "uuid": "56835dbe-e1fd-4909-9e32-bf0462ceac2f",
+            "uuid": "815e0fdd-a417-4af6-bff5-adf8a3a04f2d",
             "type_id": "virtual.input",
             "display_name": "Virtual IN",
-            "category": "Virtual I/O",
+            "category": "Wej\u015bcia / Wyj\u015bcia",
             "description": "Virtual Boolean Input",
             "position": {
                 "x": 0,
@@ -22,12 +22,12 @@
             "inputs": [],
             "outputs": [
                 {
-                    "uuid": "a63b976d-9fc5-4d5e-82a7-2a8c75545de6",
+                    "uuid": "a132a9b7-1575-45f0-b23d-b58a0a818040",
                     "name": "State",
                     "direction": "output",
                     "data_type": "Boolean",
                     "connections": [
-                        "246f9528-162d-4016-a06c-493ac0d9c153"
+                        "64e2d33d-4477-4132-b21b-c6a549f69525"
                     ]
                 }
             ],
@@ -45,10 +45,10 @@
             }
         },
         {
-            "uuid": "a5df8329-3cc3-4f29-b226-c3b899a668dd",
+            "uuid": "37526ff8-2cec-4155-b977-81d51222fbdf",
             "type_id": "edge.rtrig",
             "display_name": "R_TRIG",
-            "category": "Edges",
+            "category": "Bramki logiczne",
             "description": "Rising Edge Trigger",
             "position": {
                 "x": 100.0,
@@ -60,23 +60,23 @@
             },
             "inputs": [
                 {
-                    "uuid": "246f9528-162d-4016-a06c-493ac0d9c153",
+                    "uuid": "64e2d33d-4477-4132-b21b-c6a549f69525",
                     "name": "In",
                     "direction": "input",
                     "data_type": "Boolean",
                     "connections": [
-                        "a63b976d-9fc5-4d5e-82a7-2a8c75545de6"
+                        "a132a9b7-1575-45f0-b23d-b58a0a818040"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "e668e29c-63b7-4dea-8e29-4d58c60e0c28",
+                    "uuid": "bc357bc2-fcc7-4f4f-bf58-a565edcdd58f",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Boolean",
                     "connections": [
-                        "27778a52-345b-40f8-9dc3-c27261be19e3"
+                        "47c91ecb-ab22-4f74-9e60-d8e280b4480a"
                     ]
                 }
             ],
@@ -94,48 +94,49 @@
             }
         },
         {
-            "uuid": "14fffcaa-d3c2-4d86-aad2-c087ab066830",
+            "uuid": "06859556-446d-47ae-a725-37cbb96a3aac",
             "type_id": "system.signal",
             "display_name": "SYS SIG",
-            "category": "System",
+            "category": "Inne",
             "description": "System Boolean Signal",
             "position": {
                 "x": 0.0,
                 "y": 100.0
             },
             "size": {
-                "width": 120,
-                "height": 60
+                "width": 120.0,
+                "height": 80.0
             },
             "inputs": [],
             "outputs": [
                 {
-                    "uuid": "3e252cd1-fdf8-4692-8a0f-8a64677b8902",
-                    "name": "State",
+                    "uuid": "1bba59a6-7a95-4ebc-825b-2d86a99ec694",
+                    "name": "Out",
                     "direction": "output",
                     "data_type": "Boolean",
                     "connections": [
-                        "932b5e72-9b90-4956-91f5-41300dd8290f"
+                        "bd1303bc-d7cb-44be-8f34-b35a68a0865d"
                     ]
                 }
             ],
             "execution_state": "Idle",
             "execution_priority": 1,
-            "color": "#4B0082",
+            "color": "#800080",
             "visibility": true,
             "enabled": true,
             "simulation_state": {},
             "properties": {
                 "Address": "",
                 "Comment": "",
+                "Signal": "Sys.Ready",
                 "Tag": "SYSTEM.CORE_ONLINE"
             }
         },
         {
-            "uuid": "078d1b47-f359-4ff5-be19-2be923048ec6",
+            "uuid": "9982c420-be7a-420e-8a4d-43cc0e9c06dd",
             "type_id": "logic.and",
             "display_name": "AND",
-            "category": "Logic Gates",
+            "category": "Bramki logiczne",
             "description": "Logical AND operator",
             "position": {
                 "x": 200.0,
@@ -147,32 +148,32 @@
             },
             "inputs": [
                 {
-                    "uuid": "27778a52-345b-40f8-9dc3-c27261be19e3",
+                    "uuid": "47c91ecb-ab22-4f74-9e60-d8e280b4480a",
                     "name": "In1",
                     "direction": "input",
                     "data_type": "Boolean",
                     "connections": [
-                        "e668e29c-63b7-4dea-8e29-4d58c60e0c28"
+                        "bc357bc2-fcc7-4f4f-bf58-a565edcdd58f"
                     ]
                 },
                 {
-                    "uuid": "932b5e72-9b90-4956-91f5-41300dd8290f",
+                    "uuid": "bd1303bc-d7cb-44be-8f34-b35a68a0865d",
                     "name": "In2",
                     "direction": "input",
                     "data_type": "Boolean",
                     "connections": [
-                        "3e252cd1-fdf8-4692-8a0f-8a64677b8902"
+                        "1bba59a6-7a95-4ebc-825b-2d86a99ec694"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "0880304a-8af7-42a1-aead-0ab119c12418",
+                    "uuid": "aa0a89aa-c56a-47dd-acbb-d173aadd4cbf",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Boolean",
                     "connections": [
-                        "816358cd-de85-44f0-8699-ed32aa976acf"
+                        "0ea3f0ca-28fa-4be1-a433-b593623ae7c8"
                     ]
                 }
             ],
@@ -188,10 +189,10 @@
             }
         },
         {
-            "uuid": "d8f1a0f4-677f-489e-969c-790c754e5011",
+            "uuid": "86926d78-4fad-4e5d-abd7-0b08c12a9950",
             "type_id": "virtual.output",
             "display_name": "Virtual OUT",
-            "category": "Virtual I/O",
+            "category": "Wej\u015bcia / Wyj\u015bcia",
             "description": "Virtual Boolean Output",
             "position": {
                 "x": 300.0,
@@ -203,12 +204,12 @@
             },
             "inputs": [
                 {
-                    "uuid": "816358cd-de85-44f0-8699-ed32aa976acf",
+                    "uuid": "0ea3f0ca-28fa-4be1-a433-b593623ae7c8",
                     "name": "Cmd",
                     "direction": "input",
                     "data_type": "Boolean",
                     "connections": [
-                        "0880304a-8af7-42a1-aead-0ab119c12418"
+                        "aa0a89aa-c56a-47dd-acbb-d173aadd4cbf"
                     ]
                 }
             ],
@@ -228,10 +229,10 @@
             }
         },
         {
-            "uuid": "a59aa903-ca3f-4eb3-b818-1acef20c374d",
+            "uuid": "06ffda94-7574-4956-a26f-63afe1480bd0",
             "type_id": "const.real",
             "display_name": "REAL",
-            "category": "Constants",
+            "category": "Inne",
             "description": "Real Constant",
             "position": {
                 "x": 0.0,
@@ -244,12 +245,12 @@
             "inputs": [],
             "outputs": [
                 {
-                    "uuid": "54a36a08-d385-4b66-b320-a68e0df15a20",
+                    "uuid": "4aae54d9-f347-4012-a732-6fac10c0ba22",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Float",
                     "connections": [
-                        "eeef5fb2-a217-480e-af1a-a91ac30fb52e"
+                        "da6bdaf7-caae-46e1-93bb-988b751d9bbb"
                     ]
                 }
             ],
@@ -266,10 +267,10 @@
             }
         },
         {
-            "uuid": "505becf6-7206-4cf7-9321-4dea45ecc002",
+            "uuid": "bd315cf9-d453-4c6f-b295-99824a2da6d4",
             "type_id": "analog.scale",
             "display_name": "SCALE",
-            "category": "Analog Processing",
+            "category": "Elementy Analogowe",
             "description": "Linear Scaling",
             "position": {
                 "x": 100.0,
@@ -277,33 +278,33 @@
             },
             "size": {
                 "width": 100,
-                "height": 80
+                "height": 100
             },
             "inputs": [
                 {
-                    "uuid": "eeef5fb2-a217-480e-af1a-a91ac30fb52e",
+                    "uuid": "da6bdaf7-caae-46e1-93bb-988b751d9bbb",
                     "name": "In",
                     "direction": "input",
                     "data_type": "Float",
                     "connections": [
-                        "54a36a08-d385-4b66-b320-a68e0df15a20"
+                        "4aae54d9-f347-4012-a732-6fac10c0ba22"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "d1800005-5cdd-40cf-b8d0-c846fd945594",
+                    "uuid": "5c67ca56-ea6e-4bb0-9965-1c9eea5365d8",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Float",
                     "connections": [
-                        "ffd8f7f1-7c18-41c3-bd06-6c413117bc4d"
+                        "5a8de1ec-8e18-4ff0-9e1f-a394cb8b9b6d"
                     ]
                 }
             ],
             "execution_state": "Idle",
             "execution_priority": 1,
-            "color": "#FF8C00",
+            "color": "#808000",
             "visibility": true,
             "enabled": true,
             "simulation_state": {},
@@ -317,10 +318,10 @@
             }
         },
         {
-            "uuid": "28fc16a8-752d-4405-9862-c9b435d9a0b9",
+            "uuid": "d4629fbb-ec9c-4f11-8bed-f6f09780b50c",
             "type_id": "analog.mov_avg",
             "display_name": "MOVING AVG",
-            "category": "Analog Processing",
+            "category": "Elementy Analogowe",
             "description": "Moving Average Filter",
             "position": {
                 "x": 200.0,
@@ -328,53 +329,47 @@
             },
             "size": {
                 "width": 100,
-                "height": 80
+                "height": 60
             },
             "inputs": [
                 {
-                    "uuid": "ffd8f7f1-7c18-41c3-bd06-6c413117bc4d",
+                    "uuid": "5a8de1ec-8e18-4ff0-9e1f-a394cb8b9b6d",
                     "name": "In",
                     "direction": "input",
                     "data_type": "Float",
                     "connections": [
-                        "d1800005-5cdd-40cf-b8d0-c846fd945594"
+                        "5c67ca56-ea6e-4bb0-9965-1c9eea5365d8"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "859e6363-f5e4-459a-8771-160dfb87b9bd",
+                    "uuid": "5d3eb8f8-6f92-48fc-8a72-bb3f8c64f0f1",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Float",
                     "connections": [
-                        "76d99c7e-9df4-4286-b598-c335f4519b90"
+                        "d38c77d6-ac79-4c8b-acea-69138cfb3e03"
                     ]
                 }
             ],
             "execution_state": "Idle",
             "execution_priority": 1,
-            "color": "#FF8C00",
+            "color": "#808000",
             "visibility": true,
             "enabled": true,
-            "simulation_state": {
-                "buffer": [
-                    50.0,
-                    50.0,
-                    50.0
-                ]
-            },
+            "simulation_state": {},
             "properties": {
                 "Address": "",
                 "Comment": "",
-                "Window Size": 5
+                "Samples": 10
             }
         },
         {
-            "uuid": "920645c3-4184-473c-b8bf-b18bde8cbea8",
+            "uuid": "d40d4ded-900d-47bb-a463-1e4347528361",
             "type_id": "analog.hysteresis",
             "display_name": "HYSTERESIS",
-            "category": "Analog Processing",
+            "category": "Elementy Analogowe",
             "description": "Boolean Hysteresis",
             "position": {
                 "x": 300.0,
@@ -386,34 +381,32 @@
             },
             "inputs": [
                 {
-                    "uuid": "76d99c7e-9df4-4286-b598-c335f4519b90",
+                    "uuid": "d38c77d6-ac79-4c8b-acea-69138cfb3e03",
                     "name": "In",
                     "direction": "input",
                     "data_type": "Float",
                     "connections": [
-                        "859e6363-f5e4-459a-8771-160dfb87b9bd"
+                        "5d3eb8f8-6f92-48fc-8a72-bb3f8c64f0f1"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "2e2744a0-502e-4f76-8da6-493863b429e7",
+                    "uuid": "04d8ef7e-1be5-4044-ac72-2d1a728a2f18",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Boolean",
                     "connections": [
-                        "cd1c8f7d-3e13-4096-95a0-3386844aa635"
+                        "3be8b5d5-2e43-41f7-8417-37b000cc0a9a"
                     ]
                 }
             ],
             "execution_state": "Idle",
             "execution_priority": 1,
-            "color": "#FF8C00",
+            "color": "#808000",
             "visibility": true,
             "enabled": true,
-            "simulation_state": {
-                "state": true
-            },
+            "simulation_state": {},
             "properties": {
                 "Address": "",
                 "Comment": "",
@@ -422,10 +415,10 @@
             }
         },
         {
-            "uuid": "5c87ad70-57d3-41af-a346-1b5bb9bc1368",
+            "uuid": "4e6d5d45-0399-4cb5-9399-651a5e581f12",
             "type_id": "timer.ton",
             "display_name": "TON",
-            "category": "Timers",
+            "category": "Timery",
             "description": "Timer On Delay",
             "position": {
                 "x": 400.0,
@@ -437,16 +430,16 @@
             },
             "inputs": [
                 {
-                    "uuid": "cd1c8f7d-3e13-4096-95a0-3386844aa635",
+                    "uuid": "3be8b5d5-2e43-41f7-8417-37b000cc0a9a",
                     "name": "IN",
                     "direction": "input",
                     "data_type": "Boolean",
                     "connections": [
-                        "2e2744a0-502e-4f76-8da6-493863b429e7"
+                        "04d8ef7e-1be5-4044-ac72-2d1a728a2f18"
                     ]
                 },
                 {
-                    "uuid": "110cf786-4496-46d6-888d-0ca0ab89ca7f",
+                    "uuid": "00bd1e67-bc00-4a23-bfb3-a507181bf9c6",
                     "name": "PT",
                     "direction": "input",
                     "data_type": "Integer",
@@ -455,16 +448,16 @@
             ],
             "outputs": [
                 {
-                    "uuid": "dfae2a87-3dd4-4e44-b5ee-1161cc9e86c6",
+                    "uuid": "76db87f9-1cb4-42b7-803a-45533dcdddf7",
                     "name": "Q",
                     "direction": "output",
                     "data_type": "Boolean",
                     "connections": [
-                        "3ac2b76b-281f-4297-b127-89695abf3f12"
+                        "445e8164-710c-45a2-a159-b0ae87850db7"
                     ]
                 },
                 {
-                    "uuid": "a32d028e-62a7-4258-866a-1139cda868a9",
+                    "uuid": "d0f60ad8-1411-4b04-a1b5-407d2f8988ca",
                     "name": "ET",
                     "direction": "output",
                     "data_type": "Integer",
@@ -484,10 +477,10 @@
             }
         },
         {
-            "uuid": "a20d5665-4085-4bda-b753-2bc5305e1214",
+            "uuid": "2307c030-0c72-4ba7-8bc7-ce3320f870bd",
             "type_id": "virtual.output",
             "display_name": "Virtual OUT",
-            "category": "Virtual I/O",
+            "category": "Wej\u015bcia / Wyj\u015bcia",
             "description": "Virtual Boolean Output",
             "position": {
                 "x": 500.0,
@@ -499,12 +492,12 @@
             },
             "inputs": [
                 {
-                    "uuid": "3ac2b76b-281f-4297-b127-89695abf3f12",
+                    "uuid": "445e8164-710c-45a2-a159-b0ae87850db7",
                     "name": "Cmd",
                     "direction": "input",
                     "data_type": "Boolean",
                     "connections": [
-                        "dfae2a87-3dd4-4e44-b5ee-1161cc9e86c6"
+                        "76db87f9-1cb4-42b7-803a-45533dcdddf7"
                     ]
                 }
             ],

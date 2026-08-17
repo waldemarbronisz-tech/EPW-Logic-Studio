@@ -6,10 +6,10 @@
     },
     "blocks": [
         {
-            "uuid": "3b8aa725-a4bd-4433-b95b-b5fea29d8738",
+            "uuid": "e26057d1-4586-42de-aac9-8f984f3ec045",
             "type_id": "virtual.input",
             "display_name": "Virtual IN",
-            "category": "Virtual I/O",
+            "category": "Wej\u015bcia / Wyj\u015bcia",
             "description": "Virtual Boolean Input",
             "position": {
                 "x": 0,
@@ -22,12 +22,12 @@
             "inputs": [],
             "outputs": [
                 {
-                    "uuid": "8af0561c-9a1a-4e17-9769-5d2bf93a192d",
+                    "uuid": "2d7e9a82-5508-48e5-bbdf-b783c48af489",
                     "name": "State",
                     "direction": "output",
                     "data_type": "Boolean",
                     "connections": [
-                        "1b26735d-6fda-44fe-8eca-27c5c5d09fd5"
+                        "6d16ca98-03f5-48d8-bba3-33ee2a6a0ba8"
                     ]
                 }
             ],
@@ -45,10 +45,10 @@
             }
         },
         {
-            "uuid": "29c9f20e-6dfd-4478-91c0-f97d96d34ec9",
+            "uuid": "0ddb5869-a1ed-4c67-a5f2-96cd25fb4fa1",
             "type_id": "edge.rtrig",
             "display_name": "R_TRIG",
-            "category": "Edges",
+            "category": "Bramki logiczne",
             "description": "Rising Edge Trigger",
             "position": {
                 "x": 150.0,
@@ -60,18 +60,18 @@
             },
             "inputs": [
                 {
-                    "uuid": "1b26735d-6fda-44fe-8eca-27c5c5d09fd5",
+                    "uuid": "6d16ca98-03f5-48d8-bba3-33ee2a6a0ba8",
                     "name": "In",
                     "direction": "input",
                     "data_type": "Boolean",
                     "connections": [
-                        "8af0561c-9a1a-4e17-9769-5d2bf93a192d"
+                        "2d7e9a82-5508-48e5-bbdf-b783c48af489"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "6ae5752f-4152-4735-aa06-7d999be75d3a",
+                    "uuid": "4b729412-effe-4b6b-8a79-700080a072d1",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Boolean",
@@ -92,10 +92,10 @@
             }
         },
         {
-            "uuid": "73d6127f-7f6a-4b5c-9096-a77eaa323af8",
+            "uuid": "c20b0ad0-f250-4d94-9d1c-3e9f33e9b027",
             "type_id": "const.real",
             "display_name": "REAL",
-            "category": "Constants",
+            "category": "Inne",
             "description": "Real Constant",
             "position": {
                 "x": 0.0,
@@ -108,12 +108,12 @@
             "inputs": [],
             "outputs": [
                 {
-                    "uuid": "cd5cc0e8-436d-4c1e-87e9-6619e1755c0d",
+                    "uuid": "dde3ba82-579f-4575-bdba-130d5f956320",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Float",
                     "connections": [
-                        "be8e854a-c041-43c7-9e92-46007d84b441"
+                        "85845ddf-781b-424b-a7e1-1ac8e28ec00c"
                     ]
                 }
             ],
@@ -130,10 +130,10 @@
             }
         },
         {
-            "uuid": "bae31a45-c802-4452-af8b-a436d6b5396e",
+            "uuid": "8c9d2e09-1294-4c47-bb6e-45823dcf4034",
             "type_id": "analog.scale",
             "display_name": "SCALE",
-            "category": "Analog Processing",
+            "category": "Elementy Analogowe",
             "description": "Linear Scaling",
             "position": {
                 "x": 150.0,
@@ -141,33 +141,33 @@
             },
             "size": {
                 "width": 100,
-                "height": 80
+                "height": 100
             },
             "inputs": [
                 {
-                    "uuid": "be8e854a-c041-43c7-9e92-46007d84b441",
+                    "uuid": "85845ddf-781b-424b-a7e1-1ac8e28ec00c",
                     "name": "In",
                     "direction": "input",
                     "data_type": "Float",
                     "connections": [
-                        "cd5cc0e8-436d-4c1e-87e9-6619e1755c0d"
+                        "dde3ba82-579f-4575-bdba-130d5f956320"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "64e92580-2c1d-45d5-9014-aa94e1280467",
+                    "uuid": "75eb0866-30bb-4d10-bb32-cad7caea8877",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Float",
                     "connections": [
-                        "b4c066dd-5ed9-43c4-a98e-4c8027000a98"
+                        "23419f8c-b562-4b00-bbb8-f6d5ce1e9a7d"
                     ]
                 }
             ],
             "execution_state": "Idle",
             "execution_priority": 1,
-            "color": "#FF8C00",
+            "color": "#808000",
             "visibility": true,
             "enabled": true,
             "simulation_state": {},
@@ -181,10 +181,10 @@
             }
         },
         {
-            "uuid": "fb14b6c8-ed52-4180-8824-88a10ba38c17",
+            "uuid": "42f8400f-b4cf-4497-ad56-8cf5e8c0e6f8",
             "type_id": "analog.limit",
             "display_name": "LIMIT",
-            "category": "Analog Processing",
+            "category": "Elementy Analogowe",
             "description": "Clamp Value",
             "position": {
                 "x": 300.0,
@@ -196,18 +196,18 @@
             },
             "inputs": [
                 {
-                    "uuid": "b4c066dd-5ed9-43c4-a98e-4c8027000a98",
+                    "uuid": "23419f8c-b562-4b00-bbb8-f6d5ce1e9a7d",
                     "name": "In",
                     "direction": "input",
                     "data_type": "Float",
                     "connections": [
-                        "64e92580-2c1d-45d5-9014-aa94e1280467"
+                        "75eb0866-30bb-4d10-bb32-cad7caea8877"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "e089c1b8-04cf-4752-b695-684140f3cc37",
+                    "uuid": "a88d0437-f47d-4ee5-b92d-a1cb1d75ba8b",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Float",
@@ -216,7 +216,7 @@
             ],
             "execution_state": "Idle",
             "execution_priority": 1,
-            "color": "#FF8C00",
+            "color": "#808000",
             "visibility": true,
             "enabled": true,
             "simulation_state": {},

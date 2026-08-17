@@ -20,7 +20,7 @@ class MathBase(BaseLogicBlock):
 
 @BlockRegistry.register
 class AddBlock(MathBase):
-    def __init__(self, type_id="math.add", default_name="ADD", category="Mathematics", description="Addition"):
+    def __init__(self, type_id="math.add", default_name="ADD", category="Elementy Analogowe", description="Addition"):
         super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
@@ -29,7 +29,7 @@ class AddBlock(MathBase):
 
 @BlockRegistry.register
 class SubBlock(MathBase):
-    def __init__(self, type_id="math.sub", default_name="SUB", category="Mathematics", description="Subtraction"):
+    def __init__(self, type_id="math.sub", default_name="SUB", category="Elementy Analogowe", description="Subtraction"):
         super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
@@ -38,7 +38,7 @@ class SubBlock(MathBase):
 
 @BlockRegistry.register
 class MulBlock(MathBase):
-    def __init__(self, type_id="math.mul", default_name="MUL", category="Mathematics", description="Multiplication"):
+    def __init__(self, type_id="math.mul", default_name="MUL", category="Elementy Analogowe", description="Multiplication"):
         super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
@@ -47,7 +47,7 @@ class MulBlock(MathBase):
 
 @BlockRegistry.register
 class DivBlock(MathBase):
-    def __init__(self, type_id="math.div", default_name="DIV", category="Mathematics", description="Division"):
+    def __init__(self, type_id="math.div", default_name="DIV", category="Elementy Analogowe", description="Division"):
         super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
@@ -60,7 +60,7 @@ class DivBlock(MathBase):
 
 @BlockRegistry.register
 class AbsBlock(MathBase):
-    def __init__(self, type_id="math.abs", default_name="ABS", category="Mathematics", description="Absolute Value"):
+    def __init__(self, type_id="math.abs", default_name="ABS", category="Elementy Analogowe", description="Absolute Value"):
         super().__init__(type_id, default_name, category, description)
         self.inputs.pop() # Only 1 input
 
@@ -70,7 +70,7 @@ class AbsBlock(MathBase):
 
 @BlockRegistry.register
 class MinBlock(MathBase):
-    def __init__(self, type_id="math.min", default_name="MIN", category="Mathematics", description="Minimum"):
+    def __init__(self, type_id="math.min", default_name="MIN", category="Elementy Analogowe", description="Minimum"):
         super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
@@ -79,7 +79,7 @@ class MinBlock(MathBase):
 
 @BlockRegistry.register
 class MaxBlock(MathBase):
-    def __init__(self, type_id="math.max", default_name="MAX", category="Mathematics", description="Maximum"):
+    def __init__(self, type_id="math.max", default_name="MAX", category="Elementy Analogowe", description="Maximum"):
         super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):

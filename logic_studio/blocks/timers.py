@@ -29,7 +29,7 @@ class TimerBase(BaseLogicBlock):
 
 @BlockRegistry.register
 class TON(TimerBase):
-    def __init__(self, type_id="timer.ton", default_name="TON", category="Timers", description="Timer On Delay"):
+    def __init__(self, type_id="timer.ton", default_name="TON", category="Timery", description="Timer On Delay"):
         super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
@@ -54,7 +54,7 @@ class TON(TimerBase):
 
 @BlockRegistry.register
 class TOF(TimerBase):
-    def __init__(self, type_id="timer.tof", default_name="TOF", category="Timers", description="Timer Off Delay"):
+    def __init__(self, type_id="timer.tof", default_name="TOF", category="Timery", description="Timer Off Delay"):
         super().__init__(type_id, default_name, category, description)
         self.outputs[0].value = False
 
@@ -80,7 +80,7 @@ class TOF(TimerBase):
 
 @BlockRegistry.register
 class TP(TimerBase):
-    def __init__(self, type_id="timer.tp", default_name="TP", category="Timers", description="Pulse Timer"):
+    def __init__(self, type_id="timer.tp", default_name="TP", category="Timery", description="Pulse Timer"):
         super().__init__(type_id, default_name, category, description)
         self.simulation_state["last_in"] = False
 

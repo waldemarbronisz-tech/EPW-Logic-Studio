@@ -12,7 +12,7 @@ class WireItem(QGraphicsPathItem):
         self.setZValue(-1) # Draw wires behind blocks
         self.setFlag(QGraphicsPathItem.ItemIsSelectable, True)
 
-        self.color = QColor(100, 100, 100) # Dark gray OFF state
+        self.color = QColor(0, 0, 0) # Dark gray OFF state
         self.thickness = 2
 
         self.update_path()
@@ -24,11 +24,11 @@ class WireItem(QGraphicsPathItem):
 
         val = self.source_port.pin.value
         if isinstance(val, bool):
-            self.color = QColor(0, 255, 0) if val else QColor(100, 100, 100)
+            self.color = QColor(0, 255, 0) if val else QColor(0, 0, 0)
         elif val is not None:
             self.color = QColor(0, 200, 255) # Light blue for non-bool active data
         else:
-            self.color = QColor(100, 100, 100)
+            self.color = QColor(0, 0, 0)
 
         self.update_path()
 

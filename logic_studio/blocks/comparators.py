@@ -20,7 +20,7 @@ class ComparatorBase(BaseLogicBlock):
 
 @BlockRegistry.register
 class GreaterBlock(ComparatorBase):
-    def __init__(self, type_id="compare.gt", default_name=">", category="Comparators", description="Greater Than"):
+    def __init__(self, type_id="compare.gt", default_name=">", category="Elementy Analogowe", description="Greater Than"):
         super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
@@ -29,7 +29,7 @@ class GreaterBlock(ComparatorBase):
 
 @BlockRegistry.register
 class LessBlock(ComparatorBase):
-    def __init__(self, type_id="compare.lt", default_name="<", category="Comparators", description="Less Than"):
+    def __init__(self, type_id="compare.lt", default_name="<", category="Elementy Analogowe", description="Less Than"):
         super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
@@ -38,7 +38,7 @@ class LessBlock(ComparatorBase):
 
 @BlockRegistry.register
 class GreaterEqBlock(ComparatorBase):
-    def __init__(self, type_id="compare.gte", default_name=">=", category="Comparators", description="Greater Than or Equal"):
+    def __init__(self, type_id="compare.gte", default_name=">=", category="Elementy Analogowe", description="Greater Than or Equal"):
         super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
@@ -47,7 +47,7 @@ class GreaterEqBlock(ComparatorBase):
 
 @BlockRegistry.register
 class LessEqBlock(ComparatorBase):
-    def __init__(self, type_id="compare.lte", default_name="<=", category="Comparators", description="Less Than or Equal"):
+    def __init__(self, type_id="compare.lte", default_name="<=", category="Elementy Analogowe", description="Less Than or Equal"):
         super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
@@ -56,7 +56,7 @@ class LessEqBlock(ComparatorBase):
 
 @BlockRegistry.register
 class EqualBlock(ComparatorBase):
-    def __init__(self, type_id="compare.eq", default_name="==", category="Comparators", description="Equal"):
+    def __init__(self, type_id="compare.eq", default_name="==", category="Elementy Analogowe", description="Equal"):
         super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
@@ -65,7 +65,7 @@ class EqualBlock(ComparatorBase):
 
 @BlockRegistry.register
 class NotEqualBlock(ComparatorBase):
-    def __init__(self, type_id="compare.neq", default_name="!=", category="Comparators", description="Not Equal"):
+    def __init__(self, type_id="compare.neq", default_name="!=", category="Elementy Analogowe", description="Not Equal"):
         super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
@@ -74,7 +74,7 @@ class NotEqualBlock(ComparatorBase):
 
 @BlockRegistry.register
 class BetweenBlock(BaseLogicBlock):
-    def __init__(self, type_id="compare.between", default_name="Between", category="Comparators", description="Between Limits"):
+    def __init__(self, type_id="compare.between", default_name="Between", category="Elementy Analogowe", description="Between Limits"):
         super().__init__(type_id, default_name, category, description)
         self.color = "#000080"
         self.width = 80

@@ -12,7 +12,7 @@ class ConstantBase(BaseLogicBlock):
 
 @BlockRegistry.register
 class TrueConstant(ConstantBase):
-    def __init__(self, type_id="const.true", default_name="TRUE", category="Constants", description="Boolean TRUE"):
+    def __init__(self, type_id="const.true", default_name="TRUE", category="Inne", description="Boolean TRUE"):
         super().__init__(type_id, default_name, category, description, Pin.TYPE_BOOLEAN)
 
     def evaluate(self):
@@ -20,7 +20,7 @@ class TrueConstant(ConstantBase):
 
 @BlockRegistry.register
 class FalseConstant(ConstantBase):
-    def __init__(self, type_id="const.false", default_name="FALSE", category="Constants", description="Boolean FALSE"):
+    def __init__(self, type_id="const.false", default_name="FALSE", category="Inne", description="Boolean FALSE"):
         super().__init__(type_id, default_name, category, description, Pin.TYPE_BOOLEAN)
 
     def evaluate(self):
@@ -28,7 +28,7 @@ class FalseConstant(ConstantBase):
 
 @BlockRegistry.register
 class RealConstant(ConstantBase):
-    def __init__(self, type_id="const.real", default_name="REAL", category="Constants", description="Real Constant"):
+    def __init__(self, type_id="const.real", default_name="REAL", category="Inne", description="Real Constant"):
         super().__init__(type_id, default_name, category, description, Pin.TYPE_FLOAT)
         self.properties["Value"] = 0.0
 
@@ -40,7 +40,7 @@ class RealConstant(ConstantBase):
 
 @BlockRegistry.register
 class IntConstant(ConstantBase):
-    def __init__(self, type_id="const.int", default_name="INT", category="Constants", description="Integer Constant"):
+    def __init__(self, type_id="const.int", default_name="INT", category="Inne", description="Integer Constant"):
         super().__init__(type_id, default_name, category, description, Pin.TYPE_INTEGER)
         self.properties["Value"] = 0
 
@@ -52,7 +52,7 @@ class IntConstant(ConstantBase):
 
 @BlockRegistry.register
 class TimeConstant(ConstantBase):
-    def __init__(self, type_id="const.time", default_name="TIME", category="Constants", description="Time Constant (ms)"):
+    def __init__(self, type_id="const.time", default_name="TIME", category="Inne", description="Time Constant (ms)"):
         super().__init__(type_id, default_name, category, description, Pin.TYPE_INTEGER)
         self.properties["Time (ms)"] = 1000
 
@@ -64,7 +64,7 @@ class TimeConstant(ConstantBase):
 
 @BlockRegistry.register
 class StringConstant(ConstantBase):
-    def __init__(self, type_id="const.string", default_name="STRING", category="Constants", description="String Constant"):
+    def __init__(self, type_id="const.string", default_name="STRING", category="Inne", description="String Constant"):
         super().__init__(type_id, default_name, category, description, Pin.TYPE_STRING)
         self.properties["Text"] = ""
 

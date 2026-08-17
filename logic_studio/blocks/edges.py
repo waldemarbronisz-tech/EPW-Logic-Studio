@@ -16,7 +16,7 @@ class EdgeBase(BaseLogicBlock):
 
 @BlockRegistry.register
 class RTrigBlock(EdgeBase):
-    def __init__(self, type_id="edge.rtrig", default_name="R_TRIG", category="Edges", description="Rising Edge Trigger"):
+    def __init__(self, type_id="edge.rtrig", default_name="R_TRIG", category="Bramki logiczne", description="Rising Edge Trigger"):
         super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):
@@ -26,7 +26,7 @@ class RTrigBlock(EdgeBase):
 
 @BlockRegistry.register
 class FTrigBlock(EdgeBase):
-    def __init__(self, type_id="edge.ftrig", default_name="F_TRIG", category="Edges", description="Falling Edge Trigger"):
+    def __init__(self, type_id="edge.ftrig", default_name="F_TRIG", category="Bramki logiczne", description="Falling Edge Trigger"):
         super().__init__(type_id, default_name, category, description)
         self.simulation_state["last_in"] = True # Assume stable high if evaluating
 
@@ -37,7 +37,7 @@ class FTrigBlock(EdgeBase):
 
 @BlockRegistry.register
 class ChangeBlock(EdgeBase):
-    def __init__(self, type_id="edge.change", default_name="CHANGE", category="Edges", description="Value Change Trigger"):
+    def __init__(self, type_id="edge.change", default_name="CHANGE", category="Bramki logiczne", description="Value Change Trigger"):
         super().__init__(type_id, default_name, category, description)
 
     def evaluate(self):

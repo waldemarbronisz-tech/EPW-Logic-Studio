@@ -83,8 +83,10 @@ class LibraryPanel(QWidget):
         from logic_studio.blocks.registry import BlockRegistry
 
         standard_categories = [
-            "Inputs", "Outputs", "Logic Gates", "Memory", "Timers",
-            "Counters", "Mathematics", "Comparators", "Communication", "System"
+            "Bramki logiczne", "Wejścia / Wyjścia", "Elementy Analogowe", "Timery",
+            "Przerzutniki", "Zabezpieczenia Analogowe", "Zabezpieczenia Dwustanowe",
+            "Zabezpieczenia Technologiczne", "Łączniki", "Banki Nastaw",
+            "Telemechanika", "Zabezpieczenia silnikowe", "Przyciski", "LED", "Liczniki"
         ]
 
         all_cats = list(set(standard_categories + BlockRegistry.get_categories()))
