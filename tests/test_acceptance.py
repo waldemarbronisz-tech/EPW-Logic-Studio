@@ -45,3 +45,34 @@ def test_file_operations_and_export():
     m.project.save_to_file("temp_test.epwlogic")
     assert os.path.exists("temp_test.epwlogic")
     os.remove("temp_test.epwlogic")
+
+def test_final_acceptance_project():
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication([])
+
+    register_builtin_blocks()
+    m = MainWindow()
+
+    test_proj = os.path.abspath("examples/EPW_LOGIC_FINAL_UI_TEST.epwlogic")
+    assert os.path.exists(test_proj)
+
+    m.stop_simulation()
+    m.scene.clear()
+    from logic_studio.core.project import Project
+    m.project = Project.load_from_file(test_proj)
+    m.engine.project = m.project
+    m.current_file = test_proj
+    m._reconstruct_scene()
+
+    # 2 docs + 2 DI + 1 AND + 1 DO = 6 blocks
+    assert len(m.project.blocks) == 6
+
+    m.compile_project()
+    # Exclude docs from execution order
+    assert len(m.engine.execution_order) == 4
+
+    # Check if simulation handles execution order properly
+    m.start_simulation()
+    m.engine._tick()
+    m.stop_simulation()

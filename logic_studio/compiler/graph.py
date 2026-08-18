@@ -17,10 +17,12 @@ class GraphBuilder:
 
         # Adjacency list: block_uuid -> list of dependent block_uuids
         graph = defaultdict(list)
-        in_degree = {block.uuid: 0 for block in self.project.blocks}
+        # Ignore documentation blocks in execution order
+        executable_blocks = [b for b in self.project.blocks if b.category != "Dokumentacja"]
+        in_degree = {block.uuid: 0 for block in executable_blocks}
 
         # Build edges based on Output -> Input connections
-        for block in self.project.blocks:
+        for block in executable_blocks:
             for out_pin in block.outputs:
                 for conn_uuid in out_pin.connections:
                     if conn_uuid in pin_to_block:
@@ -42,9 +44,9 @@ class GraphBuilder:
                 if in_degree[v] == 0:
                     queue.append(v)
 
-        if len(execution_order) != len(self.project.blocks):
+        if len(execution_order) != len(executable_blocks):
             # Identify which blocks are in the loop
-            missing = [block for block in self.project.blocks if block.uuid not in execution_order]
+            missing = [block for block in executable_blocks if block.uuid not in execution_order]
             names = [b.display_name for b in missing]
             errors.append(f"Execution Loop Detected. Combinational cyclic logic is not supported. Affected blocks: {', '.join(names)}")
             return []

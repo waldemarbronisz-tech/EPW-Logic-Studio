@@ -1,0 +1,75 @@
+{
+    "settings": {
+        "name": "EPW Acceptance Test",
+        "version": "1.0",
+        "cycle_time_ms": 100
+    },
+    "blocks": [
+        {
+            "uuid": "title_doc",
+            "type_id": "doc.section",
+            "position": {"x": 100, "y": 50},
+            "properties": {
+                "Text": "EPW LOGIC STUDIO STABILIZATION TEST"
+            },
+            "inputs": [],
+            "outputs": []
+        },
+        {
+            "uuid": "note_doc",
+            "type_id": "doc.note",
+            "position": {"x": 100, "y": 120},
+            "properties": {
+                "Text": "Testing:\n- Minimal Bend Routing\n- Hardware Mappings\n- Gate Labels"
+            },
+            "inputs": [],
+            "outputs": []
+        },
+        {
+            "uuid": "di_1",
+            "type_id": "input.di",
+            "position": {"x": 100, "y": 250},
+            "properties": {
+                "Address": "DI05",
+                "Signal Name": "Pump ON"
+            },
+            "inputs": [],
+            "outputs": [{"uuid": "di_1_out", "connections": ["and_gate_a"]}]
+        },
+        {
+            "uuid": "di_2",
+            "type_id": "input.di",
+            "position": {"x": 100, "y": 350},
+            "properties": {
+                "Address": "DI06",
+                "Signal Name": "Pump OFF"
+            },
+            "inputs": [],
+            "outputs": [{"uuid": "di_2_out", "connections": ["and_gate_b"]}]
+        },
+        {
+            "uuid": "and_gate",
+            "type_id": "logic.and",
+            "position": {"x": 300, "y": 300},
+            "properties": {
+                "Signal Name": "Interlock"
+            },
+            "inputs": [
+                {"uuid": "and_gate_a", "connections": ["di_1_out"]},
+                {"uuid": "and_gate_b", "connections": ["di_2_out"]}
+            ],
+            "outputs": [{"uuid": "and_gate_y", "connections": ["do_1_in"]}]
+        },
+        {
+            "uuid": "do_1",
+            "type_id": "output.do",
+            "position": {"x": 500, "y": 300},
+            "properties": {
+                "Address": "DO12",
+                "Signal Name": "Main Contactor"
+            },
+            "inputs": [{"uuid": "do_1_in", "connections": ["and_gate_y"]}],
+            "outputs": []
+        }
+    ]
+}

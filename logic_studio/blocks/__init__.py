@@ -12,3 +12,4 @@ def register_builtin_blocks():
     import logic_studio.blocks.constants
     import logic_studio.blocks.edges
     import logic_studio.blocks.analog_processing
+    import logic_studio.blocks.documentation
