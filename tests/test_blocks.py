@@ -114,3 +114,31 @@ def test_div_by_zero():
     d.evaluate()
     # Must not crash, should output safe 0.0
     assert d.outputs[0].value == 0.0
+
+def test_pin_single_driver():
+    from logic_studio.blocks.logic_gates import AndGate, OrGate
+    a = AndGate()
+    b = OrGate()
+    c = AndGate()
+
+    # Connect a to b's input 0
+    assert a.outputs[0].connect(b.inputs[0]) is True
+
+    # Try to connect c to b's input 0 - MUST FAIL
+    assert c.outputs[0].connect(b.inputs[0]) is False
+
+    # But a can connect to b's input 1
+    assert a.outputs[0].connect(b.inputs[1]) is True
+
+def test_pin_type_checking():
+    from logic_studio.blocks.logic_gates import AndGate
+    from logic_studio.blocks.math_blocks import AddBlock
+
+    a = AndGate()
+    add = AddBlock()
+
+    # Try to connect Add output (REAL) to AND input (BOOL)
+    assert add.outputs[0].connect(a.inputs[0]) is False
+
+    # Try to connect AND output (BOOL) to Add input (REAL)
+    assert a.outputs[0].connect(add.inputs[0]) is False

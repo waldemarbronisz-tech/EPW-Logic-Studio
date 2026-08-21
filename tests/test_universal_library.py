@@ -96,7 +96,7 @@ def test_universal_library_integration():
     from logic_studio.compiler.exporter import Exporter
     runtime_data = Exporter(m.project, m.engine.execution_order).export()
 
-    assert "version" in runtime_data
+    assert "format" in runtime_data
     assert len(runtime_data["blocks"]) == 5
 
     # Verify boolean parsing fix via BaseLogicBlock property engine

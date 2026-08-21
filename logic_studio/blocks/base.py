@@ -75,7 +75,6 @@ class BaseLogicBlock:
             "color": self.color,
             "visibility": self.visibility,
             "enabled": self.enabled,
-            "simulation_state": self.simulation_state,
             "properties": self.properties
         }
 
@@ -118,7 +117,7 @@ class BaseLogicBlock:
         # We don't clone UUID, position, or connections.
         return new_block
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         """Execute block logic. Overridden by subclasses."""
         pass
 

@@ -38,7 +38,7 @@ def test_file_operations_and_export():
     exporter = Exporter(m.project, m.engine.execution_order)
     runtime_data = exporter.export()
 
-    assert "version" in runtime_data
+    assert "format" in runtime_data
     assert len(runtime_data["blocks"]) == 3
 
     # Save as temp file to verify

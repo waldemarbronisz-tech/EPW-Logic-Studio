@@ -24,14 +24,13 @@ class ExecutionEngine(QObject):
         if not self.execution_order:
             print("Cannot start simulation without a valid compiled execution order.")
             return
-        self.timer.start(self.interval_ms)
+        self.is_running = True
 
     def pause(self):
-        self.timer.stop()
+        self.is_running = False
 
     def stop(self):
-        self.timer.stop()
-        # Reset state logic could go here
+        self.is_running = False
 
     def _tick(self):
         # Build lookup for fast access
@@ -44,8 +43,8 @@ class ExecutionEngine(QObject):
         # but to enforce strict propagation, we can pre-evaluate input blocks)
         for uuid in self.execution_order:
             b = block_map.get(uuid)
-            if b and b.__class__.__name__ == "DigitalInputBlock":
-                b.evaluate()
+            if b and b.type_id.startswith("input."):
+                b.evaluate(engine=self)
 
         # 2. Execute remaining logic graph in topological order
         for uuid in self.execution_order:
@@ -59,9 +58,9 @@ class ExecutionEngine(QObject):
                         if source_pin:
                             pin.value = source_pin.value
 
-                # Execute block specific logic (skip DI since they were pre-evaluated)
-                if block.__class__.__name__ != "DigitalInputBlock":
-                    block.evaluate()
+                # Execute block specific logic (skip inputs since they were pre-evaluated)
+                if not block.type_id.startswith("input."):
+                    block.evaluate(engine=self)
 
         # 3. Output ADA states handled by update_simulation_panel in MainWindow
         self.cycle_completed.emit()
@@ -73,3 +72,9 @@ class ExecutionEngine(QObject):
                 if p.uuid == pin_uuid:
                     return p
         return None
+
+    def pause(self):
+        self.is_running = False
+
+    def stop(self):
+        self.is_running = False

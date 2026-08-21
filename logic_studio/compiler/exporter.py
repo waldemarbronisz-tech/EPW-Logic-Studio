@@ -15,7 +15,7 @@ class Exporter:
             outputs = [{"pin_uuid": pin.uuid, "name": pin.name, "type": pin.data_type, "connections": pin.connections} for pin in block.outputs]
 
             runtime_blocks[block.uuid] = {
-                "type": block.__class__.__name__,
+                "type_id": block.type_id,
                 "category": block.category,
                 "inputs": inputs,
                 "outputs": outputs,
@@ -23,7 +23,10 @@ class Exporter:
             }
 
         return {
-            "version": "1.0",
+            "format": "EPW_RUNTIME_LOGIC",
+            "schema_version": 1,
+            "source_version": self.project.settings.get("version", "1.0"),
+            "cycle_time_ms": self.project.settings.get("cycle_time_ms", 100),
             "execution_order": self.execution_order,
             "blocks": runtime_blocks
         }

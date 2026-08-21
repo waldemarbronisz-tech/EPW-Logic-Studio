@@ -23,11 +23,11 @@ class Validator:
             # 3. Explicit IO Address Validation
             from logic_studio.core.device_model import DeviceModel
 
-            if block.__class__.__name__ == "DigitalInputBlock":
+            if block.type_id == "input.di":
                 addr = block.properties.get("Address", "")
                 if addr not in DeviceModel.get_ela_addresses():
                     errors.append(f"[{block.display_name}] Invalid DI Address: '{addr}'. Must be valid DI01 to DI32.")
-            elif block.__class__.__name__ == "DigitalOutputBlock":
+            elif block.type_id == "output.do":
                 addr = block.properties.get("Address", "")
                 if addr not in DeviceModel.get_ada_addresses():
                     errors.append(f"[{block.display_name}] Invalid DO Address: '{addr}'. Must be valid DO01 to DO32.")
@@ -35,7 +35,7 @@ class Validator:
         # 4. Duplicate Output Detection
         output_addresses = {}
         for block in blocks:
-            if block.__class__.__name__ == "DigitalOutputBlock":
+            if block.type_id == "output.do":
                 addr = block.properties.get("Address", "")
                 if addr in output_addresses:
                     errors.append(f"Multiple outputs assigned to address: {addr} ({output_addresses[addr]} and {block.display_name})")

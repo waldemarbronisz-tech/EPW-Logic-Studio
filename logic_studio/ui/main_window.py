@@ -268,6 +268,7 @@ class MainWindow(QMainWindow):
             self.output_panel.log_message(f"Runtime exported to {path}")
 
     def compile_project(self):
+        self.engine.execution_order = []
         from logic_studio.compiler.core import Compiler
         comp = Compiler(self.project)
         res = comp.compile()

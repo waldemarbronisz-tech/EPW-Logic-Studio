@@ -22,7 +22,7 @@ class ScaleBlock(BaseAnalogBlock):
         self.properties["Out Min"] = 0.0
         self.properties["Out Max"] = 100.0
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         in_val = self.inputs[0].value
         if in_val is not None:
             in_min = float(self.properties["In Min"])
@@ -53,7 +53,7 @@ class LimitBlock(BaseAnalogBlock):
         self.properties["Min"] = 0.0
         self.properties["Max"] = 100.0
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         val = self.inputs[0].value
         if val is not None:
             self.outputs[0].value = max(float(self.properties["Min"]),
@@ -73,7 +73,7 @@ class HysteresisBlock(BaseAnalogBlock):
 
         self._last_state = False
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         val = self.inputs[0].value
         if val is not None:
             high = float(self.properties["High Threshold"])
@@ -96,7 +96,7 @@ class MovingAverageBlock(BaseAnalogBlock):
         self.properties["Samples"] = 10
         self._buffer = []
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         val = self.inputs[0].value
         if val is not None:
             self._buffer.append(float(val))

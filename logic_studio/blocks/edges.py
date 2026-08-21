@@ -19,7 +19,7 @@ class RTrigBlock(EdgeBase):
     def __init__(self, type_id="edge.rtrig", default_name="R_TRIG", category="Bramki logiczne", description="Rising Edge Trigger"):
         super().__init__(type_id, default_name, category, description)
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         current = bool(self.inputs[0].value)
         self.outputs[0].value = (current and not self.simulation_state["last_in"])
         self.simulation_state["last_in"] = current
@@ -30,7 +30,7 @@ class FTrigBlock(EdgeBase):
         super().__init__(type_id, default_name, category, description)
         self.simulation_state["last_in"] = True # Assume stable high if evaluating
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         current = bool(self.inputs[0].value)
         self.outputs[0].value = (not current and self.simulation_state["last_in"])
         self.simulation_state["last_in"] = current
@@ -40,7 +40,7 @@ class ChangeBlock(EdgeBase):
     def __init__(self, type_id="edge.change", default_name="CHANGE", category="Bramki logiczne", description="Value Change Trigger"):
         super().__init__(type_id, default_name, category, description)
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         # Trigger on either edge
         current = bool(self.inputs[0].value)
         self.outputs[0].value = (current != self.simulation_state["last_in"])

@@ -1,4 +1,6 @@
 {
+    "format": "EPW_LOGIC",
+    "schema_version": 1,
     "settings": {
         "name": "New Project",
         "version": "1.0",
@@ -6,7 +8,7 @@
     },
     "blocks": [
         {
-            "uuid": "8dc1d306-3a97-4a70-9679-c5e854a65677",
+            "uuid": "e679e98a-73db-4cd4-902d-99f7873f6270",
             "type_id": "virtual.input",
             "display_name": "Virtual IN",
             "category": "Wej\u015bcia / Wyj\u015bcia",
@@ -22,12 +24,12 @@
             "inputs": [],
             "outputs": [
                 {
-                    "uuid": "1207d464-f72f-4a29-b0a7-c07d15491101",
+                    "uuid": "6eec2a88-7c04-45e1-a0d0-9fbd1fc73a60",
                     "name": "State",
                     "direction": "output",
                     "data_type": "Boolean",
                     "connections": [
-                        "2589f4b6-7766-4db0-be07-8ecf30350c7c"
+                        "3725b59f-419f-46fc-8809-d6bf5ed27651"
                     ]
                 }
             ],
@@ -36,7 +38,6 @@
             "color": "#006400",
             "visibility": true,
             "enabled": true,
-            "simulation_state": {},
             "properties": {
                 "Address": "",
                 "Comment": "",
@@ -45,7 +46,7 @@
             }
         },
         {
-            "uuid": "7139c3aa-aebf-413d-9eab-e8d7ecf0d190",
+            "uuid": "10a4e2d4-3054-4c53-9606-5015542044cf",
             "type_id": "edge.rtrig",
             "display_name": "R_TRIG",
             "category": "Bramki logiczne",
@@ -60,18 +61,18 @@
             },
             "inputs": [
                 {
-                    "uuid": "2589f4b6-7766-4db0-be07-8ecf30350c7c",
+                    "uuid": "3725b59f-419f-46fc-8809-d6bf5ed27651",
                     "name": "In",
                     "direction": "input",
                     "data_type": "Boolean",
                     "connections": [
-                        "1207d464-f72f-4a29-b0a7-c07d15491101"
+                        "6eec2a88-7c04-45e1-a0d0-9fbd1fc73a60"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "a86b6e0d-3ddc-458e-b815-62c4f424826c",
+                    "uuid": "121cf416-c08f-4450-a0e1-7c6929db6e84",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Boolean",
@@ -83,16 +84,13 @@
             "color": "#8A2BE2",
             "visibility": true,
             "enabled": true,
-            "simulation_state": {
-                "last_in": true
-            },
             "properties": {
                 "Address": "",
                 "Comment": ""
             }
         },
         {
-            "uuid": "3ee14fda-164d-4649-a1b9-398ee0c3d983",
+            "uuid": "fb3f3c07-909b-484c-8ea7-365885514c4b",
             "type_id": "const.real",
             "display_name": "REAL",
             "category": "Inne",
@@ -108,12 +106,12 @@
             "inputs": [],
             "outputs": [
                 {
-                    "uuid": "06df9773-c04b-4ac9-8bec-7048d0c6725d",
+                    "uuid": "fb5f915c-0c94-413c-a888-3ee648f0f8d7",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Float",
                     "connections": [
-                        "f4c830c2-233a-4226-b49d-a47c1d5e425f"
+                        "e80e4466-bf7d-484b-8cf1-7baf7ca53f99"
                     ]
                 }
             ],
@@ -122,7 +120,6 @@
             "color": "#555555",
             "visibility": true,
             "enabled": true,
-            "simulation_state": {},
             "properties": {
                 "Address": "",
                 "Comment": "",
@@ -130,7 +127,7 @@
             }
         },
         {
-            "uuid": "786fd711-b815-4d02-a129-9c2fe2ad551e",
+            "uuid": "7849ceb5-dc29-4f5c-992c-65de18781488",
             "type_id": "analog.scale",
             "display_name": "SCALE",
             "category": "Elementy Analogowe",
@@ -145,23 +142,23 @@
             },
             "inputs": [
                 {
-                    "uuid": "f4c830c2-233a-4226-b49d-a47c1d5e425f",
+                    "uuid": "e80e4466-bf7d-484b-8cf1-7baf7ca53f99",
                     "name": "In",
                     "direction": "input",
                     "data_type": "Float",
                     "connections": [
-                        "06df9773-c04b-4ac9-8bec-7048d0c6725d"
+                        "fb5f915c-0c94-413c-a888-3ee648f0f8d7"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "3aead4d6-f0e9-424d-9e52-0e37babf35c9",
+                    "uuid": "ce542a07-d636-4f2a-b88d-b6369b24b322",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Float",
                     "connections": [
-                        "2ebe8736-102a-4626-a2e2-5b0b58415857"
+                        "48a680dc-a19e-4ccd-b77b-9b34ce255819"
                     ]
                 }
             ],
@@ -170,7 +167,6 @@
             "color": "#808000",
             "visibility": true,
             "enabled": true,
-            "simulation_state": {},
             "properties": {
                 "Address": "",
                 "Comment": "",
@@ -181,7 +177,7 @@
             }
         },
         {
-            "uuid": "ef923c08-6374-476e-983d-5e716e44f61a",
+            "uuid": "6b28e0dd-64d1-4cff-89b4-69cfc3c98e1a",
             "type_id": "analog.limit",
             "display_name": "LIMIT",
             "category": "Elementy Analogowe",
@@ -196,18 +192,18 @@
             },
             "inputs": [
                 {
-                    "uuid": "2ebe8736-102a-4626-a2e2-5b0b58415857",
+                    "uuid": "48a680dc-a19e-4ccd-b77b-9b34ce255819",
                     "name": "In",
                     "direction": "input",
                     "data_type": "Float",
                     "connections": [
-                        "3aead4d6-f0e9-424d-9e52-0e37babf35c9"
+                        "ce542a07-d636-4f2a-b88d-b6369b24b322"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "6f2872ba-d320-4f3f-9cca-fef8621a839b",
+                    "uuid": "92c0fd2c-e78a-4445-a1c0-0146486a32cd",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Float",
@@ -219,7 +215,6 @@
             "color": "#808000",
             "visibility": true,
             "enabled": true,
-            "simulation_state": {},
             "properties": {
                 "Address": "",
                 "Comment": "",

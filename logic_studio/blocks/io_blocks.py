@@ -15,7 +15,7 @@ class DigitalInputBlock(BaseLogicBlock):
         out1 = Pin("State", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN)
         self.outputs = [out1]
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         # The execution engine or SimulationPanel will inject real ELA state.
         # This is a placeholder for the block's internal logic.
         if "sim_value" in self.simulation_state:
@@ -35,6 +35,6 @@ class DigitalOutputBlock(BaseLogicBlock):
         in1 = Pin("Cmd", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN)
         self.inputs = [in1]
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         v = self.inputs[0].value
         self.simulation_state["sim_value"] = v if v is not None else False

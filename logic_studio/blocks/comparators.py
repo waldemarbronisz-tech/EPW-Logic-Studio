@@ -23,7 +23,7 @@ class GreaterBlock(ComparatorBase):
     def __init__(self, type_id="compare.gt", default_name=">", category="Elementy Analogowe", description="Greater Than"):
         super().__init__(type_id, default_name, category, description)
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         v1, v2 = self._get_vals()
         self.outputs[0].value = (v1 > v2)
 
@@ -32,7 +32,7 @@ class LessBlock(ComparatorBase):
     def __init__(self, type_id="compare.lt", default_name="<", category="Elementy Analogowe", description="Less Than"):
         super().__init__(type_id, default_name, category, description)
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         v1, v2 = self._get_vals()
         self.outputs[0].value = (v1 < v2)
 
@@ -41,7 +41,7 @@ class GreaterEqBlock(ComparatorBase):
     def __init__(self, type_id="compare.gte", default_name=">=", category="Elementy Analogowe", description="Greater Than or Equal"):
         super().__init__(type_id, default_name, category, description)
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         v1, v2 = self._get_vals()
         self.outputs[0].value = (v1 >= v2)
 
@@ -50,7 +50,7 @@ class LessEqBlock(ComparatorBase):
     def __init__(self, type_id="compare.lte", default_name="<=", category="Elementy Analogowe", description="Less Than or Equal"):
         super().__init__(type_id, default_name, category, description)
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         v1, v2 = self._get_vals()
         self.outputs[0].value = (v1 <= v2)
 
@@ -59,7 +59,7 @@ class EqualBlock(ComparatorBase):
     def __init__(self, type_id="compare.eq", default_name="==", category="Elementy Analogowe", description="Equal"):
         super().__init__(type_id, default_name, category, description)
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         v1, v2 = self._get_vals()
         self.outputs[0].value = (v1 == v2)
 
@@ -68,7 +68,7 @@ class NotEqualBlock(ComparatorBase):
     def __init__(self, type_id="compare.neq", default_name="!=", category="Elementy Analogowe", description="Not Equal"):
         super().__init__(type_id, default_name, category, description)
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         v1, v2 = self._get_vals()
         self.outputs[0].value = (v1 != v2)
 
@@ -85,7 +85,7 @@ class BetweenBlock(BaseLogicBlock):
         self.inputs.append(Pin("Max", Pin.DIR_INPUT, Pin.TYPE_FLOAT))
         self.outputs.append(Pin("Out", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN))
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         vmin = float(self.inputs[0].value) if self.inputs[0].value is not None else 0.0
         vval = float(self.inputs[1].value) if self.inputs[1].value is not None else 0.0
         vmax = float(self.inputs[2].value) if self.inputs[2].value is not None else 0.0

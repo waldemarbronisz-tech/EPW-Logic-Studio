@@ -49,6 +49,8 @@ class Project:
     def serialize(self) -> dict:
         """Serialize full project for saving to .epwlogic file."""
         return {
+            "format": "EPW_LOGIC",
+            "schema_version": 1,
             "settings": self.settings,
             "blocks": [b.serialize() for b in self.blocks]
         }
@@ -67,6 +69,15 @@ class Project:
     def deserialize(cls, data: dict):
         """Loads project from JSON."""
         from logic_studio.blocks.registry import BlockRegistry
+
+        # Schema validation
+        fmt = data.get("format")
+        if fmt and fmt != "EPW_LOGIC":
+            raise ValueError(f"Unsupported format: {fmt}")
+
+        schema_version = data.get("schema_version", 0)
+        if schema_version > 1:
+            raise ValueError(f"Unsupported schema version: {schema_version}")
 
         proj = cls()
         proj.settings = data.get("settings", proj.settings)

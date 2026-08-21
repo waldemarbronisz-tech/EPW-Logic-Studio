@@ -20,7 +20,7 @@ class SR(MemoryBase):
         self.inputs.append(Pin("S1", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
         self.inputs.append(Pin("R", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         s = bool(self.inputs[0].value)
         r = bool(self.inputs[1].value)
 
@@ -38,7 +38,7 @@ class RS(MemoryBase):
         self.inputs.append(Pin("R1", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
         self.inputs.append(Pin("S", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         r = bool(self.inputs[0].value)
         s = bool(self.inputs[1].value)
 

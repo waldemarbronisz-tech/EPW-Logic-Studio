@@ -15,7 +15,7 @@ class TrueConstant(ConstantBase):
     def __init__(self, type_id="const.true", default_name="TRUE", category="Inne", description="Boolean TRUE"):
         super().__init__(type_id, default_name, category, description, Pin.TYPE_BOOLEAN)
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         self.outputs[0].value = True
 
 @BlockRegistry.register
@@ -23,7 +23,7 @@ class FalseConstant(ConstantBase):
     def __init__(self, type_id="const.false", default_name="FALSE", category="Inne", description="Boolean FALSE"):
         super().__init__(type_id, default_name, category, description, Pin.TYPE_BOOLEAN)
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         self.outputs[0].value = False
 
 @BlockRegistry.register
@@ -32,7 +32,7 @@ class RealConstant(ConstantBase):
         super().__init__(type_id, default_name, category, description, Pin.TYPE_FLOAT)
         self.properties["Value"] = 0.0
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         try:
             self.outputs[0].value = float(self.properties.get("Value", 0.0))
         except ValueError:
@@ -44,7 +44,7 @@ class IntConstant(ConstantBase):
         super().__init__(type_id, default_name, category, description, Pin.TYPE_INTEGER)
         self.properties["Value"] = 0
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         try:
             self.outputs[0].value = int(self.properties.get("Value", 0))
         except ValueError:
@@ -56,7 +56,7 @@ class TimeConstant(ConstantBase):
         super().__init__(type_id, default_name, category, description, Pin.TYPE_INTEGER)
         self.properties["Time (ms)"] = 1000
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         try:
             self.outputs[0].value = int(self.properties.get("Time (ms)", 1000))
         except ValueError:
@@ -68,5 +68,5 @@ class StringConstant(ConstantBase):
         super().__init__(type_id, default_name, category, description, Pin.TYPE_STRING)
         self.properties["Text"] = ""
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         self.outputs[0].value = str(self.properties.get("Text", ""))

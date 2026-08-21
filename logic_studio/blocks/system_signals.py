@@ -13,7 +13,7 @@ class SystemBooleanSignalBlock(BaseLogicBlock):
         self.properties["Signal"] = "Sys.Ready"
         self.properties["Tag"] = "SYS_READY"
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         # Stub for system signals, in actual implementation would read from runtime engine
         self.outputs[0].value = True
 
@@ -25,7 +25,7 @@ class ButtonBlock(BaseLogicBlock):
         self.outputs.append(Pin("Out", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN))
         self.properties["Tag"] = ""
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         self.outputs[0].value = True
 
 @BlockRegistry.register
@@ -36,7 +36,7 @@ class LedBlock(BaseLogicBlock):
         self.inputs.append(Pin("In", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
         self.properties["Tag"] = ""
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         self.outputs[0].value = True
 
 @BlockRegistry.register
@@ -50,7 +50,7 @@ class UserMessageBlock(BaseLogicBlock):
         self.properties["Message 0"] = "Brak alarmu"
         self.properties["Message 1"] = "Aktywny alarm"
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         self.outputs[0].value = True
 
 @BlockRegistry.register
@@ -61,6 +61,6 @@ class SignalGeneratorBlock(BaseLogicBlock):
         self.outputs.append(Pin("Out", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN))
         self.properties["Period (s)"] = 1.0
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         # Simple flip-flop stub based on OS time or similar logic for simulation
         self.outputs[0].value = True

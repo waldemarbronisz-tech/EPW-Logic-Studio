@@ -20,6 +20,17 @@ class TimerBase(BaseLogicBlock):
         self.start_time = 0
         self.running = False
         self.properties["Preset (ms)"] = 1000
+        self.is_stateful = True
+
+    def _get_time(self, engine):
+        if engine and hasattr(engine, 'time') and engine.time:
+            return engine.time.current_time_ms()
+        import time
+        return int(time.time() * 1000)
+        if engine and hasattr(engine, 'time') and engine.time:
+            return engine.time.current_time_ms()
+        import time
+        return int(time.time() * 1000)
 
     def get_preset(self):
         # Prefer pin value, fallback to property
@@ -32,18 +43,18 @@ class TON(TimerBase):
     def __init__(self, type_id="timer.ton", default_name="TON", category="Timery", description="Timer On Delay"):
         super().__init__(type_id, default_name, category, description)
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         in_state = bool(self.inputs[0].value)
         pt = self.get_preset()
 
         if in_state:
             if not self.running:
                 self.running = True
-                self.start_time = time.time() * 1000
+                self.start_time = self._get_time(engine)
                 self.outputs[1].value = 0
                 self.outputs[0].value = False
             else:
-                elapsed = (time.time() * 1000) - self.start_time
+                elapsed = (self._get_time(engine)) - self.start_time
                 self.outputs[1].value = int(min(elapsed, pt))
                 if elapsed >= pt:
                     self.outputs[0].value = True
@@ -58,7 +69,7 @@ class TOF(TimerBase):
         super().__init__(type_id, default_name, category, description)
         self.outputs[0].value = False
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         in_state = bool(self.inputs[0].value)
         pt = self.get_preset()
 
@@ -70,9 +81,9 @@ class TOF(TimerBase):
             if self.outputs[0].value: # It was ON, start timing OFF
                 if not self.running:
                     self.running = True
-                    self.start_time = time.time() * 1000
+                    self.start_time = self._get_time(engine)
                 else:
-                    elapsed = (time.time() * 1000) - self.start_time
+                    elapsed = (self._get_time(engine)) - self.start_time
                     self.outputs[1].value = int(min(elapsed, pt))
                     if elapsed >= pt:
                         self.outputs[0].value = False
@@ -84,7 +95,7 @@ class TP(TimerBase):
         super().__init__(type_id, default_name, category, description)
         self.simulation_state["last_in"] = False
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         in_state = bool(self.inputs[0].value)
         pt = self.get_preset()
 
@@ -95,11 +106,11 @@ class TP(TimerBase):
         if rising_edge and not self.running:
             # Trigger
             self.running = True
-            self.start_time = time.time() * 1000
+            self.start_time = self._get_time(engine)
             self.outputs[0].value = True
 
         if self.running:
-            elapsed = (time.time() * 1000) - self.start_time
+            elapsed = (self._get_time(engine)) - self.start_time
             self.outputs[1].value = int(min(elapsed, pt))
             if elapsed >= pt:
                 self.outputs[0].value = False

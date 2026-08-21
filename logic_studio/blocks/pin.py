@@ -28,6 +28,14 @@ class Pin:
         if self.direction == other_pin.direction:
             return False # Cannot connect Input-Input or Output-Output
 
+        # Identify which is input and which is output
+        input_pin = self if self.direction == self.DIR_INPUT else other_pin
+        output_pin = self if self.direction == self.DIR_OUTPUT else other_pin
+
+        # Enforce single driver: An input pin can only have ONE source
+        if len(input_pin.connections) > 0 and output_pin.uuid not in input_pin.connections:
+            return False
+
         # Strict type checking: prevent connecting BOOL to REAL/INT directly
         # Allow connecting ANY to anything, but specific types must match.
         if self.data_type != self.TYPE_ANY and other_pin.data_type != self.TYPE_ANY:

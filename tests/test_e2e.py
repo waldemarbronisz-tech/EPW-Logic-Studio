@@ -27,8 +27,8 @@ def test_e2e_simulation_loop():
     do = m.project.blocks[2]
 
     # 3. Configure
-    di.update_property("Address", "DI01")
-    do.update_property("Address", "DO01")
+    di.update_property("Address", "ELA01.DI01")
+    do.update_property("Address", "ADA01.DO01")
     no.update_property("Name", "NEGATE_TEST")
 
     # 4. Connect

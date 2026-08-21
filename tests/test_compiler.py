@@ -42,3 +42,22 @@ def test_duplicate_ada_output():
 
     assert res is None # Compilation fails
     assert any("Multiple outputs assigned to address: ADA1" in e for e in c.errors)
+
+def test_compiler_allows_stateful_cycles():
+    p = Project()
+    from logic_studio.blocks.timers import TON
+
+    b1 = AndGate()
+    b2 = TON()
+
+    b1.outputs[0].connect(b2.inputs[0])
+    b2.outputs[0].connect(b1.inputs[0])
+
+    p.add_block(b1)
+    p.add_block(b2)
+
+    c = Compiler(p)
+    res = c.compile()
+
+    assert res is not None # Should pass because TonBlock is stateful
+    assert len(c.errors) == 0

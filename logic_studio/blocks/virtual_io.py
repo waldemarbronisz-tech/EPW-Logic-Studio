@@ -14,7 +14,7 @@ class VirtualInputBlock(BaseLogicBlock):
 
         self.outputs = [Pin("State", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN)]
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         if self.properties.get("Force Value", False) in [True, "True", "true", "1"]:
             self.outputs[0].value = True
         elif "sim_value" in self.simulation_state:
@@ -33,6 +33,6 @@ class VirtualOutputBlock(BaseLogicBlock):
 
         self.inputs = [Pin("Cmd", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN)]
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         v = self.inputs[0].value
         self.simulation_state["sim_value"] = v if v is not None else False

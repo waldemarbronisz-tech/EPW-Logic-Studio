@@ -1,31 +1,18 @@
 # EPW Logic Studio
 
-EPW Logic Studio is a classic-styled, node-based engineering environment for writing, compiling, and simulating PLC-like combinational and stateful logic.
+A visual Function Block Diagram (FBD) editor and runtime compiler designed for the EPW OS automation platform.
 
 ## Architecture
-- Object-Oriented Component library (Inputs, Outputs, Logic Gates, Timers, Memory, Math, Comparators).
-- Python 3 / PySide6 User Interface modeled strictly after late 90's tools (e.g. Siemens STEP7, Windows 98 SE).
-- Pluggable block `BlockRegistry`.
-- Independent `ExecutionEngine` to simulate logic evaluation topologies cyclically.
 
-## Requirements
-- Python 3.10+
-- PySide6
-- (Optional) pytest for unit testing
+EPW Logic Studio strictly decouples the UI layout logic from the execution runtime.
 
-## Installation & Windows Startup
-Run `START_EPW_LOGIC.bat` to automatically instantiate a virtual environment, install requirements, and run the interface.
-
-## Manual Startup
-`pip install -r requirements.txt`
-`python main.py`
+1. **Engineering UI (`logic_studio.ui`)**: Visual drag-and-drop FBD canvas. Translates graphical wires and block placements into an internal JSON-based Object Model.
+2. **Project Model (`logic_studio.core`)**: Maintains `EPW_LOGIC` project schema versioning and structural integrity.
+3. **Compiler (`logic_studio.compiler`)**: Generates topological execution orders. Rejects combinational loops while explicitly allowing cycles passing through `is_stateful` memory/timer blocks.
+4. **Execution Engine (`logic_studio.engine`)**: A fully headless Python PLC-style runtime execution loop, decoupled from the wall clock via `TimeProvider` and decoupled from hardware by `IOProvider`.
 
 ## Features
-- **Project Format**: Native `.epwlogic` JSON tracks schema logic and canvas layouts seamlessly via `type_id` mapping.
-- **Compiler**: Verifies topological loops and pin validation.
-- **Simulation**: Live ELA -> Evaluation -> ADA loop checking. Modifying live checkboxes in the UI instantly cascades logic states back through visual color-coded wiring.
-- **Runtime Export**: Exports `*.epwlogic.runtime.json` devoid of UI fluff for future headless runtimes.
-
-## Current Limitations
-- Missing automated IEC 61131 text-parser representations.
-- Hardware IO/Modbus binding is currently simulated.
+- **Headless Runtime:** Capable of running simulation steps completely independently of PySide6/Qt context.
+- **Strict Data Typing:** Prevents logic connection bridging between incompatible boolean/float/integer boundaries.
+- **Versioned Exports:** Safely compiles `EPW_RUNTIME_LOGIC` metadata ready for ingestion by distributed EPW OS targets.
+- **Hardware Agnostic Mappings:** Leverages zero-padded endpoint binding identifiers (`ELA01.DI01`, `ADA01.DO16`).

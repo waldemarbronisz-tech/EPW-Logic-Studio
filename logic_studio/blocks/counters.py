@@ -27,7 +27,7 @@ class CTU(CounterBase):
         self.outputs.append(Pin("Q", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN))
         self.outputs.append(Pin("CV", Pin.DIR_OUTPUT, Pin.TYPE_INTEGER))
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         cu = bool(self.inputs[0].value)
         r = bool(self.inputs[1].value)
         pv = int(self.inputs[2].value) if self.inputs[2].value is not None else self.get_preset()
@@ -54,7 +54,7 @@ class CTD(CounterBase):
         self.outputs.append(Pin("Q", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN))
         self.outputs.append(Pin("CV", Pin.DIR_OUTPUT, Pin.TYPE_INTEGER))
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         cd = bool(self.inputs[0].value)
         ld = bool(self.inputs[1].value)
         pv = int(self.inputs[2].value) if self.inputs[2].value is not None else self.get_preset()
@@ -85,7 +85,7 @@ class CTUD(CounterBase):
         self.outputs.append(Pin("QD", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN))
         self.outputs.append(Pin("CV", Pin.DIR_OUTPUT, Pin.TYPE_INTEGER))
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         cu = bool(self.inputs[0].value)
         cd = bool(self.inputs[1].value)
         r = bool(self.inputs[2].value)

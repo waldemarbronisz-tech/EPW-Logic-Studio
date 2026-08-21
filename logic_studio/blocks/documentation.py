@@ -13,7 +13,7 @@ class TextBlock(BaseLogicBlock):
         self.inputs = []
         self.outputs = []
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         pass
 
 @BlockRegistry.register
@@ -27,7 +27,7 @@ class NoteBlock(BaseLogicBlock):
         self.inputs = []
         self.outputs = []
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         pass
 
 @BlockRegistry.register
@@ -41,5 +41,5 @@ class SectionTitleBlock(BaseLogicBlock):
         self.inputs = []
         self.outputs = []
 
-    def evaluate(self):
+    def evaluate(self, engine=None):
         pass

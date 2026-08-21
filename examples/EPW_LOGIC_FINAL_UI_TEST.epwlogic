@@ -30,7 +30,7 @@
             "type_id": "input.di",
             "position": {"x": 100, "y": 250},
             "properties": {
-                "Address": "DI05",
+                "Address": "ELA01.DI05",
                 "Signal Name": "Pump ON"
             },
             "inputs": [],
@@ -41,7 +41,7 @@
             "type_id": "input.di",
             "position": {"x": 100, "y": 350},
             "properties": {
-                "Address": "DI06",
+                "Address": "ELA01.DI06",
                 "Signal Name": "Pump OFF"
             },
             "inputs": [],
@@ -65,7 +65,7 @@
             "type_id": "output.do",
             "position": {"x": 500, "y": 300},
             "properties": {
-                "Address": "DO12",
+                "Address": "ADA01.DO12",
                 "Signal Name": "Main Contactor"
             },
             "inputs": [{"uuid": "do_1_in", "connections": ["and_gate_y"]}],

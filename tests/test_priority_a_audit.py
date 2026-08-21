@@ -13,6 +13,8 @@ def test_priority_a_audit():
 
     register_builtin_blocks()
     m = MainWindow()
+    from logic_studio.engine.time_provider import SimulationTimeProvider
+    m.engine.time = SimulationTimeProvider()
 
     # Verify Library categories
     from logic_studio.blocks.registry import BlockRegistry
@@ -122,7 +124,7 @@ def test_priority_a_audit():
     # Tick 2: Pulse goes low
     vi_a.properties["Force Value"] = False
     import time
-    time.sleep(0.1) # Simulate real engine sleep delay for TON
+    m.engine.time.advance(150)
     m.engine._tick()
 
     assert rtrig.outputs[0].value is False
@@ -130,9 +132,10 @@ def test_priority_a_audit():
     assert ton.outputs[0].value is False # Only 100ms passed
 
     # Tick 3:
-    time.sleep(0.1)
+    m.engine.time.advance(150)
     m.engine._tick()
 
+    print(f"DEBUG: hyst={hyst.outputs[0].value} ET={ton.outputs[1].value} time={m.engine.time.current_time_ms()}")
     assert ton.outputs[0].value is True # 200ms passed, Output goes high
     assert vo_b.simulation_state["sim_value"] is True
 
@@ -159,7 +162,7 @@ def test_priority_a_audit():
     from logic_studio.compiler.exporter import Exporter
     runtime_data = Exporter(m.project, m.engine.execution_order).export()
 
-    assert "version" in runtime_data
+    assert "format" in runtime_data
     assert len(runtime_data["blocks"]) == 11
     # Check that scale block is in the runtime data
     assert loaded_scale.uuid in runtime_data["blocks"]

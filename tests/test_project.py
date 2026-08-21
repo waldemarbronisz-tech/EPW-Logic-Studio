@@ -43,3 +43,26 @@ def test_duplicate_pointers():
     # Ensure nested objects like pins also cloned properly or handled
     assert len(b1.inputs) == len(b2.inputs)
     assert b1.inputs[0].uuid != b2.inputs[0].uuid
+
+def test_simulation_state_is_not_persisted():
+    p = Project()
+    b = DigitalInputBlock()
+    b.simulation_state["sim_value"] = True
+    b.simulation_state["forced_state"] = True
+    p.add_block(b)
+
+    data = p.serialize()
+
+    for block_data in data["blocks"]:
+        assert "simulation_state" not in block_data
+
+def test_format_validation():
+    data = {
+        "format": "WRONG_FORMAT",
+        "schema_version": 1,
+        "settings": {},
+        "blocks": []
+    }
+
+    with pytest.raises(ValueError):
+        Project.deserialize(data)

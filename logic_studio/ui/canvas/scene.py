@@ -196,7 +196,9 @@ class LogicScene(QGraphicsScene):
                 if success:
                     self.current_wire.dest_port = item
                     self.current_wire.update_path()
-                    # Trigger project modified?
+                    if project:
+                        project.push_state()
+                        window.set_dirty()
                 else:
                     self.removeItem(self.current_wire)
             else:
