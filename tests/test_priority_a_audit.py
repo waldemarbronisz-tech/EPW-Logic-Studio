@@ -123,8 +123,8 @@ def test_priority_a_audit():
 
     # Tick 2: Pulse goes low
     vi_a.properties["Force Value"] = False
-    import time
-    m.engine.time.advance(150)
+
+    m.engine.time.advance(150) # Simulate real engine sleep delay for TON
     m.engine._tick()
 
     assert rtrig.outputs[0].value is False
@@ -135,7 +135,6 @@ def test_priority_a_audit():
     m.engine.time.advance(150)
     m.engine._tick()
 
-    print(f"DEBUG: hyst={hyst.outputs[0].value} ET={ton.outputs[1].value} time={m.engine.time.current_time_ms()}")
     assert ton.outputs[0].value is True # 200ms passed, Output goes high
     assert vo_b.simulation_state["sim_value"] is True
 

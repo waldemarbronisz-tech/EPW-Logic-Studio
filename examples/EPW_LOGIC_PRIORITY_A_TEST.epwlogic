@@ -8,7 +8,7 @@
     },
     "blocks": [
         {
-            "uuid": "07d93099-c375-4ead-861c-39a95e5378c1",
+            "uuid": "8cde6902-140c-4bad-8a48-696cf525a210",
             "type_id": "virtual.input",
             "display_name": "Virtual IN",
             "category": "Wej\u015bcia / Wyj\u015bcia",
@@ -24,12 +24,12 @@
             "inputs": [],
             "outputs": [
                 {
-                    "uuid": "3e16e2ed-636e-474c-a7cd-87cc0f7a6793",
+                    "uuid": "8f88d0af-4b5c-427c-af23-d9dd9393d3da",
                     "name": "State",
                     "direction": "output",
                     "data_type": "Boolean",
                     "connections": [
-                        "b4d4c78d-1a6b-4934-92bc-06d9f852fde3"
+                        "c1dc3db6-3368-4662-ab5b-3107c03feb7a"
                     ]
                 }
             ],
@@ -46,7 +46,7 @@
             }
         },
         {
-            "uuid": "3cdf8068-7c3f-4f88-ae34-40780678ba1e",
+            "uuid": "cdfa69fd-c637-4e77-bd66-23e1f79bd94f",
             "type_id": "edge.rtrig",
             "display_name": "R_TRIG",
             "category": "Bramki logiczne",
@@ -61,23 +61,23 @@
             },
             "inputs": [
                 {
-                    "uuid": "b4d4c78d-1a6b-4934-92bc-06d9f852fde3",
+                    "uuid": "c1dc3db6-3368-4662-ab5b-3107c03feb7a",
                     "name": "In",
                     "direction": "input",
                     "data_type": "Boolean",
                     "connections": [
-                        "3e16e2ed-636e-474c-a7cd-87cc0f7a6793"
+                        "8f88d0af-4b5c-427c-af23-d9dd9393d3da"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "59ad138f-e585-44cd-9dbb-5b4e212a1866",
+                    "uuid": "5d576ebf-7b8a-4e17-bcf8-73fef63ed3ed",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Boolean",
                     "connections": [
-                        "a958e893-7664-498f-a084-101c05fd6358"
+                        "2856e205-4eb4-4ca2-8f43-caf827aa3c20"
                     ]
                 }
             ],
@@ -92,7 +92,7 @@
             }
         },
         {
-            "uuid": "bddacf37-ef38-4ce8-836b-e6e428d66135",
+            "uuid": "eb3ac441-f274-416e-9b73-3cb33fc7b408",
             "type_id": "system.signal",
             "display_name": "SYS SIG",
             "category": "Inne",
@@ -108,12 +108,12 @@
             "inputs": [],
             "outputs": [
                 {
-                    "uuid": "d2392928-2e1a-4401-99c2-071c1db0b3e2",
+                    "uuid": "d9729351-87e6-4910-a245-8ea59c2c994d",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Boolean",
                     "connections": [
-                        "46905bf6-e8be-46d9-8e41-64f609f45649"
+                        "7c1e5e4c-5e34-4c95-b7fe-666c8bbf5ff7"
                     ]
                 }
             ],
@@ -130,7 +130,7 @@
             }
         },
         {
-            "uuid": "d07cef0c-d183-4104-a3ac-789b50cd0ee2",
+            "uuid": "04ceed2e-7ea8-4cce-95cb-7554870f3de8",
             "type_id": "logic.and",
             "display_name": "AND",
             "category": "Bramki logiczne",
@@ -145,32 +145,32 @@
             },
             "inputs": [
                 {
-                    "uuid": "a958e893-7664-498f-a084-101c05fd6358",
+                    "uuid": "2856e205-4eb4-4ca2-8f43-caf827aa3c20",
                     "name": "In1",
                     "direction": "input",
                     "data_type": "Boolean",
                     "connections": [
-                        "59ad138f-e585-44cd-9dbb-5b4e212a1866"
+                        "5d576ebf-7b8a-4e17-bcf8-73fef63ed3ed"
                     ]
                 },
                 {
-                    "uuid": "46905bf6-e8be-46d9-8e41-64f609f45649",
+                    "uuid": "7c1e5e4c-5e34-4c95-b7fe-666c8bbf5ff7",
                     "name": "In2",
                     "direction": "input",
                     "data_type": "Boolean",
                     "connections": [
-                        "d2392928-2e1a-4401-99c2-071c1db0b3e2"
+                        "d9729351-87e6-4910-a245-8ea59c2c994d"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "65145ea4-e42b-4a16-9009-e654b0e7c556",
+                    "uuid": "1eeffac9-e0ff-4638-851d-91f2aaf5713b",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Boolean",
                     "connections": [
-                        "34eb3807-50d7-4b10-8036-1a009e31f60d"
+                        "e51f57ff-0e2d-42f1-993a-e5a8b8cb2cb3"
                     ]
                 }
             ],
@@ -185,7 +185,7 @@
             }
         },
         {
-            "uuid": "a21eb9d8-499f-4681-99da-07830ea75cab",
+            "uuid": "dbbfd08f-cd0a-48c4-b43c-fdc460271323",
             "type_id": "virtual.output",
             "display_name": "Virtual OUT",
             "category": "Wej\u015bcia / Wyj\u015bcia",
@@ -200,12 +200,12 @@
             },
             "inputs": [
                 {
-                    "uuid": "34eb3807-50d7-4b10-8036-1a009e31f60d",
+                    "uuid": "e51f57ff-0e2d-42f1-993a-e5a8b8cb2cb3",
                     "name": "Cmd",
                     "direction": "input",
                     "data_type": "Boolean",
                     "connections": [
-                        "65145ea4-e42b-4a16-9009-e654b0e7c556"
+                        "1eeffac9-e0ff-4638-851d-91f2aaf5713b"
                     ]
                 }
             ],
@@ -222,7 +222,7 @@
             }
         },
         {
-            "uuid": "45ff7f87-cad5-47fb-9d97-f15e868ed2fc",
+            "uuid": "a6639a39-6686-4b29-8e48-ace6b2fa352a",
             "type_id": "const.real",
             "display_name": "REAL",
             "category": "Inne",
@@ -238,12 +238,12 @@
             "inputs": [],
             "outputs": [
                 {
-                    "uuid": "a1d4581a-d0a4-4c75-a4db-e40365d8a30b",
+                    "uuid": "fbc931bc-a2f7-453e-82f7-e069fd184c91",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Float",
                     "connections": [
-                        "128aac91-7877-4874-a27c-140ff50b14c2"
+                        "18bc8f68-d450-4182-8dbb-4e0547bd7c8b"
                     ]
                 }
             ],
@@ -259,7 +259,7 @@
             }
         },
         {
-            "uuid": "85d30cc6-6424-4dda-ba19-37f54b1c1abe",
+            "uuid": "9c87e3ef-a926-441d-9827-f390aade8817",
             "type_id": "analog.scale",
             "display_name": "SCALE",
             "category": "Elementy Analogowe",
@@ -274,23 +274,23 @@
             },
             "inputs": [
                 {
-                    "uuid": "128aac91-7877-4874-a27c-140ff50b14c2",
+                    "uuid": "18bc8f68-d450-4182-8dbb-4e0547bd7c8b",
                     "name": "In",
                     "direction": "input",
                     "data_type": "Float",
                     "connections": [
-                        "a1d4581a-d0a4-4c75-a4db-e40365d8a30b"
+                        "fbc931bc-a2f7-453e-82f7-e069fd184c91"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "8d75ef11-3957-4095-8f8f-33e43d9f5a1f",
+                    "uuid": "c5d56add-f3e0-46a7-acfd-5d7251ac2241",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Float",
                     "connections": [
-                        "861010f3-c7bc-4021-b84d-b61822035ddb"
+                        "86ffeca2-4448-4210-9ca4-3b0876f05efb"
                     ]
                 }
             ],
@@ -309,7 +309,7 @@
             }
         },
         {
-            "uuid": "848c84e1-9a20-4ffa-a8bc-20ea0119d1a2",
+            "uuid": "c344ec99-b3cf-4c9a-8514-2a85655d7018",
             "type_id": "analog.mov_avg",
             "display_name": "MOVING AVG",
             "category": "Elementy Analogowe",
@@ -324,23 +324,23 @@
             },
             "inputs": [
                 {
-                    "uuid": "861010f3-c7bc-4021-b84d-b61822035ddb",
+                    "uuid": "86ffeca2-4448-4210-9ca4-3b0876f05efb",
                     "name": "In",
                     "direction": "input",
                     "data_type": "Float",
                     "connections": [
-                        "8d75ef11-3957-4095-8f8f-33e43d9f5a1f"
+                        "c5d56add-f3e0-46a7-acfd-5d7251ac2241"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "b5fb930f-8a00-4b90-8c23-ae521007d073",
+                    "uuid": "663f749e-2e18-4b7b-8093-831dd0a24736",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Float",
                     "connections": [
-                        "4de6e090-5cae-4745-978a-f85fc43d3279"
+                        "425a444c-31fc-43c7-8aaa-e3812549e393"
                     ]
                 }
             ],
@@ -356,7 +356,7 @@
             }
         },
         {
-            "uuid": "22d422ea-85cd-42fa-a692-645e3ba6906d",
+            "uuid": "aaf14491-f9c8-429b-80d9-93a31301cd10",
             "type_id": "analog.hysteresis",
             "display_name": "HYSTERESIS",
             "category": "Elementy Analogowe",
@@ -371,23 +371,23 @@
             },
             "inputs": [
                 {
-                    "uuid": "4de6e090-5cae-4745-978a-f85fc43d3279",
+                    "uuid": "425a444c-31fc-43c7-8aaa-e3812549e393",
                     "name": "In",
                     "direction": "input",
                     "data_type": "Float",
                     "connections": [
-                        "b5fb930f-8a00-4b90-8c23-ae521007d073"
+                        "663f749e-2e18-4b7b-8093-831dd0a24736"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "a4c0e82c-33df-4c04-86a3-9c052975a2de",
+                    "uuid": "b29bc3dd-a0f8-4c59-b2bb-be682a786a93",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Boolean",
                     "connections": [
-                        "06d35fb7-995c-42a1-8ba7-81247f6cc419"
+                        "b519154a-d443-419c-b8bf-dd8e7e9d8828"
                     ]
                 }
             ],
@@ -404,7 +404,7 @@
             }
         },
         {
-            "uuid": "dd3253fd-4a39-43af-9a13-610788393597",
+            "uuid": "f52e23bc-fb4a-491a-ae49-debacb705fba",
             "type_id": "timer.ton",
             "display_name": "TON",
             "category": "Timery",
@@ -419,16 +419,16 @@
             },
             "inputs": [
                 {
-                    "uuid": "06d35fb7-995c-42a1-8ba7-81247f6cc419",
+                    "uuid": "b519154a-d443-419c-b8bf-dd8e7e9d8828",
                     "name": "IN",
                     "direction": "input",
                     "data_type": "Boolean",
                     "connections": [
-                        "a4c0e82c-33df-4c04-86a3-9c052975a2de"
+                        "b29bc3dd-a0f8-4c59-b2bb-be682a786a93"
                     ]
                 },
                 {
-                    "uuid": "e505f385-e52d-42f6-94f4-d7640529a4f8",
+                    "uuid": "d4c0af0d-f8ca-4926-a86e-95fd06ad00c8",
                     "name": "PT",
                     "direction": "input",
                     "data_type": "Integer",
@@ -437,16 +437,16 @@
             ],
             "outputs": [
                 {
-                    "uuid": "41a43eae-08d9-4887-b9cd-c90aba4e99ce",
+                    "uuid": "10c126ff-dbd2-4b10-b823-70c308103552",
                     "name": "Q",
                     "direction": "output",
                     "data_type": "Boolean",
                     "connections": [
-                        "10e6771e-55cc-464f-80d7-6a7172879548"
+                        "3fd578b3-c118-4c0b-89e5-f473bfffce2c"
                     ]
                 },
                 {
-                    "uuid": "bfa98d34-b883-471c-a0e4-b0965ccaeff7",
+                    "uuid": "006c365b-ec15-4900-a075-590599ad03ab",
                     "name": "ET",
                     "direction": "output",
                     "data_type": "Integer",
@@ -465,7 +465,7 @@
             }
         },
         {
-            "uuid": "4454f997-fca6-4748-babc-978d5570f7e7",
+            "uuid": "43d6cebe-9c34-4ac3-ab8e-569f93d7b266",
             "type_id": "virtual.output",
             "display_name": "Virtual OUT",
             "category": "Wej\u015bcia / Wyj\u015bcia",
@@ -480,12 +480,12 @@
             },
             "inputs": [
                 {
-                    "uuid": "10e6771e-55cc-464f-80d7-6a7172879548",
+                    "uuid": "3fd578b3-c118-4c0b-89e5-f473bfffce2c",
                     "name": "Cmd",
                     "direction": "input",
                     "data_type": "Boolean",
                     "connections": [
-                        "41a43eae-08d9-4887-b9cd-c90aba4e99ce"
+                        "10c126ff-dbd2-4b10-b823-70c308103552"
                     ]
                 }
             ],
