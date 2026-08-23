@@ -5,53 +5,62 @@ from logic_studio.blocks.counters import CTU, CTD, CTUD
 from logic_studio.blocks.memory import SR, RS
 from logic_studio.blocks.math_blocks import DivBlock
 from logic_studio.blocks import register_builtin_blocks
+from logic_studio.engine.time_provider import SimulationTimeProvider
+
+class MockEngine:
+    def __init__(self):
+        self.time = SimulationTimeProvider()
+
 
 register_builtin_blocks()
 
 def test_ton():
+    engine = MockEngine()
     t = TON()
     t.inputs[1].value = 50 # 50ms PT
     t.inputs[0].value = True
-    t.evaluate()
+    t.evaluate(engine)
     assert t.outputs[0].value is False
 
-    time.sleep(0.06) # wait > 50ms
-    t.evaluate()
+    engine.time.advance(60) # wait > 50ms
+    t.evaluate(engine)
     assert t.outputs[0].value is True
 
     t.inputs[0].value = False
-    t.evaluate()
+    t.evaluate(engine)
     assert t.outputs[0].value is False
     assert t.outputs[1].value == 0
 
 def test_tof():
+    engine = MockEngine()
     t = TOF()
     t.inputs[1].value = 50
     t.inputs[0].value = True
-    t.evaluate()
+    t.evaluate(engine)
     assert t.outputs[0].value is True
 
     t.inputs[0].value = False
-    t.evaluate()
+    t.evaluate(engine)
     assert t.outputs[0].value is True # Still true, timing off
 
-    time.sleep(0.06)
-    t.evaluate()
+    engine.time.advance(60)
+    t.evaluate(engine)
     assert t.outputs[0].value is False # Turned off
 
 def test_tp():
+    engine = MockEngine()
     t = TP()
     t.inputs[1].value = 50
     t.inputs[0].value = True # Rising edge
-    t.evaluate()
+    t.evaluate(engine)
     assert t.outputs[0].value is True
 
     t.inputs[0].value = True # Static high
-    time.sleep(0.06)
-    t.evaluate()
+    engine.time.advance(60)
+    t.evaluate(engine)
     assert t.outputs[0].value is False # Done pulsing
 
-    t.evaluate() # Should not restart pulse
+    t.evaluate(engine) # Should not restart pulse
     assert t.outputs[0].value is False
 
 def test_ctu():

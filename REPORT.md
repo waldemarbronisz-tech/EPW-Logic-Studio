@@ -55,3 +55,8 @@ The visual overhaul has been successfully implemented, pivoting the software fro
 
 ### CONTINUOUS INTEGRATION
 - [X] Converted test coverage to verify end-to-end evaluation using deterministic virtual clocks, `SimulationIOProvider`, and Pytest headless Qt environments (`QT_QPA_PLATFORM=offscreen`).
+
+### STUB BLOCKS & DETERMINISTIC FATs
+- [X] Removed hardcoded stubs. `SystemSignal`, `SignalGenerator`, `Button`, `LED`, and `UserMessage` map correctly to either dynamic engine execution loops or deterministic logic bindings.
+- [X] Added specific integration tests validating strict single-scan ELA->LOGIC->ADA latency pipelines without GUI injection side effects.
+- [X] Verified complete headless runtime evaluation using explicit `engine.step()` calls rather than relying on automated `QTimer` propagation.

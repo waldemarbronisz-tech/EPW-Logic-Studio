@@ -72,6 +72,10 @@ class HysteresisBlock(BaseAnalogBlock):
         self.properties["Low Threshold"] = 70.0
 
         self._last_state = False
+        self.is_stateful = True
+
+    def reset_runtime_state(self):
+        self._last_state = False
 
     def evaluate(self, engine=None):
         val = self.inputs[0].value
@@ -95,6 +99,10 @@ class MovingAverageBlock(BaseAnalogBlock):
         self.outputs.append(Pin("Out", Pin.DIR_OUTPUT, Pin.TYPE_FLOAT))
         self.properties["Samples"] = 10
         self._buffer = []
+        self.is_stateful = True
+
+    def reset_runtime_state(self):
+        self._buffer.clear()
 
     def evaluate(self, engine=None):
         val = self.inputs[0].value

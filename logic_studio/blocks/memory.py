@@ -12,6 +12,10 @@ class MemoryBase(BaseLogicBlock):
         self.outputs.append(Pin("Q", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN))
         # Internal state memory
         self.simulation_state["memory"] = False
+        self.is_stateful = True
+
+    def reset_runtime_state(self):
+        self.simulation_state["memory"] = False
 
 @BlockRegistry.register
 class SR(MemoryBase):

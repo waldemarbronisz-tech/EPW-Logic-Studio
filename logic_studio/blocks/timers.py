@@ -25,12 +25,13 @@ class TimerBase(BaseLogicBlock):
     def _get_time(self, engine):
         if engine and hasattr(engine, 'time') and engine.time:
             return engine.time.current_time_ms()
-        import time
-        return int(time.time() * 1000)
-        if engine and hasattr(engine, 'time') and engine.time:
-            return engine.time.current_time_ms()
-        import time
-        return int(time.time() * 1000)
+        raise RuntimeError("TimeProvider missing. ExecutionEngine must inject deterministic time.")
+
+    def reset_runtime_state(self):
+        self.start_time = 0
+        self.running = False
+        if "last_in" in self.simulation_state:
+            self.simulation_state["last_in"] = False
 
     def get_preset(self):
         # Prefer pin value, fallback to property

@@ -12,6 +12,12 @@ class CounterBase(BaseLogicBlock):
         self.simulation_state["count"] = 0
         self.simulation_state["last_cu"] = False
         self.simulation_state["last_cd"] = False
+        self.is_stateful = True
+
+    def reset_runtime_state(self):
+        self.simulation_state["count"] = 0
+        self.simulation_state["last_cu"] = False
+        self.simulation_state["last_cd"] = False
 
     def get_preset(self):
         return int(self.properties.get("Preset", 10))

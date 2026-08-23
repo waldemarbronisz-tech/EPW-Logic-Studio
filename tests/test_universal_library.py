@@ -58,8 +58,8 @@ def test_universal_library_integration():
 
     # 5. Simulation Execution
     # First tick
-    vi.properties["Force Value"] = True # simulate active edge
-    m.engine._tick()
+    vi.properties["Force State"] = "FORCE TRUE" # simulate active edge
+    m.engine.step()
 
     # Verify R_TRIG pulse is high on first scan
     assert rtrig.outputs[0].value is True
@@ -69,7 +69,7 @@ def test_universal_library_integration():
     assert limit.outputs[0].value == 500.0
 
     # Second tick
-    m.engine._tick()
+    m.engine.step()
 
     # Verify R_TRIG pulse goes low on second scan
     assert rtrig.outputs[0].value is False
@@ -100,11 +100,9 @@ def test_universal_library_integration():
     assert len(runtime_data["blocks"]) == 5
 
     # Verify boolean parsing fix via BaseLogicBlock property engine
-    vi.update_property("Force Value", "true")
-    assert vi.properties["Force Value"] is True
+    vi.update_property("Force State", "FORCE TRUE")
+    assert vi.properties["Force State"] == "FORCE TRUE"
 
-    vi.update_property("Force Value", "0")
-    assert vi.properties["Force Value"] is False
 
     # Ensure application doesn't block shutdown UI flows
     m.is_dirty = False

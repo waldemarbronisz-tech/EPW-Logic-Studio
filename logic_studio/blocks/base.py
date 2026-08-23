@@ -121,6 +121,10 @@ class BaseLogicBlock:
         """Execute block logic. Overridden by subclasses."""
         pass
 
+    def reset_runtime_state(self):
+        """Reset block to cold deterministic state. Overridden by subclasses."""
+        pass
+
     def validate(self) -> list:
         """Validate block configuration. Returns list of errors."""
         errors = []

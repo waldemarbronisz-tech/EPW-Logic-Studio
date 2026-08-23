@@ -9,19 +9,25 @@ class DigitalInputBlock(BaseLogicBlock):
         self.color = "#008000" # Classic dark green
         self.width = 100
         self.height = 60
-        self.properties["Address"] = "DI01"
-        self.properties["Force Value"] = False
+        self.properties["Address"] = "ELA01.DI01"
+        self.properties["Force State"] = "NO FORCE"
 
         out1 = Pin("State", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN)
         self.outputs = [out1]
 
     def evaluate(self, engine=None):
-        # The execution engine or SimulationPanel will inject real ELA state.
-        # This is a placeholder for the block's internal logic.
-        if "sim_value" in self.simulation_state:
-            self.outputs[0].value = self.simulation_state["sim_value"]
-        else:
+        addr = self.properties.get("Address", "")
+        force_state = self.properties.get("Force State", "NO FORCE")
+
+        if force_state == "FORCE TRUE":
+            self.outputs[0].value = True
+        elif force_state == "FORCE FALSE":
             self.outputs[0].value = False
+        else:
+            if engine and hasattr(engine, 'io') and engine.io is not None:
+                self.outputs[0].value = engine.io.read_digital(addr)
+            else:
+                self.outputs[0].value = False
 
 @BlockRegistry.register
 class DigitalOutputBlock(BaseLogicBlock):
@@ -30,11 +36,17 @@ class DigitalOutputBlock(BaseLogicBlock):
         self.color = "#800000" # Classic dark red
         self.width = 100
         self.height = 60
-        self.properties["Address"] = "DO01"
+        self.properties["Address"] = "ADA01.DO01"
 
         in1 = Pin("Cmd", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN)
         self.inputs = [in1]
 
     def evaluate(self, engine=None):
         v = self.inputs[0].value
-        self.simulation_state["sim_value"] = v if v is not None else False
+        val = v if v is not None else False
+
+        if engine and hasattr(engine, 'io') and engine.io is not None:
+            addr = self.properties.get("Address", "")
+            engine.io.write_digital(addr, val)
+
+        self.simulation_state["sim_value"] = val

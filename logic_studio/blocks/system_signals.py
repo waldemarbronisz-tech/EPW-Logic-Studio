@@ -14,8 +14,11 @@ class SystemBooleanSignalBlock(BaseLogicBlock):
         self.properties["Tag"] = "SYS_READY"
 
     def evaluate(self, engine=None):
-        # Stub for system signals, in actual implementation would read from runtime engine
-        self.outputs[0].value = True
+        if engine and hasattr(engine, 'io'):
+            # Fetch from IO provider or simulation memory. E.g., simulated system states
+            self.outputs[0].value = engine.io.read_digital(self.properties.get("Tag", "SYS_READY"))
+        else:
+            self.outputs[0].value = False
 
 @BlockRegistry.register
 class ButtonBlock(BaseLogicBlock):
@@ -26,7 +29,8 @@ class ButtonBlock(BaseLogicBlock):
         self.properties["Tag"] = ""
 
     def evaluate(self, engine=None):
-        self.outputs[0].value = True
+        # Read momentary press state injected directly into simulation_state by UI mouse events
+        self.outputs[0].value = self.simulation_state.get("pressed", False)
 
 @BlockRegistry.register
 class LedBlock(BaseLogicBlock):
@@ -37,7 +41,8 @@ class LedBlock(BaseLogicBlock):
         self.properties["Tag"] = ""
 
     def evaluate(self, engine=None):
-        self.outputs[0].value = True
+        # Read momentary press state injected directly into simulation_state by UI mouse events
+        self.outputs[0].value = self.simulation_state.get("pressed", False)
 
 @BlockRegistry.register
 class UserMessageBlock(BaseLogicBlock):
@@ -51,7 +56,8 @@ class UserMessageBlock(BaseLogicBlock):
         self.properties["Message 1"] = "Aktywny alarm"
 
     def evaluate(self, engine=None):
-        self.outputs[0].value = True
+        # Read momentary press state injected directly into simulation_state by UI mouse events
+        self.outputs[0].value = self.simulation_state.get("pressed", False)
 
 @BlockRegistry.register
 class SignalGeneratorBlock(BaseLogicBlock):
@@ -60,7 +66,21 @@ class SignalGeneratorBlock(BaseLogicBlock):
         self.color = "#000000"
         self.outputs.append(Pin("Out", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN))
         self.properties["Period (s)"] = 1.0
+        self.is_stateful = True
+
+    def reset_runtime_state(self):
+        pass # relies strictly on global engine clock for deterministic frequency, not local memory
 
     def evaluate(self, engine=None):
-        # Simple flip-flop stub based on OS time or similar logic for simulation
-        self.outputs[0].value = True
+        period_ms = float(self.properties.get("Period (s)", 1.0)) * 1000.0
+        if period_ms <= 0:
+            self.outputs[0].value = False
+            return
+
+        if engine and hasattr(engine, 'time') and engine.time is not None:
+            now = engine.time.current_time_ms()
+            # Simple 50% duty cycle
+            cycle_pos = now % period_ms
+            self.outputs[0].value = cycle_pos >= (period_ms / 2.0)
+        else:
+            self.outputs[0].value = False

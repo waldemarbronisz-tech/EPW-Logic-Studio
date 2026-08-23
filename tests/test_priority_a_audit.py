@@ -105,8 +105,9 @@ def test_priority_a_audit():
     assert len(m.engine.execution_order) == 11
 
     # Tick 1: Pulse input high
-    vi_a.properties["Force Value"] = True
-    m.engine._tick()
+    vi_a.properties["Force State"] = "FORCE TRUE"
+    m.engine.io.set_digital_input("SYSTEM.CORE_ONLINE", True)
+    m.engine.step()
 
     # Network A Checks
     assert sys_sig.outputs[0].value is True
@@ -122,10 +123,10 @@ def test_priority_a_audit():
     assert ton.outputs[0].value is False # Needs 200ms
 
     # Tick 2: Pulse goes low
-    vi_a.properties["Force Value"] = False
+    vi_a.properties["Force State"] = "FORCE FALSE"
 
     m.engine.time.advance(150) # Simulate real engine sleep delay for TON
-    m.engine._tick()
+    m.engine.step()
 
     assert rtrig.outputs[0].value is False
     assert vo_a.simulation_state["sim_value"] is False
@@ -133,7 +134,7 @@ def test_priority_a_audit():
 
     # Tick 3:
     m.engine.time.advance(150)
-    m.engine._tick()
+    m.engine.step()
 
     assert ton.outputs[0].value is True # 200ms passed, Output goes high
     assert vo_b.simulation_state["sim_value"] is True

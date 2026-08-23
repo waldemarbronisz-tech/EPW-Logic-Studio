@@ -10,17 +10,22 @@ class VirtualInputBlock(BaseLogicBlock):
         self.width = 100
         self.height = 60
         self.properties["Tag"] = "VI.NEW_INPUT"
-        self.properties["Force Value"] = False
+        self.properties["Force State"] = "NO FORCE"
 
         self.outputs = [Pin("State", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN)]
 
     def evaluate(self, engine=None):
-        if self.properties.get("Force Value", False) in [True, "True", "true", "1"]:
+        force_state = self.properties.get("Force State", "NO FORCE")
+
+        if force_state == "FORCE TRUE":
             self.outputs[0].value = True
-        elif "sim_value" in self.simulation_state:
-            self.outputs[0].value = self.simulation_state["sim_value"]
-        else:
+        elif force_state == "FORCE FALSE":
             self.outputs[0].value = False
+        else:
+            if "sim_value" in self.simulation_state:
+                self.outputs[0].value = self.simulation_state["sim_value"]
+            else:
+                self.outputs[0].value = False
 
 @BlockRegistry.register
 class VirtualOutputBlock(BaseLogicBlock):

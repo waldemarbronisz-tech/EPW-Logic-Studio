@@ -13,6 +13,10 @@ class EdgeBase(BaseLogicBlock):
         self.outputs = [Pin("Out", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN)]
 
         self.simulation_state["last_in"] = False
+        self.is_stateful = True
+
+    def reset_runtime_state(self):
+        self.simulation_state["last_in"] = False
 
 @BlockRegistry.register
 class RTrigBlock(EdgeBase):
@@ -29,6 +33,9 @@ class FTrigBlock(EdgeBase):
     def __init__(self, type_id="edge.ftrig", default_name="F_TRIG", category="Bramki logiczne", description="Falling Edge Trigger"):
         super().__init__(type_id, default_name, category, description)
         self.simulation_state["last_in"] = True # Assume stable high if evaluating
+
+    def reset_runtime_state(self):
+        self.simulation_state["last_in"] = True
 
     def evaluate(self, engine=None):
         current = bool(self.inputs[0].value)

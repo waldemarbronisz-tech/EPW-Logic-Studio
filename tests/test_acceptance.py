@@ -74,5 +74,5 @@ def test_final_acceptance_project():
 
     # Check if simulation handles execution order properly
     m.start_simulation()
-    m.engine._tick()
+    m.engine.step()
     m.stop_simulation()

@@ -170,10 +170,16 @@ class MainWindow(QMainWindow):
         # Init Application State
         from logic_studio.core.project import Project
         from logic_studio.engine.execution import ExecutionEngine
+        from logic_studio.engine.io_provider import SimulationIOProvider
+        from logic_studio.engine.time_provider import SystemTimeProvider
+        from PySide6.QtCore import QTimer
+
         self.project = Project()
-        self.engine = ExecutionEngine(self.project, self.simulation_panel, [])
-        self.engine.cycle_completed.connect(self.scene.refresh_live_states)
-        self.engine.cycle_completed.connect(self._update_simulation_panel)
+        self.io_provider = SimulationIOProvider()
+        self.engine = ExecutionEngine(self.project, [], self.io_provider, SystemTimeProvider())
+
+        self.sim_timer = QTimer(self)
+        self.sim_timer.timeout.connect(self._on_sim_tick)
 
         self.current_file = None
         self.is_dirty = False
@@ -243,8 +249,7 @@ class MainWindow(QMainWindow):
                 action.triggered.connect(self._new_project)
 
     def _export_runtime(self):
-        if not self.engine.execution_order:
-            self.compile_project()
+        self.compile_project()
 
         if not self.engine.execution_order:
             return # Compilation failed
@@ -448,6 +453,28 @@ class MainWindow(QMainWindow):
         from PySide6.QtWidgets import QFileDialog
         path, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "EPW Logic Files (*.epwlogic)")
         self._open_project_headless(path)
+
+    def _on_sim_tick(self):
+        from logic_studio.engine.execution import ExecutionState
+        if self.engine.state == ExecutionState.RUNNING:
+            # 1. Sync UI -> IO Provider
+            from logic_studio.core.device_model import DeviceModel
+            ela_addrs = DeviceModel.get_ela_addresses()
+            for idx, addr in enumerate(ela_addrs):
+                val = self.simulation_panel.get_ela_state(idx)
+                self.io_provider.set_digital_input(addr, val)
+
+            # 2. Step Engine
+            self.engine.step()
+
+            # 3. Sync IO Provider -> UI
+            ada_addrs = DeviceModel.get_ada_addresses()
+            for idx, addr in enumerate(ada_addrs):
+                val = self.io_provider.read_digital(addr)
+                self.simulation_panel.set_ada_state(idx, val)
+
+            # 4. Refresh Canvas
+            self.scene.refresh_live_states()
 
     def _update_simulation_panel(self):
         # Sync ELA/ADA block states to the UI
