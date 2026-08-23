@@ -1,5 +1,6 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox
 from PySide6.QtCore import Qt
+from logic_studio.core.device_model import DeviceModel
 
 class PropertyGridPanel(QWidget):
     def __init__(self, parent=None):
@@ -56,6 +57,21 @@ class PropertyGridPanel(QWidget):
             if hasattr(window, 'scene'):
                 window.scene.update()
 
+
+    def _on_combo_changed(self, key, text):
+        if not self.current_block:
+            return
+
+        window = self.window()
+        if hasattr(window, 'project'):
+            window.project.push_state()
+            window.set_dirty()
+
+        self.current_block.update_property(key, text)
+
+        if hasattr(window, 'scene'):
+            window.scene.update()
+
     def _set_empty_state(self):
         self.table.setRowCount(1)
         item = QTableWidgetItem("No object selected")
@@ -103,6 +119,24 @@ class PropertyGridPanel(QWidget):
                 val_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsEditable)
 
             self.table.setItem(row, 0, key_item)
-            self.table.setItem(row, 1, val_item)
+
+            # Custom Comboboxes for Address and Force State
+            if key == "Address" and block.type_id in ["input.di", "output.do"]:
+                combo = QComboBox()
+                if block.type_id == "input.di":
+                    combo.addItems(DeviceModel.get_ela_addresses())
+                else:
+                    combo.addItems(DeviceModel.get_ada_addresses())
+                combo.setCurrentText(str(value))
+                combo.currentTextChanged.connect(lambda text, k=key: self._on_combo_changed(k, text))
+                self.table.setCellWidget(row, 1, combo)
+            elif key == "Force State":
+                combo = QComboBox()
+                combo.addItems(["NO FORCE", "FORCE FALSE", "FORCE TRUE"])
+                combo.setCurrentText(str(value))
+                combo.currentTextChanged.connect(lambda text, k=key: self._on_combo_changed(k, text))
+                self.table.setCellWidget(row, 1, combo)
+            else:
+                self.table.setItem(row, 1, val_item)
 
         self.table.blockSignals(False)

@@ -76,3 +76,28 @@ def test_final_acceptance_project():
     m.start_simulation()
     m.engine.step()
     m.stop_simulation()
+
+def test_headless_engine_no_qt():
+    import sys
+    import subprocess
+
+    # Run a python process that imports ExecutionEngine and blocks,
+    # and asserts that 'PySide6' is not in sys.modules.
+    script = """
+import sys
+from logic_studio.engine.execution import ExecutionEngine
+from logic_studio.compiler.core import Compiler
+from logic_studio.core.project import Project
+from logic_studio.blocks.logic_gates import AndGate
+
+assert 'PySide6' not in sys.modules, "PySide6 was imported!"
+assert 'logic_studio.ui' not in sys.modules, "UI package was imported!"
+"""
+
+    with open('test_headless_import.py', 'w') as f:
+        f.write(script)
+
+    res = subprocess.run([sys.executable, 'test_headless_import.py'], capture_output=True, text=True)
+    assert res.returncode == 0, f"Headless import test failed: {res.stderr}"
+
+    os.remove('test_headless_import.py')

@@ -8,7 +8,7 @@
     },
     "blocks": [
         {
-            "uuid": "026f3633-ba94-460a-a82d-0176a19b3274",
+            "uuid": "ea72ab75-db60-496c-92a2-9b1e88377c47",
             "type_id": "virtual.input",
             "display_name": "Virtual IN",
             "category": "Wej\u015bcia / Wyj\u015bcia",
@@ -24,12 +24,12 @@
             "inputs": [],
             "outputs": [
                 {
-                    "uuid": "92df6b64-cda8-49ba-8580-b6dea4b18b32",
+                    "uuid": "1764b7e1-5207-4b8a-93bc-6389d87fd607",
                     "name": "State",
                     "direction": "output",
                     "data_type": "Boolean",
                     "connections": [
-                        "6f6507ed-168b-421d-a674-48b18cbf415d"
+                        "71b1fb9a-7266-4468-a6cb-96802a2e57b9"
                     ]
                 }
             ],
@@ -46,7 +46,7 @@
             }
         },
         {
-            "uuid": "25570e8e-5fcb-4e98-bed2-c7e2fe66ff66",
+            "uuid": "e59c00c3-ea1a-47f3-aa6d-7b47abee35a9",
             "type_id": "edge.rtrig",
             "display_name": "R_TRIG",
             "category": "Bramki logiczne",
@@ -61,18 +61,18 @@
             },
             "inputs": [
                 {
-                    "uuid": "6f6507ed-168b-421d-a674-48b18cbf415d",
+                    "uuid": "71b1fb9a-7266-4468-a6cb-96802a2e57b9",
                     "name": "In",
                     "direction": "input",
                     "data_type": "Boolean",
                     "connections": [
-                        "92df6b64-cda8-49ba-8580-b6dea4b18b32"
+                        "1764b7e1-5207-4b8a-93bc-6389d87fd607"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "6b94b2a0-4776-46bf-84e3-caa26a690bba",
+                    "uuid": "e9aca710-452d-4dd4-863a-cb46e270e5b8",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Boolean",
@@ -90,7 +90,7 @@
             }
         },
         {
-            "uuid": "b8d4fc8f-b594-4785-9597-645c4f6e9de8",
+            "uuid": "03ae3055-6c3e-4caa-987f-3d54e9983d07",
             "type_id": "const.real",
             "display_name": "REAL",
             "category": "Inne",
@@ -106,12 +106,12 @@
             "inputs": [],
             "outputs": [
                 {
-                    "uuid": "667dd83f-98ba-4de5-bae0-f339954b679a",
+                    "uuid": "0405aad4-7275-40a5-98e5-8b7dfdb4dc0a",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Float",
                     "connections": [
-                        "e09894b5-e2ad-4a2f-8746-7ec6c4bbc0a0"
+                        "84add6a8-aff2-4d49-b597-3723a598d991"
                     ]
                 }
             ],
@@ -127,7 +127,7 @@
             }
         },
         {
-            "uuid": "2bd91041-b68e-4c91-9986-1ce6f8fd5c44",
+            "uuid": "ac869ba0-b440-449d-8f94-4affd37bee70",
             "type_id": "analog.scale",
             "display_name": "SCALE",
             "category": "Elementy Analogowe",
@@ -142,23 +142,23 @@
             },
             "inputs": [
                 {
-                    "uuid": "e09894b5-e2ad-4a2f-8746-7ec6c4bbc0a0",
+                    "uuid": "84add6a8-aff2-4d49-b597-3723a598d991",
                     "name": "In",
                     "direction": "input",
                     "data_type": "Float",
                     "connections": [
-                        "667dd83f-98ba-4de5-bae0-f339954b679a"
+                        "0405aad4-7275-40a5-98e5-8b7dfdb4dc0a"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "a04f89d6-ad6f-411f-aa64-6d43d72ea8fd",
+                    "uuid": "7e18de7c-8fd5-49d8-8865-985d2be0b163",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Float",
                     "connections": [
-                        "a1ad27d5-692a-43c3-80d8-5b331bccd487"
+                        "7220e963-2847-4964-8046-c4bcbbba72a3"
                     ]
                 }
             ],
@@ -177,7 +177,7 @@
             }
         },
         {
-            "uuid": "ab7aed36-0a72-496f-96a0-7d67b57cef4e",
+            "uuid": "595807c3-890e-4fb7-931a-ccfd3baa6d3a",
             "type_id": "analog.limit",
             "display_name": "LIMIT",
             "category": "Elementy Analogowe",
@@ -192,18 +192,18 @@
             },
             "inputs": [
                 {
-                    "uuid": "a1ad27d5-692a-43c3-80d8-5b331bccd487",
+                    "uuid": "7220e963-2847-4964-8046-c4bcbbba72a3",
                     "name": "In",
                     "direction": "input",
                     "data_type": "Float",
                     "connections": [
-                        "a04f89d6-ad6f-411f-aa64-6d43d72ea8fd"
+                        "7e18de7c-8fd5-49d8-8865-985d2be0b163"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "7aa50ddc-4c0f-4293-8f88-07ce3c9f0082",
+                    "uuid": "d492c299-b932-4777-8d17-253845e5d715",
                     "name": "Out",
                     "direction": "output",
                     "data_type": "Float",
