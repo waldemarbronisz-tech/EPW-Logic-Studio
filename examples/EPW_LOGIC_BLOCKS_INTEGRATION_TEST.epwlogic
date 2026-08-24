@@ -1,0 +1,226 @@
+{
+    "format": "EPW_LOGIC",
+    "schema_version": 1,
+    "settings": {
+        "name": "New Project",
+        "version": "1.0",
+        "cycle_time_ms": 100
+    },
+    "blocks": [
+        {
+            "uuid": "ea72ab75-db60-496c-92a2-9b1e88377c47",
+            "type_id": "virtual.input",
+            "display_name": "Virtual IN",
+            "category": "Wej\u015bcia / Wyj\u015bcia",
+            "description": "Virtual Boolean Input",
+            "position": {
+                "x": 0,
+                "y": 0
+            },
+            "size": {
+                "width": 100,
+                "height": 60
+            },
+            "inputs": [],
+            "outputs": [
+                {
+                    "uuid": "1764b7e1-5207-4b8a-93bc-6389d87fd607",
+                    "name": "State",
+                    "direction": "output",
+                    "data_type": "Boolean",
+                    "connections": [
+                        "71b1fb9a-7266-4468-a6cb-96802a2e57b9"
+                    ]
+                }
+            ],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#006400",
+            "visibility": true,
+            "enabled": true,
+            "properties": {
+                "Address": "",
+                "Comment": "",
+                "Tag": "VI.NEW_INPUT",
+                "Force State": "FORCE TRUE"
+            }
+        },
+        {
+            "uuid": "e59c00c3-ea1a-47f3-aa6d-7b47abee35a9",
+            "type_id": "edge.rtrig",
+            "display_name": "R_TRIG",
+            "category": "Bramki logiczne",
+            "description": "Rising Edge Trigger",
+            "position": {
+                "x": 150.0,
+                "y": 0.0
+            },
+            "size": {
+                "width": 60,
+                "height": 60
+            },
+            "inputs": [
+                {
+                    "uuid": "71b1fb9a-7266-4468-a6cb-96802a2e57b9",
+                    "name": "In",
+                    "direction": "input",
+                    "data_type": "Boolean",
+                    "connections": [
+                        "1764b7e1-5207-4b8a-93bc-6389d87fd607"
+                    ]
+                }
+            ],
+            "outputs": [
+                {
+                    "uuid": "e9aca710-452d-4dd4-863a-cb46e270e5b8",
+                    "name": "Out",
+                    "direction": "output",
+                    "data_type": "Boolean",
+                    "connections": []
+                }
+            ],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#8A2BE2",
+            "visibility": true,
+            "enabled": true,
+            "properties": {
+                "Address": "",
+                "Comment": ""
+            }
+        },
+        {
+            "uuid": "03ae3055-6c3e-4caa-987f-3d54e9983d07",
+            "type_id": "const.real",
+            "display_name": "REAL",
+            "category": "Inne",
+            "description": "Real Constant",
+            "position": {
+                "x": 0.0,
+                "y": 150.0
+            },
+            "size": {
+                "width": 60,
+                "height": 60
+            },
+            "inputs": [],
+            "outputs": [
+                {
+                    "uuid": "0405aad4-7275-40a5-98e5-8b7dfdb4dc0a",
+                    "name": "Out",
+                    "direction": "output",
+                    "data_type": "Float",
+                    "connections": [
+                        "84add6a8-aff2-4d49-b597-3723a598d991"
+                    ]
+                }
+            ],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#555555",
+            "visibility": true,
+            "enabled": true,
+            "properties": {
+                "Address": "",
+                "Comment": "",
+                "Value": 50.0
+            }
+        },
+        {
+            "uuid": "ac869ba0-b440-449d-8f94-4affd37bee70",
+            "type_id": "analog.scale",
+            "display_name": "SCALE",
+            "category": "Elementy Analogowe",
+            "description": "Linear Scaling",
+            "position": {
+                "x": 150.0,
+                "y": 150.0
+            },
+            "size": {
+                "width": 100,
+                "height": 100
+            },
+            "inputs": [
+                {
+                    "uuid": "84add6a8-aff2-4d49-b597-3723a598d991",
+                    "name": "In",
+                    "direction": "input",
+                    "data_type": "Float",
+                    "connections": [
+                        "0405aad4-7275-40a5-98e5-8b7dfdb4dc0a"
+                    ]
+                }
+            ],
+            "outputs": [
+                {
+                    "uuid": "7e18de7c-8fd5-49d8-8865-985d2be0b163",
+                    "name": "Out",
+                    "direction": "output",
+                    "data_type": "Float",
+                    "connections": [
+                        "7220e963-2847-4964-8046-c4bcbbba72a3"
+                    ]
+                }
+            ],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#808000",
+            "visibility": true,
+            "enabled": true,
+            "properties": {
+                "Address": "",
+                "Comment": "",
+                "In Min": 0.0,
+                "In Max": 100.0,
+                "Out Min": 0.0,
+                "Out Max": 1000.0
+            }
+        },
+        {
+            "uuid": "595807c3-890e-4fb7-931a-ccfd3baa6d3a",
+            "type_id": "analog.limit",
+            "display_name": "LIMIT",
+            "category": "Elementy Analogowe",
+            "description": "Clamp Value",
+            "position": {
+                "x": 300.0,
+                "y": 150.0
+            },
+            "size": {
+                "width": 100,
+                "height": 80
+            },
+            "inputs": [
+                {
+                    "uuid": "7220e963-2847-4964-8046-c4bcbbba72a3",
+                    "name": "In",
+                    "direction": "input",
+                    "data_type": "Float",
+                    "connections": [
+                        "7e18de7c-8fd5-49d8-8865-985d2be0b163"
+                    ]
+                }
+            ],
+            "outputs": [
+                {
+                    "uuid": "d492c299-b932-4777-8d17-253845e5d715",
+                    "name": "Out",
+                    "direction": "output",
+                    "data_type": "Float",
+                    "connections": []
+                }
+            ],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#808000",
+            "visibility": true,
+            "enabled": true,
+            "properties": {
+                "Address": "",
+                "Comment": "",
+                "Min": 0.0,
+                "Max": 800.0
+            }
+        }
+    ]
+}
