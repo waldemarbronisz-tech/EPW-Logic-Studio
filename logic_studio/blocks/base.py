@@ -94,27 +94,50 @@ class BaseLogicBlock:
         block.height = size["height"]
         block.execution_priority = data.get("execution_priority", 1)
         block.color = data.get("color", "#E0E0E0")
-        block.properties = data.get("properties", {})
+        block.properties = data.get("properties", {}).copy() # Ensure copy
         # Pin deserialization is handled by the project loader
         return block
 
-    def clone(self):
-        """Creates a deep copy of the block with a new UUID."""
+    def clone(self, preserve_uuid=False):
+        """Creates a copy of the block."""
         new_block = self.__class__()
+        if preserve_uuid:
+            new_block.uuid = self.uuid
         new_block.display_name = self.display_name
         new_block.width = self.width
         new_block.height = self.height
         new_block.color = self.color
         new_block.properties = self.properties.copy()
+        new_block.type_id = self.type_id # MUST PRESERVE TYPE ID explicitly
 
-        # Adjust dynamic inputs/outputs lengths if needed
-        # (This helps blocks with dynamic port counts)
-        while len(new_block.inputs) < len(self.inputs):
-            from logic_studio.blocks.pin import Pin
-            p = self.inputs[len(new_block.inputs)]
-            new_block.inputs.append(Pin(p.name, p.direction, p.data_type))
+        from logic_studio.blocks.pin import Pin
 
-        # We don't clone UUID, position, or connections.
+        # We must clone the pins to avoid sharing mutable state
+        # In fact, we MUST NOT reuse the original pin UUIDs or else _find_pin_by_uuid
+        # might match original UI pins if they somehow leaked.
+        # WAIT! If we re-generate UUIDs for cloned pins, the topology graph built by Kahn
+        # using the original UUIDs will BREAK.
+        # So we MUST reuse pin UUIDs exactly. But wait, `connections` list contains UUIDs of OTHER pins.
+        # This is correct.
+
+        new_block.inputs = []
+        for p in self.inputs:
+            new_p = Pin(p.name, p.direction, p.data_type)
+            if preserve_uuid:
+                new_p.uuid = p.uuid
+                new_p.connections = list(p.connections)
+            new_block.inputs.append(new_p)
+
+        new_block.outputs = []
+        for p in self.outputs:
+            new_p = Pin(p.name, p.direction, p.data_type)
+            if preserve_uuid:
+                new_p.uuid = p.uuid
+                new_p.connections = list(p.connections)
+            new_block.outputs.append(new_p)
+
+        new_block.simulation_state = self.simulation_state.copy()
+
         return new_block
 
     def evaluate(self, engine=None):

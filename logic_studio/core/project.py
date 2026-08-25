@@ -107,7 +107,20 @@ class Project:
                 for i, pin_data in enumerate(b_data.get("inputs", [])):
                     if i < len(block.inputs):
                         block.inputs[i].uuid = pin_data.get("uuid")
-                        block.inputs[i].connections = pin_data.get("connections", [])
+                        block.inputs[i].connections = list(pin_data.get("connections", []))
+
+                for i, pin_data in enumerate(b_data.get("outputs", [])):
+                    if i < len(block.outputs):
+                        block.outputs[i].uuid = pin_data.get("uuid")
+                        block.outputs[i].connections = list(pin_data.get("connections", []))
+
+                block_map[block.uuid] = block
+                proj.add_block(block)
+
+        # 2. Wire connections are fully defined by the list of UUIDs.
+        # No extra step needed here because Kahn and Engine use the connections arrays
+        # which now contain string UUIDs matching exactly what was serialized!
+
 
                 for i, pin_data in enumerate(b_data.get("outputs", [])):
                     if i < len(block.outputs):

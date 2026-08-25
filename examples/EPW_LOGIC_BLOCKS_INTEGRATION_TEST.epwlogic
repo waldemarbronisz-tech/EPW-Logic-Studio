@@ -8,7 +8,7 @@
     },
     "blocks": [
         {
-            "uuid": "ea72ab75-db60-496c-92a2-9b1e88377c47",
+            "uuid": "47186e18-f183-4505-9ebd-ec07a73a6a3c",
             "type_id": "virtual.input",
             "display_name": "Virtual IN",
             "category": "Wej\u015bcia / Wyj\u015bcia",
@@ -24,12 +24,12 @@
             "inputs": [],
             "outputs": [
                 {
-                    "uuid": "1764b7e1-5207-4b8a-93bc-6389d87fd607",
+                    "uuid": "5f45b11f-ea7a-49bd-8003-447521353bdd",
                     "name": "State",
                     "direction": "output",
-                    "data_type": "Boolean",
+                    "data_type": "BOOL",
                     "connections": [
-                        "71b1fb9a-7266-4468-a6cb-96802a2e57b9"
+                        "360941f6-09bd-4a37-8530-1b1751d97400"
                     ]
                 }
             ],
@@ -42,11 +42,11 @@
                 "Address": "",
                 "Comment": "",
                 "Tag": "VI.NEW_INPUT",
-                "Force State": "FORCE TRUE"
+                "Force State": "NO FORCE"
             }
         },
         {
-            "uuid": "e59c00c3-ea1a-47f3-aa6d-7b47abee35a9",
+            "uuid": "782b67f7-5be7-4903-9e0b-3bb041c4c276",
             "type_id": "edge.rtrig",
             "display_name": "R_TRIG",
             "category": "Bramki logiczne",
@@ -61,21 +61,21 @@
             },
             "inputs": [
                 {
-                    "uuid": "71b1fb9a-7266-4468-a6cb-96802a2e57b9",
+                    "uuid": "360941f6-09bd-4a37-8530-1b1751d97400",
                     "name": "In",
                     "direction": "input",
-                    "data_type": "Boolean",
+                    "data_type": "BOOL",
                     "connections": [
-                        "1764b7e1-5207-4b8a-93bc-6389d87fd607"
+                        "5f45b11f-ea7a-49bd-8003-447521353bdd"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "e9aca710-452d-4dd4-863a-cb46e270e5b8",
+                    "uuid": "68c06ec1-eda2-4d95-a8a1-510b2d5d3cc8",
                     "name": "Out",
                     "direction": "output",
-                    "data_type": "Boolean",
+                    "data_type": "BOOL",
                     "connections": []
                 }
             ],
@@ -90,7 +90,7 @@
             }
         },
         {
-            "uuid": "03ae3055-6c3e-4caa-987f-3d54e9983d07",
+            "uuid": "7f3be5b0-feba-4cb6-9993-41dabb095a12",
             "type_id": "const.real",
             "display_name": "REAL",
             "category": "Inne",
@@ -106,12 +106,12 @@
             "inputs": [],
             "outputs": [
                 {
-                    "uuid": "0405aad4-7275-40a5-98e5-8b7dfdb4dc0a",
+                    "uuid": "b082cc42-4539-4166-8ab5-d33c7b09ed2b",
                     "name": "Out",
                     "direction": "output",
-                    "data_type": "Float",
+                    "data_type": "REAL",
                     "connections": [
-                        "84add6a8-aff2-4d49-b597-3723a598d991"
+                        "ac056cb4-6c7d-441b-b6d6-83af5524c334"
                     ]
                 }
             ],
@@ -127,7 +127,7 @@
             }
         },
         {
-            "uuid": "ac869ba0-b440-449d-8f94-4affd37bee70",
+            "uuid": "3c56c40c-efd2-4fbc-95c5-b24b27f2c94f",
             "type_id": "analog.scale",
             "display_name": "SCALE",
             "category": "Elementy Analogowe",
@@ -142,23 +142,23 @@
             },
             "inputs": [
                 {
-                    "uuid": "84add6a8-aff2-4d49-b597-3723a598d991",
+                    "uuid": "ac056cb4-6c7d-441b-b6d6-83af5524c334",
                     "name": "In",
                     "direction": "input",
-                    "data_type": "Float",
+                    "data_type": "REAL",
                     "connections": [
-                        "0405aad4-7275-40a5-98e5-8b7dfdb4dc0a"
+                        "b082cc42-4539-4166-8ab5-d33c7b09ed2b"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "7e18de7c-8fd5-49d8-8865-985d2be0b163",
+                    "uuid": "26e8fe2e-3561-443b-b0d8-bb61bcf34ed0",
                     "name": "Out",
                     "direction": "output",
-                    "data_type": "Float",
+                    "data_type": "REAL",
                     "connections": [
-                        "7220e963-2847-4964-8046-c4bcbbba72a3"
+                        "8c51dfe6-89a1-4526-9b5b-06331010593f"
                     ]
                 }
             ],
@@ -177,7 +177,7 @@
             }
         },
         {
-            "uuid": "595807c3-890e-4fb7-931a-ccfd3baa6d3a",
+            "uuid": "69977ce6-d8d2-436a-ae46-3c8116ec103a",
             "type_id": "analog.limit",
             "display_name": "LIMIT",
             "category": "Elementy Analogowe",
@@ -192,21 +192,21 @@
             },
             "inputs": [
                 {
-                    "uuid": "7220e963-2847-4964-8046-c4bcbbba72a3",
+                    "uuid": "8c51dfe6-89a1-4526-9b5b-06331010593f",
                     "name": "In",
                     "direction": "input",
-                    "data_type": "Float",
+                    "data_type": "REAL",
                     "connections": [
-                        "7e18de7c-8fd5-49d8-8865-985d2be0b163"
+                        "26e8fe2e-3561-443b-b0d8-bb61bcf34ed0"
                     ]
                 }
             ],
             "outputs": [
                 {
-                    "uuid": "d492c299-b932-4777-8d17-253845e5d715",
+                    "uuid": "f672f199-c824-4a4a-9778-b2d4f8e96b15",
                     "name": "Out",
                     "direction": "output",
-                    "data_type": "Float",
+                    "data_type": "REAL",
                     "connections": []
                 }
             ],

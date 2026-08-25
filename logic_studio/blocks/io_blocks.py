@@ -25,9 +25,12 @@ class DigitalInputBlock(BaseLogicBlock):
             self.outputs[0].value = False
         else:
             if engine and hasattr(engine, 'io') and engine.io is not None:
-                self.outputs[0].value = engine.io.read_digital(addr)
+                val = engine.io.read_digital_input(addr)
+                self.outputs[0].value = val
             else:
                 self.outputs[0].value = False
+
+        self.simulation_state["sim_value"] = self.outputs[0].value
 
 @BlockRegistry.register
 class DigitalOutputBlock(BaseLogicBlock):
@@ -47,6 +50,6 @@ class DigitalOutputBlock(BaseLogicBlock):
 
         if engine and hasattr(engine, 'io') and engine.io is not None:
             addr = self.properties.get("Address", "")
-            engine.io.write_digital(addr, val)
+            engine.io.write_digital_output(addr, val)
 
         self.simulation_state["sim_value"] = val

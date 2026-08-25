@@ -32,10 +32,10 @@ def test_file_operations_and_export():
 
     # Validate compile and runtime export bypass
     m.compile_project()
-    assert len(m.engine.execution_order) == 3
+    assert len(m.engine.program.execution_order) == 3
 
     from logic_studio.compiler.exporter import Exporter
-    exporter = Exporter(m.project, m.engine.execution_order)
+    exporter = Exporter(m.project, m.engine.program.execution_order)
     runtime_data = exporter.export()
 
     assert "format" in runtime_data
@@ -70,7 +70,7 @@ def test_final_acceptance_project():
 
     m.compile_project()
     # Exclude docs from execution order
-    assert len(m.engine.execution_order) == 4
+    assert len(m.engine.program.execution_order) == 4
 
     # Check if simulation handles execution order properly
     m.start_simulation()

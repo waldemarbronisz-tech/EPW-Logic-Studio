@@ -176,7 +176,7 @@ class MainWindow(QMainWindow):
 
         self.project = Project()
         self.io_provider = SimulationIOProvider()
-        self.engine = ExecutionEngine(self.project, [], self.io_provider, SystemTimeProvider())
+        self.engine = ExecutionEngine(None, self.io_provider, SystemTimeProvider())
 
         self.sim_timer = QTimer(self)
         self.sim_timer.timeout.connect(self._on_sim_tick)
@@ -273,7 +273,9 @@ class MainWindow(QMainWindow):
             self.output_panel.log_message(f"Runtime exported to {path}")
 
     def compile_project(self):
-        self.engine.execution_order = []
+        if self.engine:
+            self.engine.stop()
+
         from logic_studio.compiler.core import Compiler
         comp = Compiler(self.project)
         res = comp.compile()
@@ -291,22 +293,28 @@ class MainWindow(QMainWindow):
             self.output_panel.log_message("Compilation failed.")
         else:
             self.output_panel.log_message("Compilation successful.")
-            self.engine.execution_order = res["execution_order"]
+            if "program" in res:
+                self.engine.load_program(res["program"])
 
     def start_simulation(self):
         # Force a fresh compile before every run to ensure safety
         self.compile_project()
 
-        if not self.engine.execution_order:
+        if not self.engine.program or not self.engine.program.execution_order:
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.critical(self, "Simulation Error", "Cannot start simulation. Project compilation failed.")
             return
 
         self.engine.start()
+
+        cycle_time_ms = self.project.settings.get("cycle_time_ms", 100)
+        self.sim_timer.start(cycle_time_ms)
+
         self.lbl_sim.setText("Simulation: Running")
 
     def stop_simulation(self):
         self.engine.stop()
+        self.sim_timer.stop()
         self.lbl_sim.setText("Simulation: Stopped")
         # Reset block values
         for block in self.project.blocks:
@@ -470,7 +478,7 @@ class MainWindow(QMainWindow):
             # 3. Sync IO Provider -> UI
             ada_addrs = DeviceModel.get_ada_addresses()
             for idx, addr in enumerate(ada_addrs):
-                val = self.io_provider.read_digital(addr)
+                val = self.io_provider.read_digital_output(addr)
                 self.simulation_panel.set_ada_state(idx, val)
 
             # 4. Refresh Canvas

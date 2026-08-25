@@ -102,42 +102,42 @@ def test_priority_a_audit():
 
     # 6. SIMULATION
     m.compile_project()
-    assert len(m.engine.execution_order) == 11
+    assert len(m.engine.program.execution_order) == 11
 
     # Tick 1: Pulse input high
-    vi_a.properties["Force State"] = "FORCE TRUE"
+    m.engine.program.block_map[vi_a.uuid].properties["Force State"] = "FORCE TRUE"
     m.engine.io.set_digital_input("SYSTEM.CORE_ONLINE", True)
     m.engine.step()
 
     # Network A Checks
-    assert sys_sig.outputs[0].value is True
-    assert rtrig.outputs[0].value is True
-    assert and_gate.outputs[0].value is True
-    assert vo_a.simulation_state["sim_value"] is True
+    assert m.engine.get_block_state(sys_sig.uuid).outputs["Out"].value is True
+    assert m.engine.get_block_state(rtrig.uuid).outputs["Out"].value is True
+    assert m.engine.get_block_state(and_gate.uuid).outputs["Out"].value is True
+    assert m.engine.get_block_state(vo_a.uuid).simulation_state["sim_value"] is True
 
     # Network B Checks
-    assert analog_src.outputs[0].value == 5.0
-    assert scale.outputs[0].value == 50.0
-    assert mov_avg.outputs[0].value == 50.0 # window fills
-    assert hyst.outputs[0].value is True # 50 >= 40 High Threshold
-    assert ton.outputs[0].value is False # Needs 200ms
+    assert m.engine.get_block_state(analog_src.uuid).outputs["Out"].value == 5.0
+    assert m.engine.get_block_state(scale.uuid).outputs["Out"].value == 50.0
+    assert m.engine.get_block_state(mov_avg.uuid).outputs["Out"].value == 50.0 # window fills
+    assert m.engine.get_block_state(hyst.uuid).outputs["Out"].value is True # 50 >= 40 High Threshold
+    assert m.engine.get_block_state(ton.uuid).outputs["Q"].value is False # Needs 200ms
 
     # Tick 2: Pulse goes low
-    vi_a.properties["Force State"] = "FORCE FALSE"
+    m.engine.program.block_map[vi_a.uuid].properties["Force State"] = "FORCE FALSE"
 
     m.engine.time.advance(150) # Simulate real engine sleep delay for TON
     m.engine.step()
 
-    assert rtrig.outputs[0].value is False
-    assert vo_a.simulation_state["sim_value"] is False
-    assert ton.outputs[0].value is False # Only 100ms passed
+    assert m.engine.get_block_state(rtrig.uuid).outputs["Out"].value is False
+    assert m.engine.get_block_state(vo_a.uuid).simulation_state["sim_value"] is False
+    assert m.engine.get_block_state(ton.uuid).outputs["Q"].value is False # Only 100ms passed
 
     # Tick 3:
     m.engine.time.advance(150)
     m.engine.step()
 
-    assert ton.outputs[0].value is True # 200ms passed, Output goes high
-    assert vo_b.simulation_state["sim_value"] is True
+    assert m.engine.get_block_state(ton.uuid).outputs["Q"].value is True # 200ms passed, Output goes high
+    assert m.engine.get_block_state(vo_b.uuid).simulation_state["sim_value"] is True
 
     # 10. EXAMPLE PROJECT / 7. SAVE OPEN
     save_path = "examples/EPW_LOGIC_PRIORITY_A_TEST.epwlogic"
@@ -160,7 +160,7 @@ def test_priority_a_audit():
 
     # 8. RUNTIME EXPORT
     from logic_studio.compiler.exporter import Exporter
-    runtime_data = Exporter(m.project, m.engine.execution_order).export()
+    runtime_data = Exporter(m.project, m.engine.program.execution_order).export()
 
     assert "format" in runtime_data
     assert len(runtime_data["blocks"]) == 11
