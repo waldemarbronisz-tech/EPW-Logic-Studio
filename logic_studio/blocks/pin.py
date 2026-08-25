@@ -54,18 +54,39 @@ class Pin:
             other_pin.connections.remove(self.uuid)
 
     def serialize(self) -> dict:
+        # Convert internal UI types to CANONICAL RUNTIME TYPES
+        type_mapping = {
+            self.TYPE_BOOLEAN: "BOOL",
+            self.TYPE_FLOAT: "REAL",
+            self.TYPE_INTEGER: "DINT",
+            self.TYPE_STRING: "STRING"
+        }
+        canonical_type = type_mapping.get(self.data_type, "ANY")
         return {
             "uuid": self.uuid,
             "name": self.name,
             "direction": "input" if self.direction == self.DIR_INPUT else "output",
-            "data_type": self.data_type,
+            "data_type": canonical_type,
             "connections": self.connections
         }
 
     @classmethod
     def deserialize(cls, data: dict):
         direction = cls.DIR_INPUT if data.get("direction") == "input" else cls.DIR_OUTPUT
-        pin = cls(data.get("name", ""), direction, data.get("data_type", cls.TYPE_ANY))
+
+        # Convert CANONICAL RUNTIME TYPES back to internal UI types
+        type_str = data.get("data_type", "ANY")
+        reverse_mapping = {
+            "BOOL": cls.TYPE_BOOLEAN,
+            "REAL": cls.TYPE_FLOAT,
+            "DINT": cls.TYPE_INTEGER,
+            "INT": cls.TYPE_INTEGER,
+            "STRING": cls.TYPE_STRING,
+            "TIME": cls.TYPE_INTEGER # We treat time as ms int internally for now
+        }
+        internal_type = reverse_mapping.get(type_str, type_str) # fallback to original if unknown
+
+        pin = cls(data.get("name", ""), direction, internal_type)
         pin.uuid = data.get("uuid", pin.uuid)
         pin.connections = data.get("connections", [])
         return pin

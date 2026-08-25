@@ -38,4 +38,22 @@ class Compiler:
         self.status = "COMPILED_VALID"
         from logic_studio.compiler.exporter import Exporter
         exporter = Exporter(self.project, execution_order)
-        return exporter.export()
+        compiled_data = exporter.export()
+
+        # 4. Generate isolated CompiledProgram for the ExecutionEngine
+        from logic_studio.engine.program import CompiledProgram
+        # We need true isolated blocks. deserialize creates fresh instances
+        project_json = self.project.serialize()
+        from logic_studio.core.project import Project
+        isolated_project = Project.deserialize(project_json)
+
+        # In serialize/deserialize, UUIDs are fully preserved, so execution_order matches
+        program = CompiledProgram(
+            blocks=isolated_project.blocks,
+            execution_order=execution_order,
+            cycle_time_ms=self.project.settings.get("cycle_time_ms", 100)
+        )
+
+        compiled_data["program"] = program
+
+        return compiled_data

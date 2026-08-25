@@ -16,7 +16,7 @@ class SystemBooleanSignalBlock(BaseLogicBlock):
     def evaluate(self, engine=None):
         if engine and hasattr(engine, 'io'):
             # Fetch from IO provider or simulation memory. E.g., simulated system states
-            self.outputs[0].value = engine.io.read_digital(self.properties.get("Tag", "SYS_READY"))
+            self.outputs[0].value = engine.io.read_digital_input(self.properties.get("Tag", "SYS_READY"))
         else:
             self.outputs[0].value = False
 
@@ -29,8 +29,11 @@ class ButtonBlock(BaseLogicBlock):
         self.properties["Tag"] = ""
 
     def evaluate(self, engine=None):
-        # Read momentary press state injected directly into simulation_state by UI mouse events
-        self.outputs[0].value = self.simulation_state.get("pressed", False)
+        # User message is a sink. Store message string in simulation state based on input.
+        val = bool(self.inputs[0].value) if self.inputs and self.inputs[0].value is not None else False
+        msg = self.properties.get("Message 1", "") if val else self.properties.get("Message 0", "")
+        self.simulation_state["display_message"] = msg
+        self.simulation_state["sim_value"] = val
 
 @BlockRegistry.register
 class LedBlock(BaseLogicBlock):
@@ -41,8 +44,9 @@ class LedBlock(BaseLogicBlock):
         self.properties["Tag"] = ""
 
     def evaluate(self, engine=None):
-        # Read momentary press state injected directly into simulation_state by UI mouse events
-        self.outputs[0].value = self.simulation_state.get("pressed", False)
+        # LED is a sink. Store state for UI visualization.
+        val = bool(self.inputs[0].value) if self.inputs and self.inputs[0].value is not None else False
+        self.simulation_state["sim_value"] = val
 
 @BlockRegistry.register
 class UserMessageBlock(BaseLogicBlock):
@@ -56,8 +60,11 @@ class UserMessageBlock(BaseLogicBlock):
         self.properties["Message 1"] = "Aktywny alarm"
 
     def evaluate(self, engine=None):
-        # Read momentary press state injected directly into simulation_state by UI mouse events
-        self.outputs[0].value = self.simulation_state.get("pressed", False)
+        # User message is a sink. Store message string in simulation state based on input.
+        val = bool(self.inputs[0].value) if self.inputs and self.inputs[0].value is not None else False
+        msg = self.properties.get("Message 1", "") if val else self.properties.get("Message 0", "")
+        self.simulation_state["display_message"] = msg
+        self.simulation_state["sim_value"] = val
 
 @BlockRegistry.register
 class SignalGeneratorBlock(BaseLogicBlock):

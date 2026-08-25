@@ -37,7 +37,7 @@ def test_e2e_simulation_loop():
 
     # 5. Compile
     m.compile_project()
-    assert len(m.engine.execution_order) == 3
+    assert len(m.engine.program.execution_order) == 3
 
     # 6. Simulate step 1
     # Mocking ELA1 input to False
@@ -45,14 +45,14 @@ def test_e2e_simulation_loop():
     m.engine.step() # Manual tick evaluates and propagates
 
     # Assert
-    assert do.simulation_state.get("sim_value") == True # NOT False -> True
+    assert m.engine.get_block_state(do.uuid).simulation_state.get("sim_value") == True # NOT False -> True
 
     # 7. Simulate step 2
     m.io_provider.set_digital_input("ELA01.DI01", True)
     m.engine.step()
 
     # Assert
-    assert do.simulation_state.get("sim_value") == False # NOT True -> False
+    assert m.engine.get_block_state(do.uuid).simulation_state.get("sim_value") == False # NOT True -> False
 
     # Clean up
     # Force bypass prompt so test doesn't hang waiting for user to click Discard
@@ -111,7 +111,7 @@ def test_headless_fat():
     # Setup headless execution
     io = SimulationIOProvider()
     time = SimulationTimeProvider()
-    engine = ExecutionEngine(project, res["execution_order"], io, time)
+    engine = ExecutionEngine(res.get("program"), io, time)
     engine.start()
 
     # Step 1: ELA is FALSE
@@ -120,7 +120,7 @@ def test_headless_fat():
     io.set_digital_input("ELA01.DI01", False)
     engine.step()
 
-    assert io.digital_outputs.get("ADA01.DO01") in [False, None]
+    assert io.output_image["digital"].get("ADA01.DO01") in [False, None]
 
     # Step 2: Advance time 200ms. ELA still FALSE.
     # TON should complete and output TRUE.
@@ -129,7 +129,7 @@ def test_headless_fat():
     time.advance(200)
     engine.step()
 
-    assert io.digital_outputs.get("ADA01.DO01") is True
+    assert io.output_image["digital"].get("ADA01.DO01") is True
 
     # Step 3: Change ELA to TRUE.
     # NOT becomes FALSE.
@@ -139,7 +139,7 @@ def test_headless_fat():
     io.set_digital_input("ELA01.DI01", True)
     engine.step()
 
-    assert io.digital_outputs.get("ADA01.DO01") is True
+    assert io.output_image["digital"].get("ADA01.DO01") is True
 
 def test_same_scan_input_fat():
     from logic_studio.core.project import Project
@@ -174,7 +174,7 @@ def test_same_scan_input_fat():
     res = compiler.compile()
 
     io = SimulationIOProvider()
-    engine = ExecutionEngine(project, res["execution_order"], io, SimulationTimeProvider())
+    engine = ExecutionEngine(res.get("program"), io, SimulationTimeProvider())
     engine.start()
 
     # Set FALSE, execute ONE scan
@@ -182,14 +182,14 @@ def test_same_scan_input_fat():
     engine.step()
 
     # DO01 must be TRUE IMMEDIATELY after that scan
-    assert io.digital_outputs.get("ADA01.DO01") is True
+    assert io.output_image["digital"].get("ADA01.DO01") is True
 
     # Set TRUE, execute ONE scan
     io.set_digital_input("ELA01.DI01", True)
     engine.step()
 
     # DO01 must be FALSE IMMEDIATELY after that scan
-    assert io.digital_outputs.get("ADA01.DO01") is False
+    assert io.output_image["digital"].get("ADA01.DO01") is False
 
 def test_stop_restart_fat():
     from logic_studio.core.project import Project
@@ -230,7 +230,7 @@ def test_stop_restart_fat():
 
     io = SimulationIOProvider()
     time = SimulationTimeProvider()
-    engine = ExecutionEngine(project, res["execution_order"], io, time)
+    engine = ExecutionEngine(res.get("program"), io, time)
     engine.start()
 
     io.set_digital_input("ELA01.DI01", True)
@@ -239,7 +239,7 @@ def test_stop_restart_fat():
     # Advance 200 to trigger TON and set SR
     time.advance(200)
     engine.step()
-    assert io.digital_outputs.get("ADA01.DO01") is True
+    assert io.output_image["digital"].get("ADA01.DO01") is True
 
     # STOP engine
     engine.stop()
@@ -260,4 +260,4 @@ def test_stop_restart_fat():
     engine.step()
 
     # Because TON just started again, SR is not yet set, ADA01 should now be overwritten to False
-    assert io.digital_outputs.get("ADA01.DO01") is False
+    assert io.output_image["digital"].get("ADA01.DO01") is False

@@ -54,25 +54,25 @@ def test_universal_library_integration():
 
     # 4. Compilation
     m.compile_project()
-    assert len(m.engine.execution_order) == 5
+    assert len(m.engine.program.execution_order) == 5
 
     # 5. Simulation Execution
     # First tick
-    vi.properties["Force State"] = "FORCE TRUE" # simulate active edge
+    m.engine.program.block_map[vi.uuid].properties["Force State"] = "FORCE TRUE" # simulate active edge
     m.engine.step()
 
     # Verify R_TRIG pulse is high on first scan
-    assert rtrig.outputs[0].value is True
+    assert m.engine.get_block_state(rtrig.uuid).outputs["Out"].value is True
 
     # Verify Analog flow: Constant (50.0) -> Scale (100 in, 1000 out => 500.0) -> Limit (Max 800 => 500.0)
-    assert scale.outputs[0].value == 500.0
-    assert limit.outputs[0].value == 500.0
+    assert m.engine.get_block_state(scale.uuid).outputs["Out"].value == 500.0
+    assert m.engine.get_block_state(limit.uuid).outputs["Out"].value == 500.0
 
     # Second tick
     m.engine.step()
 
     # Verify R_TRIG pulse goes low on second scan
-    assert rtrig.outputs[0].value is False
+    assert m.engine.get_block_state(rtrig.uuid).outputs["Out"].value is False
 
     # 6. Save and Load
     export_path = "examples/EPW_LOGIC_BLOCKS_INTEGRATION_TEST.epwlogic"
@@ -94,7 +94,7 @@ def test_universal_library_integration():
 
     # 7. Test Runtime Export explicitly for analog networks
     from logic_studio.compiler.exporter import Exporter
-    runtime_data = Exporter(m.project, m.engine.execution_order).export()
+    runtime_data = Exporter(m.project, m.engine.program.execution_order).export()
 
     assert "format" in runtime_data
     assert len(runtime_data["blocks"]) == 5
