@@ -465,5 +465,138 @@ def test_cycle_delay_not_flagged_when_writer_precedes_reader():
     assert vi.uuid not in compiled["cycle_delayed_reads"]
     assert not any("Y" in msg for msg in compiler.infos)
 
+# ---- §6 signal picker dialog -----------------------------------------------
+
+def _leaf_ids(item):
+    """All SIGNAL_ID_ROLE values in a subtree, for easy membership checks."""
+    from logic_studio.ui.signal_picker import SIGNAL_ID_ROLE
+    ids = []
+    if item.data(0, SIGNAL_ID_ROLE) is not None:
+        ids.append(item.data(0, SIGNAL_ID_ROLE))
+    for i in range(item.childCount()):
+        ids.extend(_leaf_ids(item.child(i)))
+    return ids
+
+def _all_tree_ids(dialog):
+    ids = []
+    for i in range(dialog.tree.topLevelItemCount()):
+        ids.extend(_leaf_ids(dialog.tree.topLevelItem(i)))
+    return ids
+
+def test_signal_picker_bool_shows_ela_ada_and_bool_internal_and_system():
+    _app()
+    from logic_studio.ui.signal_picker import SignalPickerDialog
+    p = Project()
+    p.settings["internal_bits"] = [
+        {"name": "BLOKADA_ZS", "type": "BOOL", "retentive": False, "description": "", "label": "", "category": "Blokady"},
+        {"name": "USTAWKA", "type": "REAL", "retentive": False, "description": "", "label": "", "category": ""},
+    ]
+    dialog = SignalPickerDialog(p, value_type="BOOL", sections=("physical", "internal", "system"))
+    ids = _all_tree_ids(dialog)
+    assert "ELA01.DI01" in ids
+    assert "ADA01.DO01" in ids
+    assert "BLOKADA_ZS" in ids
+    assert "USTAWKA" not in ids  # wrong type, must be filtered out
+    assert "SYS.READY" in ids
+    assert "SYS.SCAN_TIME" not in ids  # REAL, filtered out
+
+def test_signal_picker_internal_only_scoping_for_bit_property():
+    """The scoping used for virtual.input/output's "Bit" picker — only the
+    internal-signals section, per property_grid.py's _SIGNAL_PICKER_TARGETS."""
+    _app()
+    from logic_studio.ui.signal_picker import SignalPickerDialog
+    p = Project()
+    p.settings["internal_bits"] = [{"name": "X", "type": "BOOL", "retentive": False, "description": "", "label": "", "category": ""}]
+    dialog = SignalPickerDialog(p, value_type="BOOL", sections=("internal",))
+    ids = _all_tree_ids(dialog)
+    assert ids == ["X"]
+
+def test_signal_picker_system_only_scoping_shows_both_types():
+    """system.signal's "Sygnał" picker: system section only, but BOTH BOOL
+    and REAL signals (value_type=None)."""
+    _app()
+    from logic_studio.ui.signal_picker import SignalPickerDialog
+    p = Project()
+    dialog = SignalPickerDialog(p, value_type=None, sections=("system",))
+    ids = _all_tree_ids(dialog)
+    assert "SYS.READY" in ids       # BOOL
+    assert "SYS.SCAN_TIME" in ids   # REAL
+    assert "ELA01.DI01" not in ids  # physical section excluded
+
+def test_signal_picker_search_filters_by_any_column():
+    _app()
+    from logic_studio.ui.signal_picker import SignalPickerDialog
+    p = Project()
+    p.settings["internal_bits"] = [{"name": "BLOKADA_ZS", "type": "BOOL", "retentive": False, "description": "Blokada szyn", "label": "BLOK", "category": ""}]
+    dialog = SignalPickerDialog(p, value_type="BOOL", sections=("internal",))
+
+    dialog.search_edit.setText("szyn")  # matches the description column
+    # Find the leaf and confirm it's not hidden.
+    root = dialog.tree.topLevelItem(0)
+    cat = root.child(0)
+    leaf = cat.child(0)
+    assert leaf.isHidden() is False
+
+    dialog.search_edit.setText("nic_takiego_nie_ma")
+    assert leaf.isHidden() is True
+
+def test_signal_picker_select_and_accept_returns_chosen_id():
+    _app()
+    from logic_studio.ui.signal_picker import SignalPickerDialog
+    p = Project()
+    p.settings["internal_bits"] = [{"name": "BLOKADA_ZS", "type": "BOOL", "retentive": False, "description": "", "label": "", "category": ""}]
+    dialog = SignalPickerDialog(p, value_type="BOOL", sections=("internal",))
+
+    root = dialog.tree.topLevelItem(0)
+    leaf = root.child(0).child(0)
+    dialog.tree.setCurrentItem(leaf)
+    dialog._on_accept()
+
+    assert dialog.selected_signal_id() == "BLOKADA_ZS"
+
+def test_signal_picker_new_internal_signal_button_adds_to_registry():
+    """§6.6: adding a signal without leaving the dialog."""
+    _app()
+    from logic_studio.ui.signal_picker import SignalPickerDialog, _NewInternalSignalDialog
+    from PySide6.QtWidgets import QDialog
+    p = Project()
+    dialog = SignalPickerDialog(p, value_type="BOOL", sections=("internal",))
+
+    sub = _NewInternalSignalDialog("BOOL", parent=dialog)
+    sub.name_edit.setText("NOWY_SYGNAL")
+    sub._on_accept()
+    assert sub.entry is not None
+    assert sub.entry["name"] == "NOWY_SYGNAL"
+
+    # Simulate what _create_new_signal() does with an already-accepted sub-dialog.
+    p.settings["internal_bits"].append(sub.entry)
+    dialog._populate()
+    assert "NOWY_SYGNAL" in _all_tree_ids(dialog)
+
+def test_signal_picker_ok_disabled_until_a_leaf_is_selected():
+    _app()
+    from logic_studio.ui.signal_picker import SignalPickerDialog
+    p = Project()
+    p.settings["internal_bits"] = [{"name": "X", "type": "BOOL", "retentive": False, "description": "", "label": "", "category": ""}]
+    dialog = SignalPickerDialog(p, value_type="BOOL", sections=("internal",))
+    assert dialog.ok_button.isEnabled() is False
+
+    root = dialog.tree.topLevelItem(0)
+    leaf = root.child(0).child(0)
+    dialog.tree.setCurrentItem(leaf)
+    assert dialog.ok_button.isEnabled() is True
+
+    # Selecting a non-leaf (category) node disables OK again.
+    dialog.tree.setCurrentItem(root.child(0))
+    assert dialog.ok_button.isEnabled() is False
+
+def test_property_grid_signal_picker_targets_cover_all_four_blocks():
+    from logic_studio.ui.panels.property_grid import _SIGNAL_PICKER_TARGETS
+    assert ("virtual.input", "Bit") in _SIGNAL_PICKER_TARGETS
+    assert ("virtual.output", "Bit") in _SIGNAL_PICKER_TARGETS
+    assert ("internal.reg_in", "Bit") in _SIGNAL_PICKER_TARGETS
+    assert ("internal.reg_out", "Bit") in _SIGNAL_PICKER_TARGETS
+    assert ("system.signal", "Sygnał") in _SIGNAL_PICKER_TARGETS
+
 
 
