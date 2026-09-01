@@ -278,3 +278,32 @@ pytest tests/ -q` (30 → 33 testy, wszystkie PASS).
 - Głębszy refaktor undo/redo (pełny snapshot JSON zamiast diffów) — poza zakresem "zero nowych funkcji", to zmiana wydajnościowa, nie naprawa buga.
 - Faktyczna implementacja bloków `Zabezpieczenia *`/`Łączniki`/`Banki Nastaw` — jawnie wykluczone przez sekcję 7.1 (tylko korekta dokumentacji, nie nowe bloki).
 - `DeviceModel` ograniczony do jednego urządzenia ELA01/ADA01 — nie zgłoszone w zleceniu, brak ryzyka bezpieczeństwa, zostawione bez zmian.
+
+## 12. Status napraw (branch `feat/analog-chain`)
+
+Odblokowanie gałęzi analogowej — AI/AO, DEADBAND, QUALITY, histereza/zwłoka
+w komparatorach, pełna ścieżka UI (Project Settings, panel symulacji, Device
+Explorer). Wszystkie punkty pokryte testami w
+`QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` (32 → 71 testów, PASS).
+
+| # | Punkt | Status |
+|---|---|---|
+| 0.1 | Brak fail-safe wyjść przy `stop()`/FAULT | Naprawione — `_touched_outputs` + zerowanie przez IOProvider; `pause()` celowo bez zmian. |
+| 0.2 | `verify_checksum()` wywala `TypeError` na wyniku `compile()` | Naprawione — zamknięty zestaw `CHECKSUM_FIELDS`, reszta pól ignorowana. |
+| 0.3 | "MS Sans Serif" niedostępna na współczesnym Windows | Naprawione — `"Tahoma", "Segoe UI", sans-serif`; brak ostrzeżeń `qt.qpa.fonts`. |
+| 1.1–1.2 | Brak dynamicznych punktów analogowych w modelu projektu | Naprawione — `project.settings["analog_points"]`, `DeviceModel.get_analog_*(project, ...)`. |
+| 1.3 | Brak edycji punktów analogowych w UI | Naprawione — tabela w `ProjectSettingsDialog` z walidacją (adres/min<max/direction). |
+| 2.1–2.2 | Brak bloków `input.ai`/`output.ao` | Naprawione — `blocks/analog_io.py`, fail-safe holdover na złej jakości, bufor wyjść analogowych. |
+| 2.3 | Walidator nie znał adresów analogowych | Naprawione — twarde błędy dla `input.ai`/`output.ao`, ostrzeżenie na duplikat `input.ai`. |
+| 2.4 | Property grid bez comboboxa adresu AI/AO | Naprawione. |
+| 2.5 | Brak kształtu/wskaźnika jakości AI/AO na kanwie | Naprawione — styl IO w odrębnych kolorach, adres+jednostka+wartość, czerwony wskaźnik przy Quality=False. |
+| 3 | Brak bloku DEADBAND | Naprawione — `analog.deadband`, tryb bezwzględny/procentowy. |
+| 4 | Brak bloku QUALITY | Naprawione — `analog.quality` (Out Of Range/Rate Fault/Stuck/Good). |
+| 5 | Komparatory bez histerezy/zwłoki | Naprawione — `Hysteresis`/`T On (ms)`/`T Off (ms)` na wszystkich siedmiu komparatorach, identyczne zachowanie przy wartościach zerowych. |
+| 6 | Panel symulacji bez wejść analogowych/krokowania | Naprawione — sekcje suwak+spinbox / odczyt AO, przyciski Krok / Krok ×10. |
+| 7 | Device Explorer bez gałęzi analogowej | Naprawione — gałąź zasilana wyłącznie z `analog_points`, bez EPM. |
+
+### Świadomie pominięte / poza zakresem tego PR
+- Gałąź EPM w Device Explorerze — jawnie odłożona do czasu powstania bloków pomiarowych EPM (sekcja 7 zlecenia).
+- Ikona/kolor bloków `analog.deadband`/`analog.quality` na kanwie pozostaje domyślnym stylem "COMPLEX" (jak SCALE/LIMIT/HYSTERESIS) — zlecenie nie wymagało dedykowanego kształtu dla tych dwóch bloków, tylko dla AI/AO (sekcja 2.5).
+- Krokowanie (`step_requested`) nie blokuje przycisków na poziomie samego silnika (`ExecutionEngine.step()` nadal wykona skan także w stanie STOPPED, zgodnie z zamierzonym użyciem) — ograniczenie do PAUSED/STOPPED-z-programem jest egzekwowane w `MainWindow._on_step_requested()`, zgodnie z literą zlecenia.

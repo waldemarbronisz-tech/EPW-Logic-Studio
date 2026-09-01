@@ -14,5 +14,7 @@ EPW Logic Studio strictly decouples the UI layout logic from the execution runti
 ## Features
 - **Headless Runtime:** Capable of running simulation steps completely independently of PySide6/Qt context.
 - **Strict Data Typing:** Prevents logic connection bridging between incompatible boolean/float/integer boundaries.
-- **Versioned Exports:** Safely compiles `EPW_RUNTIME_LOGIC` metadata ready for ingestion by distributed EPW OS targets.
+- **Versioned, Verifiable Exports:** Compiles `EPW_RUNTIME_LOGIC` with provenance metadata (`generated_at`, `generated_by`, `project_name`, `block_count`, `contains_forced_io`) and a SHA-256 checksum, ready for ingestion by distributed EPW OS targets.
 - **Hardware Agnostic Mappings:** Leverages zero-padded endpoint binding identifiers (`ELA01.DI01`, `ADA01.DO16`).
+- **Analog Chain:** Project-defined analog points (`AI`/`AO` blocks, `analog.deadband`, `analog.quality`, and hysteresis/on-off delay on every comparator) — unlike DI/DO, analog points are not fixed hardware channels; they're declared per-project in Project Settings and flow through the whole `Elementy Analogowe` library from acquisition to output.
+- **Fail-Safe on Stop:** Stopping the engine (or a transition to FAULT) drives every output ever written that session to its safe state (digital `False`, analog `0.0`) instead of leaving it latched at its last value.
