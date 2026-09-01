@@ -64,13 +64,25 @@ WIRE_THICKNESS = 2
 
 # Port geometry (feat/block-rendering-library §4 — "the most important
 # section of this PR"): every port, on every block type, must land on a
-# grid intersection in scene coordinates. PORT_MARGIN is the offset of the
-# first port from the block's top/left edge; PORT_PITCH is the spacing
-# between consecutive ports. Both are GRID_SIZE so a block's own origin
-# being grid-aligned (enforced by snap-on-drop and snap-on-move) is
-# sufficient to put every port on the grid too.
-PORT_PITCH = 20
-PORT_MARGIN = 20
+# deterministic grid intersection in scene coordinates. Two tiers:
+#   - GRID_SIZE (20) is the coarse BLOCK-placement grid — block origins snap
+#     to it (drag-and-drop, snap-on-move), and it's the background's major
+#     grid line spacing.
+#   - PORT_PITCH (10, a divisor of GRID_SIZE) is the finer PIN-spacing
+#     sub-grid — the distance between consecutive ports within a multi-pin
+#     block. A grid-aligned block origin combined with PORT_MARGIN/PORT_PITCH
+#     both being GRID_SIZE divisors is still enough to put every port on a
+#     deterministic grid line in scene coordinates — just the finer one.
+# PORT_PITCH used to equal GRID_SIZE (both 20): a 4-input gate's height then
+# grew by a full 20px per extra input, needlessly tall relative to its fixed
+# width and — combined with the D-shape's curve, whose vertical extent
+# follows the body's height — visibly flattening the curve for anything past
+# 2 inputs ("bramki są spłaszczone... zagęścisz siatkę... rozmieścić
+# przyłącza symetrycznie"). PORT_MARGIN stays at GRID_SIZE (the outer margin
+# before the first/after the last port doesn't need to shrink, only the
+# spacing between consecutive pins does).
+PORT_PITCH = 10
+PORT_MARGIN = GRID_SIZE
 
 DOC_NOTE_RESIZE_HANDLE = 10
 
@@ -78,4 +90,8 @@ DOC_NOTE_RESIZE_HANDLE = 10
 # kept as its own constant rather than unified, to not change either's
 # existing on-screen appearance while still centralizing the value.
 COLOR_GRID = QColor(200, 200, 200)
+COLOR_GRID_MINOR = QColor(228, 228, 228)  # fainter PORT_PITCH sub-grid, drawn
+                                            # between the major GRID_SIZE dots
+                                            # so the finer pin-pitch grid is
+                                            # visible on the canvas too
 COLOR_WIRE_SELECTED = QColor(0, 255, 255)

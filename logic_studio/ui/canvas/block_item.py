@@ -107,8 +107,14 @@ class BlockItem(QGraphicsItem):
             else:
                 self.shape_style = "GATE_GENERIC"
 
+            # Symmetric top/bottom margin around the input pins: the first
+            # sits PORT_MARGIN below the top edge, the last PORT_MARGIN
+            # above the bottom edge, with PORT_PITCH between consecutive
+            # ones — not the old `(inputs_count+1)*PORT_PITCH`, which only
+            # produced that same symmetric result back when PORT_MARGIN and
+            # PORT_PITCH were equal (§ grid-density redesign).
             inputs_count = len(self.logic_block.inputs)
-            self.height = max(2 * style.PORT_MARGIN, (inputs_count + 1) * style.PORT_PITCH)
+            self.height = 2 * style.PORT_MARGIN + max(0, inputs_count - 1) * style.PORT_PITCH
 
             # Every gate is the same width regardless of negation — only how
             # shapes.draw_gate_shape() fills the last few pixels near the tip

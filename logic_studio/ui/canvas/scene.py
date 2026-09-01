@@ -23,6 +23,14 @@ class LogicScene(QGraphicsScene):
         self.grid_pen.setWidth(style.GRID_LINE_WIDTH)
         self.grid_pen.setStyle(Qt.DotLine)
 
+        # Finer sub-grid at PORT_PITCH — the actual pin-spacing unit since
+        # the grid-density redesign — drawn fainter than the major
+        # GRID_SIZE grid above, purely as a placement aid.
+        self.minor_grid_size = style.PORT_PITCH
+        self.minor_grid_pen = QPen(style.COLOR_GRID_MINOR)
+        self.minor_grid_pen.setWidth(style.GRID_LINE_WIDTH)
+        self.minor_grid_pen.setStyle(Qt.DotLine)
+
         # Wiring State
         self.current_wire = None
         self.wiring_start_port = None
@@ -138,11 +146,29 @@ class LogicScene(QGraphicsScene):
         self.block_added.emit(type_id)
 
     def drawBackground(self, painter, rect):
-        """Draws an industrial engineering dot grid background."""
+        """Draws an industrial engineering dot grid background: the major
+        GRID_SIZE grid blocks snap to, plus a fainter PORT_PITCH sub-grid —
+        the actual pin-spacing unit — so the finer grid pins land on is
+        visible on the canvas, not just implicit in the geometry."""
         super().drawBackground(painter, rect)
 
         if not self.grid_visible:
             return
+
+        if self.minor_grid_size < self.grid_size:
+            minor_left = int(rect.left()) - (int(rect.left()) % self.minor_grid_size)
+            minor_top = int(rect.top()) - (int(rect.top()) % self.minor_grid_size)
+
+            minor_lines = []
+            for x in range(minor_left, int(rect.right()), self.minor_grid_size):
+                if x % self.grid_size != 0:
+                    minor_lines.append(QLineF(x, rect.top(), x, rect.bottom()))
+            for y in range(minor_top, int(rect.bottom()), self.minor_grid_size):
+                if y % self.grid_size != 0:
+                    minor_lines.append(QLineF(rect.left(), y, rect.right(), y))
+
+            painter.setPen(self.minor_grid_pen)
+            painter.drawLines(minor_lines)
 
         left = int(rect.left()) - (int(rect.left()) % self.grid_size)
         top = int(rect.top()) - (int(rect.top()) % self.grid_size)
