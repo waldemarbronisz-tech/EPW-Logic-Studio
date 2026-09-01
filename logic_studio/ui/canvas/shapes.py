@@ -16,55 +16,90 @@ SHIELD_GATES = ("OR", "NOR", "XOR", "XNOR")
 DSHAPE_GATES = ("AND", "NAND")
 
 
-def draw_gate_shape(painter, rect: QRectF, shape_style: str, inputs_count: int = 2):
-    """Draws a logic-gate body filling `rect` entirely (§2.3: the body always
-    spans the full block height now — there is no separate "gate_body_height"
-    shorter than the block, so no bus-bar line is needed to visually bridge
-    a gap that no longer exists), plus the negation bubble at the right edge
-    for NOT/NAND/NOR/XNOR.
+def gate_output_y(h: float) -> float:
+    """A gate's output port y, local to its own rect — the body's vertical
+    center rounded to the nearest PORT_PITCH (feat/block-rendering-library
+    §4.2: only exactly h/2 when that's already a grid multiple, i.e. odd
+    input counts). Shared by block_item.py (to place the actual PortItem)
+    and this module (to draw the output lead line at the same y) so the two
+    can never drift apart."""
+    return round_half_up_to_pitch(h / 2, style.PORT_PITCH)
 
-    The rect's right edge (x0 + w) is always the gate's output connection
-    point, negated or not — a negated gate's BODY is drawn pulled back to
-    leave room for the bubble AND a clear gap (BUBBLE_PORT_GAP) before the
-    output port square at the tip, so the port never paints over the bubble
-    (it used to sit flush against it, hiding half the bubble under the
-    opaque port square — the negation was barely visible). Earlier this PR
-    instead grew the whole block narrower for negated gates to make room for
-    the bubble outside the body — same output position, but AND and NAND
-    ended up visibly different sizes for no reason ("bramki się rozjechały").
-    Now every gate of the same input count is drawn in an identically-sized
-    rect; only what happens in the last few pixels near the tip differs.
+
+def round_half_up_to_pitch(value, pitch):
+    """Round-half-up (not Python's round-half-to-even) so a tie always
+    resolves the same, visually unsurprising way."""
+    import math
+    return math.floor(value / pitch + 0.5) * pitch
+
+
+def draw_gate_shape(painter, rect: QRectF, shape_style: str, inputs_count: int = 2, draw_leads: bool = True):
+    """Draws a logic-gate body (§2.3: it always spans the full block height —
+    no separate "gate_body_height" shorter than the block), the negation
+    bubble for NOT/NAND/NOR/XNOR, and — when `draw_leads` is true — a short
+    straight "lead" line on every pin between its port square and the body,
+    matching the reference IEC/ANSI symbol style instead of the body
+    touching the port squares directly. `draw_leads` defaults to true for
+    the canvas; icons.py passes false to keep small tree/preview icons from
+    being eaten alive by lead lines that make no sense at 24px.
+
+    The rect's right edge (x0 + w) is always the gate's actual output
+    connection point (where PortItem sits), negated or not, and its left
+    edge (x0) is where every input PortItem sits — the BODY is drawn pulled
+    back from both by GATE_LEAD (plus, for a negated gate's output side, the
+    negation bubble and its own clearance from the port — see
+    BUBBLE_PORT_GAP) and lead lines fill the resulting gaps. This keeps
+    every port's own position completely unchanged (still exactly at 0 /
+    width, still grid-aligned) — only how the last few pixels near each pin
+    are drawn differs, exactly like the negation-bubble pullback already
+    did before this.
+
+    The D-shape (AND/NAND) right-side curve is a true ELLIPSE, not a fixed-
+    radius semicircle — its horizontal radius is derived from the space
+    actually available (`right_bound - flat_len`), so it can never bulge
+    past the block's own bounding box the way a semicircle whose radius is
+    pinned to h/2 could for a tall, many-input gate (h grows with input
+    count; the block's width does not — every gate of a given negation is
+    the same width regardless of input count, "bramki się rozjechały").
     """
     painter.setPen(QPen(style.COLOR_OUTLINE, 1))
     painter.setBrush(Qt.NoBrush)
 
     x0, y0, w, h = rect.left(), rect.top(), rect.width(), rect.height()
-    bubble_inset = style.PORT_RADIUS + style.BUBBLE_PORT_GAP + style.BUBBLE_RADIUS
-    pullback = 2 * style.BUBBLE_RADIUS + style.PORT_RADIUS + style.BUBBLE_PORT_GAP \
-        if shape_style in NEGATED_GATES else 0.0
-    body_w = w - pullback
+    negated = shape_style in NEGATED_GATES
+    lead = style.GATE_LEAD if draw_leads else 0.0
+
+    left_bound = x0 + lead
+    if negated:
+        right_bound = x0 + w - (style.PORT_RADIUS + style.BUBBLE_PORT_GAP + 2 * style.BUBBLE_RADIUS)
+    else:
+        right_bound = x0 + w - lead
+    body_w = max(1.0, right_bound - left_bound)
 
     path = QPainterPath()
 
     if shape_style in DSHAPE_GATES:
-        # D-shape: straight left edge, semicircle bulging out the right half.
-        path.moveTo(x0, y0)
-        path.lineTo(x0 + body_w * 0.5, y0)
-        path.arcTo(x0 + body_w * 0.5 - h / 2, y0, h, h, 90, -180)
-        path.lineTo(x0, y0 + h)
+        # D-shape: straight left edge, then an elliptical bulge to the tip.
+        flat_len = body_w * 0.35
+        rx = body_w - flat_len
+        path.moveTo(left_bound, y0)
+        path.lineTo(left_bound + flat_len, y0)
+        path.arcTo(QRectF(left_bound + flat_len - rx, y0, rx * 2, h), 90, -180)
+        path.lineTo(left_bound, y0 + h)
         path.closeSubpath()
 
     elif shape_style in SHIELD_GATES:
         # Shield shape. XOR/XNOR get their body shifted right by
         # XOR_ACCENT_OFFSET so the extra distinguishing curve (drawn below,
-        # anchored at the rect's left edge — exactly where input ports sit,
-        # per the IEC/ANSI XOR symbol) has room to be fully visible instead
-        # of merging into the shield's own leading edge (§2.2). The tip
-        # (sx + bw) always lands at x0 + body_w regardless of the accent, so
-        # NOR/XNOR's bubble placement below doesn't need to special-case it.
+        # anchored at the block's own left edge — exactly where input leads
+        # start, per the IEC/ANSI XOR symbol) has room to be fully visible
+        # instead of merging into the shield's own leading edge (§2.2). The
+        # tip (sx + bw) always lands at `right_bound` regardless of the
+        # accent, so the negation bubble / output lead placement below
+        # doesn't need to special-case it.
         accent = style.XOR_ACCENT_OFFSET if shape_style in ("XOR", "XNOR") else 0
-        sx = x0 + accent
-        bw = body_w - accent
+        sx = left_bound + accent
+        bw = (right_bound - left_bound) - accent
         path.moveTo(sx, y0)
         path.quadTo(sx + bw * 0.75, y0, sx + bw, y0 + h / 2)
         path.quadTo(sx + bw * 0.75, y0 + h, sx, y0 + h)
@@ -77,24 +112,36 @@ def draw_gate_shape(painter, rect: QRectF, shape_style: str, inputs_count: int =
             painter.drawPath(extra)
 
     elif shape_style in ("NOT", "BUFFER"):
-        path.moveTo(x0, y0)
-        path.lineTo(x0 + body_w, y0 + h / 2)
-        path.lineTo(x0, y0 + h)
+        path.moveTo(left_bound, y0)
+        path.lineTo(right_bound, y0 + h / 2)
+        path.lineTo(left_bound, y0 + h)
         path.closeSubpath()
 
     else:
         # GATE_GENERIC fallback: plain rectangle.
-        path.addRect(QRectF(x0, y0, body_w, h))
+        path.addRect(QRectF(left_bound, y0, body_w, h))
 
     painter.drawPath(path)
 
-    if shape_style in NEGATED_GATES:
+    bubble_right_edge = None
+    if negated:
         painter.setBrush(style.COLOR_BACKGROUND)
-        # Left edge touches the pulled-back body's tip; right edge stops
-        # BUBBLE_PORT_GAP short of where the output port square starts
-        # (x0 + w - PORT_RADIUS), so the two never touch, let alone overlap.
-        bubble_center = QPointF(x0 + w - bubble_inset, y0 + h / 2)
+        # Touches the body's tip (right_bound) on the left; its own right
+        # edge stops BUBBLE_PORT_GAP short of the output port square, so the
+        # two never touch, let alone overlap.
+        bubble_center = QPointF(right_bound + style.BUBBLE_RADIUS, y0 + h / 2)
         painter.drawEllipse(bubble_center, style.BUBBLE_RADIUS, style.BUBBLE_RADIUS)
+        bubble_right_edge = bubble_center.x() + style.BUBBLE_RADIUS
+
+    if draw_leads:
+        painter.setPen(QPen(style.COLOR_OUTLINE, 1))
+        for i in range(inputs_count):
+            y_i = style.PORT_MARGIN + i * style.PORT_PITCH
+            painter.drawLine(QPointF(x0, y_i), QPointF(left_bound, y_i))
+
+        y_out = gate_output_y(h)
+        lead_start = bubble_right_edge if negated else right_bound
+        painter.drawLine(QPointF(lead_start, y_out), QPointF(x0 + w, y_out))
 
 
 def draw_io_shape(painter, rect: QRectF, direction: str):

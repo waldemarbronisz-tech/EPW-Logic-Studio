@@ -39,12 +39,10 @@ def _complex_readout_y(pins_count):
     return last_pin_y + style.PORT_PITCH / 2 + 5
 
 
-def _round_half_up_to_pitch(value, pitch):
-    """Round-half-up (not Python's round-half-to-even) so a tie always
-    resolves the same, visually unsurprising way — used for a gate's output
-    port y, which sits at the body's vertical center and only lands exactly
-    on the grid when the input count is odd (§4.2)."""
-    return math.floor(value / pitch + 0.5) * pitch
+# Shared with shapes.py (which draws the output lead line at this same y —
+# see shapes.gate_output_y()) so the two can never drift apart; kept under
+# its old name here since existing tests import it from this module.
+_round_half_up_to_pitch = shapes.round_half_up_to_pitch
 
 
 class BlockItem(QGraphicsItem):
@@ -176,7 +174,7 @@ class BlockItem(QGraphicsItem):
                 port = PortItem(pin, parent=self)
                 port.setPos(0, style.PORT_MARGIN + i * style.PORT_PITCH)
 
-            output_y = _round_half_up_to_pitch(self.height / 2, style.PORT_PITCH)
+            output_y = shapes.gate_output_y(self.height)
             for pin in self.logic_block.outputs:
                 port = PortItem(pin, parent=self)
                 port.setPos(self.width, output_y)

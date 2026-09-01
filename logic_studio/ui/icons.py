@@ -72,7 +72,10 @@ def block_icon(type_id: str, size: int = 24) -> QIcon:
 
         from logic_studio.ui.canvas.block_item import GATE_SHAPES
         if shape_style in GATE_SHAPES:
-            shapes.draw_gate_shape(painter, rect, shape_style, len(dummy.inputs))
+            # No lead lines at icon scale (§ redesign) — 24px has no room for
+            # them, and the canvas/icon shape only needs to stay consistent
+            # in silhouette, not in pin-lead styling.
+            shapes.draw_gate_shape(painter, rect, shape_style, len(dummy.inputs), draw_leads=False)
         elif shape_style == "IO":
             direction = "input" if "input" in type_id else "output"
             shapes.draw_io_shape(painter, rect, direction)

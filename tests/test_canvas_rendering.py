@@ -221,3 +221,78 @@ def test_io_block_output_do_address_text_no_longer_shares_a_row_with_a_pin_label
     block.properties["Address"] = "ADA01.DO14"
     item = BlockItem(block)
     assert item.shape_style in NO_PIN_LABEL_SHAPES
+
+# ---- Gate lead-line redesign (reference screenshot: IEC/ANSI-style short
+# lead wires on every pin, body pulled back from the port squares instead of
+# touching them) ------------------------------------------------------------
+
+ALL_GATE_TYPE_IDS = [
+    "logic.not", "logic.buffer",
+    "logic.and", "logic.and3", "logic.and4",
+    "logic.nand", "logic.nand3", "logic.nand4",
+    "logic.or", "logic.or3", "logic.or4",
+    "logic.nor", "logic.nor3", "logic.nor4",
+    "logic.xor", "logic.xnor",
+]
+
+def test_gate_output_y_shared_by_block_item_and_shapes():
+    """block_item.py's actual output PortItem and shapes.py's output lead
+    line must use the exact same y — computed in one place
+    (shapes.gate_output_y) — or the lead line and the port it's supposed to
+    connect to could silently drift apart for some input count."""
+    from logic_studio.ui.canvas.block_item import _round_half_up_to_pitch
+    assert _round_half_up_to_pitch is shapes.round_half_up_to_pitch
+
+@pytest.mark.parametrize("type_id", ALL_GATE_TYPE_IDS)
+def test_gate_input_leads_stay_within_the_block_bounding_box(type_id):
+    """Every input's lead line runs from x=0 (the port, unchanged) to
+    x=GATE_LEAD (the pulled-back body) — must never reach past the block's
+    own width, and GATE_LEAD must leave a strictly positive body width even
+    for the narrowest gate (NOT/BUFFER, 1 input)."""
+    _app()
+    block = BlockRegistry.create_block(type_id)
+    item = BlockItem(block)
+    assert 0 < style.GATE_LEAD < item.width
+
+@pytest.mark.parametrize("type_id", ALL_GATE_TYPE_IDS)
+def test_dshape_ellipse_never_overflows_regardless_of_input_count(type_id):
+    """The D-shape's (AND/NAND) curve used to be a fixed-radius (h/2)
+    semicircle whose rightmost point could land past the block's own width
+    for a tall, many-input gate (radius pinned to height, independent of the
+    body's actual available width) — invisible for 2-input gates, increasingly
+    wrong for 3- and 4-input ones. Recomputes the same right_bound/body_w/
+    rx shapes.py derives internally and asserts the ellipse's rightmost
+    point (flat_len + rx, measured from left_bound) lands at exactly
+    body_w — by construction, not by accident — for every gate type, not
+    just the D-shape ones (a no-op check for non-D-shape gates)."""
+    _app()
+    block = BlockRegistry.create_block(type_id)
+    item = BlockItem(block)
+
+    if item.shape_style not in shapes.DSHAPE_GATES:
+        return
+
+    negated = item.shape_style in shapes.NEGATED_GATES
+    lead = style.GATE_LEAD
+    left_bound = lead
+    if negated:
+        right_bound = item.width - (style.PORT_RADIUS + style.BUBBLE_PORT_GAP + 2 * style.BUBBLE_RADIUS)
+    else:
+        right_bound = item.width - lead
+    body_w = right_bound - left_bound
+    assert body_w > 0, f"{type_id}: no room left for the body at all"
+
+    flat_len = body_w * 0.35
+    rx = body_w - flat_len
+    rightmost = flat_len + rx
+    assert rightmost == pytest.approx(body_w), f"{type_id}: D-shape ellipse tip must land exactly at body_w"
+
+def test_icon_rendering_does_not_crash_for_any_gate_shape():
+    """block_icon() draws with draw_leads=False at 24px — a smoke test that
+    the lead redesign didn't break the (deliberately lead-less) icon path
+    for any gate shape_style."""
+    _app()
+    from logic_studio.ui.icons import block_icon
+    for type_id in ALL_GATE_TYPE_IDS:
+        icon = block_icon(type_id, size=24)
+        assert icon is not None

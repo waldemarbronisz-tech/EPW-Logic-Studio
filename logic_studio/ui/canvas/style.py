@@ -47,6 +47,13 @@ BUBBLE_PORT_GAP = 3          # clear space between the bubble's right edge and
                               # the bubble, making NAND/NOR/XNOR/NOT's
                               # negation hard to see at all
 PORT_RADIUS = 3
+GATE_LEAD = 8                # visible connection "lead" between a gate's port
+                              # square and its body — every input, and a
+                              # non-negated output, is pulled back from the
+                              # port by this much and joined to it with a
+                              # drawn line, instead of the body touching the
+                              # port square directly (reference: distinct
+                              # short lead wires on every pin, IEC/ANSI-style)
 PORT_CLICK_MARGIN = 4        # extra hit-test margin around a port square
 BLOCK_SELECTION_MARGIN = 4   # dashed selection rect padding beyond the body
 BOUNDING_RECT_MARGIN = 15    # default margin for BlockItem.boundingRect()
