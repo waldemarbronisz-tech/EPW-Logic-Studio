@@ -441,6 +441,142 @@ def test_quality_block_non_numeric_input_is_not_good():
     q.evaluate()  # no input connected -> value is None
     assert q.outputs[0].value is False
 
+def test_comparator_default_behavior_unchanged():
+    """AUDIT_REPORT.md §5: Hysteresis=T On=T Off=0 must behave exactly like
+    before this feature existed, and is_stateful must be False."""
+    from logic_studio.blocks.comparators import GreaterBlock, BetweenBlock
+
+    g = GreaterBlock()
+    assert g.is_stateful is False
+    g.inputs[0].value = 5.0
+    g.inputs[1].value = 5.0
+    g.evaluate()
+    assert g.outputs[0].value is False  # 5 > 5 is False, no hysteresis lag
+
+    g.inputs[0].value = 5.0001
+    g.evaluate()
+    assert g.outputs[0].value is True
+
+    b = BetweenBlock()
+    assert b.is_stateful is False
+
+def test_comparator_hysteresis_suppresses_chatter():
+    from logic_studio.blocks.comparators import GreaterBlock
+
+    g = GreaterBlock()
+    g.properties["Hysteresis"] = 2.0
+    assert g.is_stateful is True
+
+    g.inputs[1].value = 10.0  # threshold
+
+    g.inputs[0].value = 11.0  # above threshold -> True
+    g.evaluate()
+    assert g.outputs[0].value is True
+
+    g.inputs[0].value = 9.0  # dropped below 10 but still within the 2.0 band -> stays True
+    g.evaluate()
+    assert g.outputs[0].value is True
+
+    g.inputs[0].value = 7.5  # more than 2.0 below the threshold -> now False
+    g.evaluate()
+    assert g.outputs[0].value is False
+
+    g.inputs[0].value = 10.5  # rising edge is NOT delayed by hysteresis
+    g.evaluate()
+    assert g.outputs[0].value is True
+
+def test_comparator_equal_hysteresis_is_a_tolerance_band():
+    from logic_studio.blocks.comparators import EqualBlock
+
+    eq = EqualBlock()
+    eq.properties["Hysteresis"] = 0.5
+
+    eq.inputs[0].value = 10.0
+    eq.inputs[1].value = 10.0
+    eq.evaluate()
+    assert eq.outputs[0].value is True
+
+    eq.inputs[0].value = 10.3  # within the 0.5 tolerance band -> still True
+    eq.evaluate()
+    assert eq.outputs[0].value is True
+
+    eq.inputs[0].value = 11.0  # beyond the band -> False
+    eq.evaluate()
+    assert eq.outputs[0].value is False
+
+def test_comparator_t_on_delay():
+    from logic_studio.blocks.comparators import GreaterBlock
+
+    engine = MockEngine()
+    g = GreaterBlock()
+    g.properties["T On (ms)"] = 300
+    assert g.is_stateful is True
+
+    g.inputs[0].value = 10.0
+    g.inputs[1].value = 5.0  # 10 > 5 -> raw True immediately
+
+    g.evaluate(engine)
+    assert g.outputs[0].value is False  # not yet held for 300ms
+
+    engine.time.advance(200)
+    g.evaluate(engine)
+    assert g.outputs[0].value is False  # only 200ms elapsed
+
+    engine.time.advance(150)  # total 350ms
+    g.evaluate(engine)
+    assert g.outputs[0].value is True
+
+def test_comparator_t_off_delay():
+    from logic_studio.blocks.comparators import GreaterBlock
+
+    engine = MockEngine()
+    g = GreaterBlock()
+    g.properties["T Off (ms)"] = 300
+
+    g.inputs[0].value = 10.0
+    g.inputs[1].value = 5.0
+    g.evaluate(engine)
+    assert g.outputs[0].value is True  # T On is 0 -> immediate
+
+    g.inputs[0].value = 1.0  # now False, but T Off must elapse first
+    g.evaluate(engine)
+    assert g.outputs[0].value is True
+
+    engine.time.advance(350)
+    g.evaluate(engine)
+    assert g.outputs[0].value is False
+
+def test_comparator_t_on_requires_engine_time():
+    from logic_studio.blocks.comparators import GreaterBlock
+
+    g = GreaterBlock()
+    g.properties["T On (ms)"] = 100
+    g.inputs[0].value = 10.0
+    g.inputs[1].value = 5.0
+
+    with pytest.raises(RuntimeError):
+        g.evaluate(engine=None)
+
+def test_between_hysteresis_widens_window():
+    from logic_studio.blocks.comparators import BetweenBlock
+
+    b = BetweenBlock()
+    b.properties["Hysteresis"] = 1.0
+    b.inputs[0].value = 10.0  # Min
+    b.inputs[2].value = 20.0  # Max
+
+    b.inputs[1].value = 15.0  # inside
+    b.evaluate()
+    assert b.outputs[0].value is True
+
+    b.inputs[1].value = 20.5  # just outside raw window but within +1 margin
+    b.evaluate()
+    assert b.outputs[0].value is True
+
+    b.inputs[1].value = 22.0  # beyond the widened window
+    b.evaluate()
+    assert b.outputs[0].value is False
+
 def test_pin_type_checking():
     from logic_studio.blocks.logic_gates import AndGate
     from logic_studio.blocks.math_blocks import AddBlock
