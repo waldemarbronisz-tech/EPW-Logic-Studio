@@ -4,22 +4,27 @@ from datetime import datetime, timezone
 
 from logic_studio import __version__
 from logic_studio.core.device_model import DeviceModel
+from logic_studio.core import system_signals
 
 # Bump when the EPW_RUNTIME_LOGIC structure changes in a way a consumer
 # (EPW-OS) needs to know about. See AUDIT_REPORT.md §2.2.
-RUNTIME_SCHEMA_VERSION = 2
+RUNTIME_SCHEMA_VERSION = 3
 
 # The closed set of fields that make up the EPW_RUNTIME_LOGIC schema and are
 # covered by the checksum. Compiler.compile() attaches a non-serializable
-# "program" (CompiledProgram) key on top of Exporter.export()'s return value
-# for the ExecutionEngine's own use — that key (and anything else outside this
-# set) is deliberately ignored by both checksumming and verification, so
-# handing verify_checksum() a compile() result instead of an export() result
-# degrades to "checksum still valid" rather than a TypeError.
+# "program" (CompiledProgram) key, and a "cycle_delayed_reads" list (feat/
+# internal-bits §5/§8.1 — diagnostic data DERIVED from the fields already
+# covered below, not independent data), on top of Exporter.export()'s
+# return value for the ExecutionEngine's/EPW-OS's own use — those keys (and
+# anything else outside this set) are deliberately ignored by both
+# checksumming and verification, so handing verify_checksum() a compile()
+# result instead of an export() result degrades to "checksum still valid"
+# rather than a TypeError.
 CHECKSUM_FIELDS = (
     "format", "schema_version", "source_version", "cycle_time_ms",
     "execution_order", "blocks", "generated_at", "generated_by",
     "project_name", "block_count", "contains_forced_io", "analog_points",
+    "internal_bits", "system_catalog_version",
 )
 
 
@@ -85,6 +90,14 @@ class Exporter:
         # at all, so EPW-OS needs the complete list (AUDIT_REPORT.md §1.1).
         analog_points = [dict(p) for p in self.project.settings.get("analog_points", [])]
 
+        # Full copy of the internal-signal registry (feat/internal-bits
+        # §8.1) — same reasoning as analog_points above: a consumer reading
+        # this file in isolation, with no live Project, must be able to
+        # reconstruct every signal's type/retentive flag (and therefore its
+        # M./MR./MW./MWR.<name> id, via core.internal_bits.internal_bit_id())
+        # for every block that references one.
+        internal_bits = [dict(e) for e in self.project.settings.get("internal_bits", [])]
+
         payload = {
             "format": "EPW_RUNTIME_LOGIC",
             "schema_version": RUNTIME_SCHEMA_VERSION,
@@ -98,6 +111,11 @@ class Exporter:
             "block_count": len(self.execution_order),
             "contains_forced_io": contains_forced_io,
             "analog_points": analog_points,
+            "internal_bits": internal_bits,
+            # §8.1: the system-signal catalog version this logic was
+            # compiled against — EPW-OS can refuse to run logic compiled
+            # on a catalog newer than it understands.
+            "system_catalog_version": system_signals.get_catalog_version(),
         }
 
         # Checksum covers the canonical serialization of everything ABOVE, computed

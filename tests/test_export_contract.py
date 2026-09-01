@@ -220,6 +220,56 @@ def test_export_roundtrip_through_disk_preserves_checksum(tmp_path):
     assert verify_checksum(loaded) is True
     assert loaded["analog_points"][0]["name"] == "Temperatura uzwojeń TR1"
 
+def test_runtime_reconstructable_internal_signal_type_and_retentive(tmp_path):
+    """feat/internal-bits §8.4: given ONLY the exported dict (no Project),
+    reconstruct the type and retentive flag of every internal signal
+    actually used in the logic — the same reasoning as
+    test_runtime_reconstructable_without_project() above, for internal_bits
+    instead of analog_points."""
+    from logic_studio.blocks.registry import BlockRegistry
+    from logic_studio.core.internal_bits import internal_bit_id
+
+    p = Project()
+    p.settings["internal_bits"] = [
+        {"name": "BLOKADA_ZS", "type": "BOOL", "retentive": True, "description": "", "label": "", "category": ""},
+        {"name": "USTAWKA", "type": "REAL", "retentive": False, "description": "", "label": "", "category": ""},
+    ]
+    vo = BlockRegistry.create_block("virtual.output")
+    vo.properties["Bit"] = "BLOKADA_ZS"
+    ro = BlockRegistry.create_block("internal.reg_out")
+    ro.properties["Bit"] = "USTAWKA"
+    p.add_block(vo)
+    p.add_block(ro)
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is not None, f"Compile failed: {c.errors}"
+
+    data = Exporter(p, res["program"].execution_order).export()
+    # Round-trip through plain JSON and drop every reference to the
+    # Project, exactly like a real EPW-OS consumer would receive it.
+    data = json.loads(json.dumps(data))
+    del p, vo, ro
+
+    exported_vo = next(b for b in data["blocks"].values() if b["type_id"] == "virtual.output")
+    exported_ro = next(b for b in data["blocks"].values() if b["type_id"] == "internal.reg_out")
+
+    registry_by_name = {e["name"]: e for e in data["internal_bits"]}
+    vo_entry = registry_by_name[exported_vo["properties"]["Bit"]]
+    ro_entry = registry_by_name[exported_ro["properties"]["Bit"]]
+
+    assert internal_bit_id(vo_entry) == "MR.BLOKADA_ZS"  # BOOL + retentive
+    assert internal_bit_id(ro_entry) == "MW.USTAWKA"      # REAL, not retentive
+
+def test_export_carries_system_catalog_version():
+    from logic_studio.core import system_signals
+    p = Project()
+    c = Compiler(p)
+    # Compile trivially succeeds even with zero blocks (a warning, not an error).
+    res = c.compile()
+    data = Exporter(p, res["program"].execution_order if res else []).export()
+    assert data["system_catalog_version"] == system_signals.get_catalog_version()
+
 def test_examples_migrate_and_export_without_mass_rewrite(tmp_path):
     """§2.3: an examples/ fixture (schema_version 1 on disk) loads, migrates
     in-flight to EPWLOGIC_SCHEMA_VERSION, and round-trips through a tmp_path
@@ -245,3 +295,24 @@ def test_examples_migrate_and_export_without_mass_rewrite(tmp_path):
 
     p2 = Project.load_from_file(str(out_path))
     assert len(p2.blocks) == len(p.blocks)
+
+import glob
+
+@pytest.mark.parametrize("path", sorted(glob.glob("examples/*.epwlogic")))
+def test_every_example_loads_compiles_and_exports(path):
+    """General-rules hard requirement, re-checked as a standing regression
+    test rather than only a one-off manual pass: every examples/*.epwlogic
+    file must load (migrating v1/v2 -> current EPWLOGIC_SCHEMA_VERSION in
+    flight), compile, and export without error after this PR's changes —
+    in particular the new §4.1 "one writer per internal signal" rule,
+    which exposed a real pre-existing ambiguity in
+    EPW_LOGIC_PRIORITY_A_TEST.epwlogic (two virtual.output blocks both left
+    at the same literal default Tag "VO.NEW_OUTPUT", now correctly flagged
+    — fixed in the fixture itself, not by loosening the rule)."""
+    p = Project.load_from_file(path)
+    c = Compiler(p)
+    res = c.compile()
+    assert res is not None, f"{path}: compile failed: {c.errors}"
+
+    data = Exporter(p, res["program"].execution_order).export()
+    assert verify_checksum(data) is True, f"{path}: exported checksum did not verify"
