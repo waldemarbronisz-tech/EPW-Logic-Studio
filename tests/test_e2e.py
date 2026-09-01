@@ -5,13 +5,13 @@ from logic_studio.blocks import register_builtin_blocks
 
 import os
 
-def test_e2e_simulation_loop():
+def test_e2e_simulation_loop(qsettings):
     app = QApplication.instance()
     if app is None:
         app = QApplication([])
 
     register_builtin_blocks()
-    m = MainWindow()
+    m = MainWindow(settings=qsettings)
 
     # 1. Start clean
     m.scene.clear()

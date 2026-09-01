@@ -156,7 +156,7 @@ def test_simulation_panel_slider_spinbox_sync():
     spin.setValue(10.0)
     assert slider.value() == 1000
 
-def test_analog_chain_full_scan_through_main_window():
+def test_analog_chain_full_scan_through_main_window(qsettings):
     """End-to-end: AI (project analog point) -> AO, driven entirely through
     SimulationPanel widgets and MainWindow's push/pull, matching what
     _on_sim_tick / manual step do."""
@@ -164,7 +164,7 @@ def test_analog_chain_full_scan_through_main_window():
     from logic_studio.ui.main_window import MainWindow
 
     register_builtin_blocks()
-    m = MainWindow()
+    m = MainWindow(settings=qsettings)
     m.scene.clear()
     m.project.settings["analog_points"] = [
         {"address": "AI.TEMP", "name": "Temp", "unit": "°C", "min": -40.0, "max": 150.0, "direction": "input"},
@@ -193,13 +193,13 @@ def test_analog_chain_full_scan_through_main_window():
     m.is_dirty = False
     m.close()
 
-def test_step_buttons_enabled_state_transitions():
+def test_step_buttons_enabled_state_transitions(qsettings):
     _app()
     from logic_studio.ui.main_window import MainWindow
     from logic_studio.engine.execution import ExecutionState
 
     register_builtin_blocks()
-    m = MainWindow()
+    m = MainWindow(settings=qsettings)
     m.scene.clear()
 
     # No compiled program yet -> disabled.
@@ -224,12 +224,12 @@ def test_step_buttons_enabled_state_transitions():
     m.is_dirty = False
     m.close()
 
-def test_step_requested_ignored_while_running():
+def test_step_requested_ignored_while_running(qsettings):
     _app()
     from logic_studio.ui.main_window import MainWindow
 
     register_builtin_blocks()
-    m = MainWindow()
+    m = MainWindow(settings=qsettings)
     m.scene.clear()
     m.scene.add_block_from_library('const.true', 0, 0)
     m.compile_project()

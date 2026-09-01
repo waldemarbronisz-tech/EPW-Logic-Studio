@@ -4,7 +4,7 @@ from PySide6.QtWidgets import QApplication
 from logic_studio.ui.main_window import MainWindow
 from logic_studio.blocks import register_builtin_blocks
 
-def test_priority_a_audit():
+def test_priority_a_audit(qsettings):
     # 9. REGISTRY / 1. LIBRARY
     # Verify clean startup registration
     app = QApplication.instance()
@@ -12,7 +12,7 @@ def test_priority_a_audit():
         app = QApplication([])
 
     register_builtin_blocks()
-    m = MainWindow()
+    m = MainWindow(settings=qsettings)
     from logic_studio.engine.time_provider import SimulationTimeProvider
     m.engine.time = SimulationTimeProvider()
 

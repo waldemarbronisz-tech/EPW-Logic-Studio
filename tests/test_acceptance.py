@@ -6,13 +6,13 @@ from logic_studio.blocks import register_builtin_blocks
 import os
 import json
 
-def test_file_operations_and_export():
+def test_file_operations_and_export(qsettings):
     app = QApplication.instance()
     if app is None:
         app = QApplication([])
 
     register_builtin_blocks()
-    m = MainWindow()
+    m = MainWindow(settings=qsettings)
 
     # Simulate loading the examples project
     test_proj = os.path.abspath("examples/ENTRY_GATE_MINIMAL.epwlogic")
@@ -46,13 +46,13 @@ def test_file_operations_and_export():
     assert os.path.exists("temp_test.epwlogic")
     os.remove("temp_test.epwlogic")
 
-def test_final_acceptance_project():
+def test_final_acceptance_project(qsettings):
     app = QApplication.instance()
     if app is None:
         app = QApplication([])
 
     register_builtin_blocks()
-    m = MainWindow()
+    m = MainWindow(settings=qsettings)
 
     test_proj = os.path.abspath("examples/EPW_LOGIC_FINAL_UI_TEST.epwlogic")
     assert os.path.exists(test_proj)

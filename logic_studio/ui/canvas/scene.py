@@ -1,8 +1,13 @@
 from PySide6.QtWidgets import QGraphicsScene
 from PySide6.QtGui import QPen, QColor
-from PySide6.QtCore import Qt, QLineF
+from PySide6.QtCore import Qt, QLineF, Signal
 
 class LogicScene(QGraphicsScene):
+    # Emitted whenever a block is placed via the library (drag or double-click)
+    # — MainWindow connects this to LibraryPanel.record_recently_used() (§4.7)
+    # so "recently used" reflects every insertion path, not just one of them.
+    block_added = Signal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setSceneRect(-5000, -5000, 10000, 10000)
@@ -119,6 +124,8 @@ class LogicScene(QGraphicsScene):
                 project.push_state()
                 window.set_dirty()
                 project.add_block(block)
+
+        self.block_added.emit(type_id)
 
     def drawBackground(self, painter, rect):
         """Draws an industrial engineering dot grid background."""

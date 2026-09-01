@@ -99,8 +99,15 @@ class PropertyGridPanel(QWidget):
         self.current_project = project
         self.table.setRowCount(0)
 
-        # Common properties defined in SRS
+        # Tag/Comment first — the first two fields an engineer fills in
+        # after placing a block (feat/block-rendering-library §3.3).
         props = {
+            "Tag": block.properties.get("Tag", ""),
+            "Comment": block.properties.get("Comment", ""),
+        }
+
+        # Common properties defined in SRS
+        props.update({
             "Name": block.display_name,
             "Description": block.description,
             "UUID": block.uuid,
@@ -109,7 +116,7 @@ class PropertyGridPanel(QWidget):
             "Enabled": str(block.enabled),
             "Visible": str(block.visibility),
             "Execution State": block.execution_state
-        }
+        })
 
         # Force is runtime-only (AUDIT_REPORT.md §5.1): it lives in simulation_state,
         # not in properties, so surface it here explicitly for forceable block types.

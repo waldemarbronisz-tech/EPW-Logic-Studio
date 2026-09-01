@@ -5,13 +5,13 @@ from PySide6.QtWidgets import QApplication
 from logic_studio.ui.main_window import MainWindow
 from logic_studio.blocks import register_builtin_blocks
 
-def test_universal_library_integration():
+def test_universal_library_integration(qsettings):
     app = QApplication.instance()
     if app is None:
         app = QApplication([])
 
     register_builtin_blocks()
-    m = MainWindow()
+    m = MainWindow(settings=qsettings)
 
     # 1. Instantiate blocks
     m.scene.add_block_from_library('virtual.input', 0, 0)
