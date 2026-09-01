@@ -26,23 +26,69 @@ is an explicit attribute, not inferred from `type_id` string prefixes.
 4. Wait for next interval.
 
 ## 3. Schema Versioning
-- Development format: `format: "EPW_LOGIC"`, `schema_version: 1`
-- Compiled format: `format: "EPW_RUNTIME_LOGIC"`, `schema_version: 1`, carrying export
-  provenance and integrity metadata: `generated_at` (UTC ISO 8601), `generated_by`
-  (`EPW Logic Studio <version>`), `project_name`, `block_count` (executable blocks,
-  i.e. `len(execution_order)`), `contains_forced_io`, and a `checksum` — SHA-256 of
-  the canonical JSON (`sort_keys=True, separators=(',', ':')`) of every other field,
-  computed before `checksum` itself is added. `Exporter.verify_checksum()` /
-  `verify_checksum()` in `compiler/exporter.py` recomputes and compares it; EPW-OS
-  is expected to call it before trusting an exported runtime file. Both the
-  computation and the verification operate on a single closed `CHECKSUM_FIELDS`
-  set — everything else in the dict is ignored, so passing `verify_checksum()`
-  a `Compiler.compile()` result (which carries a non-serializable
-  `CompiledProgram` under `"program"`) still returns the correct bool instead
-  of raising `TypeError` (see AUDIT_REPORT.md §0.2).
-- `Project.deserialize()` refuses to load a project that references an unrecognized
-  block `type_id` — it raises `ValueError` naming the missing type(s) rather than
-  silently dropping that logic (see AUDIT_REPORT.md §3.3).
+Two independent schemas, each with its own version counter and its own
+migration chain. Never conflate them, and never bump one to fix a problem in
+the other.
+
+### 3.1 `.epwlogic` (engineering project) — `EPWLOGIC_SCHEMA_VERSION`
+Currently **2** (`core/project.py`). Bumping it requires adding a
+`_migrate_vN_to_v(N+1)(data)` function and registering it in `_MIGRATIONS`,
+keyed by the version it upgrades *from*. `Project.deserialize()` applies the
+chain sequentially —
+```python
+while schema_version in _MIGRATIONS:
+    data = _MIGRATIONS[schema_version](data)
+    schema_version = data["schema_version"]
+```
+— so a file several versions behind today's still loads correctly by walking
+every intermediate step; a future v2 → v3 migration slots in exactly the way
+v1 → v2 did, with no change to `deserialize()` itself.
+
+`_migrate_v1_to_v2` is the only migration so far. It defaults a missing
+`settings.analog_points` to `[]`, and absorbs what used to be a separate
+`_migrate_legacy_force_state` helper: it strips a legacy per-block `"Force
+State"` property out of `properties`, and carries an ACTIVE value forward via
+a transient `"_legacy_force_state"` key on that block's own dict — consumed
+exactly once, right after `Project.deserialize()` constructs that block, and
+folded into its `simulation_state` (never re-serialized). Every v1
+back-compat decision lives in this one function instead of being split
+across `deserialize()` and a separate helper.
+
+Loading a `schema_version` newer than `EPWLOGIC_SCHEMA_VERSION` raises a
+`ValueError` naming both the file's version and the version this build
+understands, instead of silently mis-loading it (mirroring the unrecognized-
+`type_id` rule below). Saving always writes the current version — a project
+stays on an old version only by never being re-saved. `examples/` fixtures
+exploit this deliberately: they remain v1 on disk and migrate in-flight on
+every load, so the test suite (and every engineer opening them) exercises
+the migration path instead of a pre-migrated file.
+
+### 3.2 `EPW_RUNTIME_LOGIC` (compiled export) — `RUNTIME_SCHEMA_VERSION`
+Currently **2**, a constant in `compiler/exporter.py` — never an inline
+literal. Carries export provenance and integrity metadata: `generated_at`
+(UTC ISO 8601), `generated_by` (`EPW Logic Studio <version>`),
+`project_name`, `block_count` (executable blocks, i.e.
+`len(execution_order)`), `contains_forced_io`, `analog_points` (see §9), and
+a `checksum` — SHA-256 of the canonical JSON (`sort_keys=True,
+separators=(',', ':')`) of exactly the fields listed in `CHECKSUM_FIELDS`,
+computed before `checksum` itself is added. `verify_checksum()` recomputes
+over that same closed field set; anything outside it — a `Compiler.compile()`
+result's non-serializable `"program"` key, say — is ignored, so verification
+degrades gracefully instead of raising `TypeError` (AUDIT_REPORT.md §0.2).
+EPW-OS is expected to call it before trusting an exported file.
+
+**When adding a field that changes runtime behavior, add it to
+`CHECKSUM_FIELDS` too.** An unprotected field is a field whose tampering the
+checksum will not catch — this is exactly how `analog_points` shipped
+unprotected for one PR before AUDIT_REPORT.md §1.3 closed the gap.
+`tests/test_export_contract.py::test_checksum_protects_every_field` is
+parametrized over `CHECKSUM_FIELDS` specifically so a newly-added, forgotten
+field fails loudly instead of silently.
+
+Unrelated to either schema version: `Project.deserialize()` refuses to load
+a project that references an unrecognized block `type_id` — it raises
+`ValueError` naming the missing type(s) rather than silently dropping that
+logic (see AUDIT_REPORT.md §3.3, previous PR).
 
 ## 4. Stateful Feedback Execution
 Pure combinational logic feedback (e.g. `AND` looped back into itself) is prohibited. However, the compiler explicitly permits feedback if a node along the cycle is flagged with `is_stateful = True` (e.g., `TON`, `RS`, `SR`). This satisfies industrial loop criteria where latency exists through memory buffers.
@@ -72,9 +118,9 @@ fixed value for commissioning/testing. That override lives in
 serialized into both the `.epwlogic` project file and the exported
 `EPW_RUNTIME_LOGIC` runtime, so a force left in `properties` would ride along
 into a saved project and potentially into the object it drives. Loading a
-pre-audit project that still has `"Force State"` under `properties` migrates
-it into `simulation_state` and strips it from `properties` on load (see
-`_migrate_legacy_force_state` in `core/project.py`). If any block still has an
+pre-audit (v1) project that still has `"Force State"` under `properties`
+migrates it into `simulation_state` and strips it from `properties` on load
+— folded into `_migrate_v1_to_v2` in `core/project.py`, see §3.1. If any block still has an
 active force at export time, `Exporter.export()` sets
 `contains_forced_io: true` and raises a compiler warning listing the forced
 blocks, so it is visible before the runtime goes to a controller.
@@ -97,3 +143,47 @@ reference (see §1), an `input.ai` block's `[min, max]` range (used for its
 Quality out-of-range check) is resolved once, at compile time, in
 `Compiler.compile()` — via `block.set_range(min, max)` on the isolated
 runtime copy — rather than looked up live during `evaluate()`.
+
+## 9. Runtime Export Contract
+**Rule:** the exported `.epwlogic.runtime.json` must be executable entirely
+on its own. EPW-OS never has access to the engineering project, the live
+`analog_points` list in memory, or anything else Logic Studio holds — only
+this one file. If a block's `evaluate()` needs something beyond its own
+`type_id`, pins, and `properties`, that something must be *in the export*,
+or the deployed object's behavior will diverge from what Logic Studio's own
+simulation showed the engineer. This is exactly the bug closed by
+AUDIT_REPORT.md §1: an `input.ai` block's quality check used a `[min, max]`
+range that existed only in the in-memory `CompiledProgram` (injected via
+`set_range()`, §8) — never in the exported file. `Quality` would have been
+permanently `True` on the real object while correctly catching out-of-range
+readings in simulation: a silent divergence inside one repo.
+
+Two mechanisms keep every block self-sufficient in the export:
+- **`analog_points`** (top level): a full, verbatim copy of
+  `project.settings["analog_points"]` — every point the project declares,
+  not only the ones a block currently references. A point may be reserved
+  for future use, or driven only by an HMI layer with no logic block behind
+  it at all; EPW-OS still needs the complete definition.
+- **`_resolved_*` properties** (per block, underscore-prefixed): compiler-
+  derived, read-only data injected into that one block's exported
+  `properties`, so a consumer reading the block's entry in isolation never
+  needs to cross-reference `analog_points` by address. Today this is
+  `input.ai`'s `_resolved_range_min` / `_resolved_range_max` /
+  `_resolved_unit`, mirroring exactly what `Compiler.compile()` resolves
+  into the in-memory `CompiledProgram` via `set_range()`. The underscore is
+  the convention for "the compiler computed this, the user never edits it" —
+  never reuse it for a user-facing property, and never let a `_resolved_*`
+  key leak into the `.epwlogic` project file: the analog points list stays
+  the single source of truth there, and only the export gets the resolved
+  snapshot (`Exporter.export()` builds a fresh `dict(block.properties)` per
+  block; `block.properties` itself is never mutated).
+
+`tests/test_export_contract.py` enforces this mechanically rather than by
+convention: `test_export_contract_completeness` builds one instance of every
+registered block type, compiles and exports the project, and asserts every
+block's export entry carries its full pin/type/property set (plus
+`input.ai`'s specific `_resolved_*` fields) — it fails the moment a new
+block type reads data that isn't in the export. `test_runtime_reconstructable_
+without_project` builds an `input.ai` block, discards every Python reference
+to the `Project`, and reconstructs its range and unit from the exported dict
+alone — literally what EPW-OS does with the file.
