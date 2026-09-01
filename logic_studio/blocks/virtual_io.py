@@ -10,12 +10,13 @@ class VirtualInputBlock(BaseLogicBlock):
         self.width = 100
         self.height = 60
         self.properties["Tag"] = "VI.NEW_INPUT"
-        self.properties["Force State"] = "NO FORCE"
+        self.is_source = True
 
         self.outputs = [Pin("State", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN)]
 
     def evaluate(self, engine=None):
-        force_state = self.properties.get("Force State", "NO FORCE")
+        # Force is runtime-only, see AUDIT_REPORT.md §5.1 — never persisted in `properties`.
+        force_state = self.simulation_state.get("force_state", "NO FORCE")
 
         if force_state == "FORCE TRUE":
             self.outputs[0].value = True

@@ -139,6 +139,81 @@ def test_pin_single_driver():
     # But a can connect to b's input 1
     assert a.outputs[0].connect(b.inputs[1]) is True
 
+def test_tp_start_with_active_input_no_keyerror():
+    """Regression for AUDIT_REPORT.md §1.1: ExecutionEngine.start() clears
+    simulation_state before calling reset_runtime_state(). TP must not depend
+    on a key surviving that clear() to evaluate safely on the very first scan."""
+    from logic_studio.core.project import Project
+    from logic_studio.compiler.core import Compiler
+    from logic_studio.engine.execution import ExecutionEngine
+    from logic_studio.engine.io_provider import SimulationIOProvider
+    from logic_studio.engine.time_provider import SimulationTimeProvider
+    from logic_studio.blocks.io_blocks import DigitalInputBlock
+
+    project = Project()
+    di = DigitalInputBlock()
+    di.properties["Address"] = "ELA01.DI01"
+    tp = TP()
+    di.outputs[0].connect(tp.inputs[0])
+    project.add_block(di)
+    project.add_block(tp)
+
+    compiler = Compiler(project)
+    res = compiler.compile()
+    assert res is not None, f"Compile failed: {compiler.errors}"
+
+    io = SimulationIOProvider()
+    io.set_digital_input("ELA01.DI01", True)  # IN already True before start()
+    engine = ExecutionEngine(res.get("program"), io, SimulationTimeProvider())
+
+    engine.start()
+    engine.step()  # Must not raise KeyError('last_in')
+
+    assert engine.state != "FAULT"
+
+def test_button_monostable():
+    from logic_studio.blocks.system_signals import ButtonBlock
+
+    b = ButtonBlock()
+    b.properties["Mode"] = "Monostabilny"
+
+    b.simulation_state["pressed"] = False
+    b.evaluate()
+    assert b.outputs[0].value is False
+
+    b.simulation_state["pressed"] = True
+    b.evaluate()
+    assert b.outputs[0].value is True
+
+    b.simulation_state["pressed"] = False
+    b.evaluate()
+    assert b.outputs[0].value is False
+
+def test_button_bistable():
+    from logic_studio.blocks.system_signals import ButtonBlock
+
+    b = ButtonBlock()
+    b.properties["Mode"] = "Bistabilny"
+
+    b.simulation_state["pressed"] = False
+    b.evaluate()
+    assert b.outputs[0].value is False
+
+    b.simulation_state["pressed"] = True
+    b.evaluate()
+    assert b.outputs[0].value is True  # rising edge toggles latch ON
+
+    b.evaluate()  # held pressed, no new edge
+    assert b.outputs[0].value is True
+
+    b.simulation_state["pressed"] = False
+    b.evaluate()
+    assert b.outputs[0].value is True  # released, latch holds
+
+    b.simulation_state["pressed"] = True
+    b.evaluate()
+    assert b.outputs[0].value is False  # second rising edge toggles latch OFF
+
 def test_pin_type_checking():
     from logic_studio.blocks.logic_gates import AndGate
     from logic_studio.blocks.math_blocks import AddBlock

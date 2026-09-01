@@ -12,6 +12,7 @@ class SystemBooleanSignalBlock(BaseLogicBlock):
 
         self.properties["Signal"] = "Sys.Ready"
         self.properties["Tag"] = "SYS_READY"
+        self.is_source = True
 
     def evaluate(self, engine=None):
         if engine and hasattr(engine, 'io'):
@@ -27,13 +28,32 @@ class ButtonBlock(BaseLogicBlock):
         self.color = "#000000"
         self.outputs.append(Pin("Out", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN))
         self.properties["Tag"] = ""
+        self.properties["Mode"] = "Monostabilny"
+        self.is_source = True
+
+        # Bistable latch state. "pressed" itself lives in simulation_state because
+        # it is driven externally (HMI/UI), not computed by this block's own logic.
+        self._latched = False
+        self._last_pressed = False
+
+    def reset_runtime_state(self):
+        self._latched = False
+        self._last_pressed = False
 
     def evaluate(self, engine=None):
-        # User message is a sink. Store message string in simulation state based on input.
-        val = bool(self.inputs[0].value) if self.inputs and self.inputs[0].value is not None else False
-        msg = self.properties.get("Message 1", "") if val else self.properties.get("Message 0", "")
-        self.simulation_state["display_message"] = msg
-        self.simulation_state["sim_value"] = val
+        pressed = bool(self.simulation_state.get("pressed", False))
+        mode = self.properties.get("Mode", "Monostabilny")
+
+        if mode == "Bistabilny":
+            if pressed and not self._last_pressed:
+                self._latched = not self._latched
+            self._last_pressed = pressed
+            out = self._latched
+        else:
+            out = pressed
+
+        self.outputs[0].value = out
+        self.simulation_state["sim_value"] = out
 
 @BlockRegistry.register
 class LedBlock(BaseLogicBlock):
@@ -50,7 +70,7 @@ class LedBlock(BaseLogicBlock):
 
 @BlockRegistry.register
 class UserMessageBlock(BaseLogicBlock):
-    def __init__(self, type_id="system.message", default_name="Komunikat użytkownika", category="Liczniki", description="Wiadomość tekstowa dla operatora"):
+    def __init__(self, type_id="system.message", default_name="Komunikat użytkownika", category="Telemechanika", description="Wiadomość tekstowa dla operatora"):
         super().__init__(type_id, default_name, category, description)
         self.color = "#000000"
         self.width = 120
@@ -74,6 +94,7 @@ class SignalGeneratorBlock(BaseLogicBlock):
         self.outputs.append(Pin("Out", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN))
         self.properties["Period (s)"] = 1.0
         self.is_stateful = True
+        self.is_source = True
 
     def reset_runtime_state(self):
         pass # relies strictly on global engine clock for deterministic frequency, not local memory

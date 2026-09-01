@@ -1,8 +1,16 @@
 from PySide6.QtWidgets import QGraphicsView
-from PySide6.QtCore import Qt, QEvent
+from PySide6.QtCore import Qt, QEvent, Signal
 from PySide6.QtGui import QPainter, QWheelEvent, QMouseEvent
 
 class LogicView(QGraphicsView):
+    # Emitted on every mouse move over the viewport, in scene coordinates.
+    cursor_moved = Signal(float, float)
+    # Emitted whenever the view scale changes, as a multiplier (1.0 == 100%).
+    zoom_changed = Signal(float)
+
+    MIN_ZOOM = 0.1
+    MAX_ZOOM = 4.0
+
     def __init__(self, scene, parent=None):
         super().__init__(scene, parent)
         self.setRenderHint(QPainter.Antialiasing)
@@ -11,24 +19,44 @@ class LogicView(QGraphicsView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
+        self.setMouseTracking(True)
 
         # Drag mode
         self.setDragMode(QGraphicsView.RubberBandDrag)
         self._is_panning = False
         self._pan_start = None
 
+    def current_zoom(self) -> float:
+        return self.transform().m11()
+
+    def _apply_zoom(self, factor: float):
+        """Scale the view by `factor`, clamped to [MIN_ZOOM, MAX_ZOOM]."""
+        current = self.current_zoom()
+        target = max(self.MIN_ZOOM, min(self.MAX_ZOOM, current * factor))
+        if current <= 0:
+            return
+        actual_factor = target / current
+        if actual_factor == 1.0:
+            return
+        self.scale(actual_factor, actual_factor)
+        self.zoom_changed.emit(self.current_zoom())
+
+    def zoom_in(self):
+        self._apply_zoom(1.15)
+
+    def zoom_out(self):
+        self._apply_zoom(1.0 / 1.15)
+
+    def reset_zoom(self):
+        self.resetTransform()
+        self.zoom_changed.emit(self.current_zoom())
+
     def wheelEvent(self, event: QWheelEvent):
         """Handle zoom in/out with scroll wheel."""
-        zoom_in_factor = 1.15
-        zoom_out_factor = 1.0 / zoom_in_factor
-
-        # Zoom
         if event.angleDelta().y() > 0:
-            zoom_factor = zoom_in_factor
+            self._apply_zoom(1.15)
         else:
-            zoom_factor = zoom_out_factor
-
-        self.scale(zoom_factor, zoom_factor)
+            self._apply_zoom(1.0 / 1.15)
 
     def mousePressEvent(self, event: QMouseEvent):
         """Middle click to pan."""
@@ -49,6 +77,8 @@ class LogicView(QGraphicsView):
         super().mouseReleaseEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent):
+        self.cursor_moved.emit(*self._scene_pos_tuple(event))
+
         if self._is_panning and self._pan_start is not None:
             delta = event.pos() - self._pan_start
             self._pan_start = event.pos()
@@ -62,6 +92,10 @@ class LogicView(QGraphicsView):
             event.accept()
             return
         super().mouseMoveEvent(event)
+
+    def _scene_pos_tuple(self, event: QMouseEvent):
+        scene_pos = self.mapToScene(event.pos())
+        return scene_pos.x(), scene_pos.y()
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasText():
@@ -80,10 +114,12 @@ class LogicView(QGraphicsView):
             block_type = event.mimeData().text()
             scene_pos = self.mapToScene(event.position().toPoint())
 
-            # Snap to grid
-            grid = self.scene().grid_size
-            x = round(scene_pos.x() / grid) * grid
-            y = round(scene_pos.y() / grid) * grid
+            if getattr(self.scene(), 'snap_enabled', True):
+                grid = self.scene().grid_size
+                x = round(scene_pos.x() / grid) * grid
+                y = round(scene_pos.y() / grid) * grid
+            else:
+                x, y = scene_pos.x(), scene_pos.y()
 
             self.scene().add_block_from_library(block_type, x, y)
             event.acceptProposedAction()

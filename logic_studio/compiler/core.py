@@ -39,6 +39,7 @@ class Compiler:
         from logic_studio.compiler.exporter import Exporter
         exporter = Exporter(self.project, execution_order)
         compiled_data = exporter.export()
+        self.warnings.extend(exporter.warnings)
 
         # 4. Generate isolated CompiledProgram for the ExecutionEngine
         from logic_studio.engine.program import CompiledProgram

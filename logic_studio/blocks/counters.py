@@ -9,18 +9,23 @@ class CounterBase(BaseLogicBlock):
         self.width = 100
         self.height = 120
         self.properties["Preset"] = 10
-        self.simulation_state["count"] = 0
-        self.simulation_state["last_cu"] = False
-        self.simulation_state["last_cd"] = False
+        self._count = 0
+        self._last_cu = False
+        self._last_cd = False
         self.is_stateful = True
 
     def reset_runtime_state(self):
+        self._count = 0
+        self._last_cu = False
+        self._last_cd = False
         self.simulation_state["count"] = 0
-        self.simulation_state["last_cu"] = False
-        self.simulation_state["last_cd"] = False
 
     def get_preset(self):
         return int(self.properties.get("Preset", 10))
+
+    def _publish_count(self):
+        """Mirror the authoritative count into simulation_state for read-only UI display."""
+        self.simulation_state["count"] = self._count
 
 @BlockRegistry.register
 class CTU(CounterBase):
@@ -39,13 +44,14 @@ class CTU(CounterBase):
         pv = int(self.inputs[2].value) if self.inputs[2].value is not None else self.get_preset()
 
         if r:
-            self.simulation_state["count"] = 0
-        elif cu and not self.simulation_state["last_cu"]:
-            self.simulation_state["count"] += 1
+            self._count = 0
+        elif cu and not self._last_cu:
+            self._count += 1
 
-        self.simulation_state["last_cu"] = cu
+        self._last_cu = cu
+        self._publish_count()
 
-        cv = self.simulation_state["count"]
+        cv = self._count
         self.outputs[1].value = cv
         self.outputs[0].value = (cv >= pv)
 
@@ -66,13 +72,14 @@ class CTD(CounterBase):
         pv = int(self.inputs[2].value) if self.inputs[2].value is not None else self.get_preset()
 
         if ld:
-            self.simulation_state["count"] = pv
-        elif cd and not self.simulation_state["last_cd"]:
-            self.simulation_state["count"] -= 1
+            self._count = pv
+        elif cd and not self._last_cd:
+            self._count -= 1
 
-        self.simulation_state["last_cd"] = cd
+        self._last_cd = cd
+        self._publish_count()
 
-        cv = self.simulation_state["count"]
+        cv = self._count
         self.outputs[1].value = cv
         self.outputs[0].value = (cv <= 0)
 
@@ -99,19 +106,20 @@ class CTUD(CounterBase):
         pv = int(self.inputs[4].value) if self.inputs[4].value is not None else self.get_preset()
 
         if r:
-            self.simulation_state["count"] = 0
+            self._count = 0
         elif ld:
-            self.simulation_state["count"] = pv
+            self._count = pv
         else:
-            if cu and not self.simulation_state["last_cu"]:
-                self.simulation_state["count"] += 1
-            if cd and not self.simulation_state["last_cd"]:
-                self.simulation_state["count"] -= 1
+            if cu and not self._last_cu:
+                self._count += 1
+            if cd and not self._last_cd:
+                self._count -= 1
 
-        self.simulation_state["last_cu"] = cu
-        self.simulation_state["last_cd"] = cd
+        self._last_cu = cu
+        self._last_cd = cd
+        self._publish_count()
 
-        cv = self.simulation_state["count"]
+        cv = self._count
         self.outputs[2].value = cv
         self.outputs[0].value = (cv >= pv)
         self.outputs[1].value = (cv <= 0)

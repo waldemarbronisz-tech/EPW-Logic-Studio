@@ -10,14 +10,17 @@ class DigitalInputBlock(BaseLogicBlock):
         self.width = 100
         self.height = 60
         self.properties["Address"] = "ELA01.DI01"
-        self.properties["Force State"] = "NO FORCE"
+        self.is_source = True
 
         out1 = Pin("State", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN)
         self.outputs = [out1]
 
     def evaluate(self, engine=None):
         addr = self.properties.get("Address", "")
-        force_state = self.properties.get("Force State", "NO FORCE")
+        # Force is a runtime-only override (see AUDIT_REPORT.md §5.1): it must never be
+        # persisted in `properties`, or a workshop force would ride along into a saved
+        # project / exported runtime and end up driving the real object.
+        force_state = self.simulation_state.get("force_state", "NO FORCE")
 
         if force_state == "FORCE TRUE":
             self.outputs[0].value = True
@@ -48,8 +51,10 @@ class DigitalOutputBlock(BaseLogicBlock):
         v = self.inputs[0].value
         val = v if v is not None else False
 
-        if engine and hasattr(engine, 'io') and engine.io is not None:
+        # Buffered by the engine and pushed to the IOProvider atomically at the
+        # end of the scan (AUDIT_REPORT.md §4.2) — never written here directly.
+        if engine and hasattr(engine, 'queue_digital_output'):
             addr = self.properties.get("Address", "")
-            engine.io.write_digital_output(addr, val)
+            engine.queue_digital_output(addr, val)
 
         self.simulation_state["sim_value"] = val

@@ -26,7 +26,17 @@ class BaseLogicBlock:
         self.color: str = "#C0C0C0"  # Classic Win98 grey
         self.visibility: bool = True
         self.enabled: bool = True
+
+        # Read-only UI display state. Blocks may WRITE their current value here for
+        # panels to show, but must never READ it back as their own logic state —
+        # own state belongs in plain instance fields (e.g. self._count, self._memory)
+        # so it survives ExecutionEngine.start()/stop() clearing this dict.
         self.simulation_state: dict = {}
+
+        # True for blocks with no logic inputs (DI, constants, system signals, ...):
+        # the ExecutionEngine evaluates these before the rest of the graph, once per
+        # scan, so their output is available to every downstream block in that scan.
+        self.is_source: bool = False
 
         # Extensible properties mapped by string key
         self.properties: dict = {
@@ -112,14 +122,11 @@ class BaseLogicBlock:
 
         from logic_studio.blocks.pin import Pin
 
-        # We must clone the pins to avoid sharing mutable state
-        # In fact, we MUST NOT reuse the original pin UUIDs or else _find_pin_by_uuid
-        # might match original UI pins if they somehow leaked.
-        # WAIT! If we re-generate UUIDs for cloned pins, the topology graph built by Kahn
-        # using the original UUIDs will BREAK.
-        # So we MUST reuse pin UUIDs exactly. But wait, `connections` list contains UUIDs of OTHER pins.
-        # This is correct.
-
+        # Pins are cloned into fresh objects (never shared) to avoid mutable-state
+        # aliasing between the original and the copy. When preserve_uuid is set
+        # (isolating a CompiledProgram from the UI project), pin UUIDs and their
+        # `connections` lists — which reference OTHER pins' UUIDs — are copied
+        # verbatim, because GraphBuilder's execution_order is keyed by those UUIDs.
         new_block.inputs = []
         for p in self.inputs:
             new_p = Pin(p.name, p.direction, p.data_type)

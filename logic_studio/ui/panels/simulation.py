@@ -41,8 +41,8 @@ class SimulationPanel(QWidget):
             lbl.setStyleSheet("background-color: darkgray; color: white; padding: 2px; border: 1px solid black;")
             lbl.setAlignment(Qt.AlignCenter)
 
-            row = (i - 1) // 4
-            col = (i - 1) % 4
+            row = i // 4
+            col = i % 4
             out_layout.addWidget(lbl, row, col)
             self.ada_leds.append(lbl)
 

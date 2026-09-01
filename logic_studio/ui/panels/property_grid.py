@@ -62,6 +62,16 @@ class PropertyGridPanel(QWidget):
         if not self.current_block:
             return
 
+        if key == "Force State":
+            # Runtime-only override (AUDIT_REPORT.md §5.1): lives in simulation_state,
+            # never in properties, so it can never be saved to a project file or ride
+            # along into an exported runtime. Not an undoable edit either.
+            self.current_block.simulation_state["force_state"] = text
+            window = self.window()
+            if hasattr(window, 'scene'):
+                window.scene.update()
+            return
+
         window = self.window()
         if hasattr(window, 'project'):
             window.project.push_state()
@@ -96,6 +106,11 @@ class PropertyGridPanel(QWidget):
             "Visible": str(block.visibility),
             "Execution State": block.execution_state
         }
+
+        # Force is runtime-only (AUDIT_REPORT.md §5.1): it lives in simulation_state,
+        # not in properties, so surface it here explicitly for forceable block types.
+        if block.type_id in ["input.di", "virtual.input"]:
+            props["Force State"] = block.simulation_state.get("force_state", "NO FORCE")
 
         # Add dynamic properties
         props.update(block.properties)

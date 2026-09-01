@@ -105,7 +105,8 @@ def test_priority_a_audit():
     assert len(m.engine.program.execution_order) == 11
 
     # Tick 1: Pulse input high
-    m.engine.program.block_map[vi_a.uuid].properties["Force State"] = "FORCE TRUE"
+    # Force is runtime-only (AUDIT_REPORT.md §5.1): lives in simulation_state, not properties.
+    m.engine.program.block_map[vi_a.uuid].simulation_state["force_state"] = "FORCE TRUE"
     m.engine.io.set_digital_input("SYSTEM.CORE_ONLINE", True)
     m.engine.step()
 
@@ -123,7 +124,7 @@ def test_priority_a_audit():
     assert m.engine.get_block_state(ton.uuid).outputs["Q"].value is False # Needs 200ms
 
     # Tick 2: Pulse goes low
-    m.engine.program.block_map[vi_a.uuid].properties["Force State"] = "FORCE FALSE"
+    m.engine.program.block_map[vi_a.uuid].simulation_state["force_state"] = "FORCE FALSE"
 
     m.engine.time.advance(150) # Simulate real engine sleep delay for TON
     m.engine.step()
@@ -140,13 +141,17 @@ def test_priority_a_audit():
     assert m.engine.get_block_state(vo_b.uuid).simulation_state["sim_value"] is True
 
     # 10. EXAMPLE PROJECT / 7. SAVE OPEN
-    save_path = "examples/EPW_LOGIC_PRIORITY_A_TEST.epwlogic"
+    # Write to a scratch path, never back over the tracked examples/ fixture
+    # (that file is committed as a reference project, not a test output).
+    import tempfile
+    save_path = os.path.join(tempfile.gettempdir(), "EPW_LOGIC_PRIORITY_A_TEST.epwlogic")
     m.project.save_to_file(save_path)
     assert os.path.exists(save_path)
 
     # Reopen
     m._open_project_headless(save_path)
     assert len(m.project.blocks) == 11
+    os.remove(save_path)
 
     # Find scale
     loaded_scale = None
