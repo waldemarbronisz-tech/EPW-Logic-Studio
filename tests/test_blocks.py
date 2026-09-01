@@ -214,6 +214,103 @@ def test_button_bistable():
     b.evaluate()
     assert b.outputs[0].value is False  # second rising edge toggles latch OFF
 
+def test_analog_input_quality_and_holdover():
+    """AUDIT_REPORT.md §2.1: AI holds the last good value across a bad-quality
+    scan instead of passing garbage downstream."""
+    from logic_studio.blocks.analog_io import AnalogInputBlock
+
+    class FakeIO:
+        def __init__(self):
+            self.value = 25.0
+        def read_analog_input(self, address):
+            return self.value
+
+    class FakeEngine:
+        def __init__(self, io):
+            self.io = io
+
+    ai = AnalogInputBlock()
+    ai.set_range(-40.0, 150.0)
+    io = FakeIO()
+    engine = FakeEngine(io)
+
+    ai.evaluate(engine)
+    assert ai.outputs[0].value == 25.0
+    assert ai.outputs[1].value is True
+
+    # Out of range beyond the 10% margin -> quality False, value held.
+    io.value = 1000.0
+    ai.evaluate(engine)
+    assert ai.outputs[1].value is False
+    assert ai.outputs[0].value == 25.0
+
+    # Back in range -> resumes tracking.
+    io.value = 30.0
+    ai.evaluate(engine)
+    assert ai.outputs[1].value is True
+    assert ai.outputs[0].value == 30.0
+
+def test_analog_input_no_good_value_yet():
+    from logic_studio.blocks.analog_io import AnalogInputBlock
+
+    ai = AnalogInputBlock()
+    ai.set_range(0.0, 100.0)
+    ai.evaluate(engine=None)  # no IOProvider -> raw stays None
+    assert ai.outputs[0].value == 0.0
+    assert ai.outputs[1].value is False
+
+def test_analog_input_nan_and_range_margin():
+    import math
+    from logic_studio.blocks.analog_io import AnalogInputBlock
+
+    class FakeIO:
+        def __init__(self, v):
+            self.v = v
+        def read_analog_input(self, address):
+            return self.v
+
+    class FakeEngine:
+        def __init__(self, io):
+            self.io = io
+
+    ai = AnalogInputBlock()
+    ai.set_range(0.0, 100.0)  # 10% margin == 10 units either side
+
+    engine = FakeEngine(FakeIO(math.nan))
+    ai.evaluate(engine)
+    assert ai.outputs[1].value is False
+
+    engine.io.v = -5.0  # inside the margin -> still good
+    ai.evaluate(engine)
+    assert ai.outputs[1].value is True
+    assert ai.outputs[0].value == -5.0
+
+    engine.io.v = -20.0  # beyond the margin -> bad, holds last good
+    ai.evaluate(engine)
+    assert ai.outputs[1].value is False
+    assert ai.outputs[0].value == -5.0
+
+def test_analog_output_buffers_and_flushes():
+    from logic_studio.blocks.analog_io import AnalogOutputBlock
+
+    class FakeEngine:
+        def __init__(self):
+            self.buffered = {}
+        def queue_analog_output(self, address, value):
+            self.buffered[address] = value
+
+    ao = AnalogOutputBlock()
+    ao.properties["Address"] = "AI.TEST"
+    engine = FakeEngine()
+
+    ao.inputs[0].value = 12.5
+    ao.evaluate(engine)
+    assert engine.buffered["AI.TEST"] == 12.5
+
+    ao.inputs[0].value = None
+    ao.evaluate(engine)
+    assert engine.buffered["AI.TEST"] == 0.0
+
 def test_pin_type_checking():
     from logic_studio.blocks.logic_gates import AndGate
     from logic_studio.blocks.math_blocks import AddBlock

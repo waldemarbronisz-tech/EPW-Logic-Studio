@@ -24,7 +24,13 @@ class Project:
         self.settings = {
             "name": "New Project",
             "version": "1.0",
-            "cycle_time_ms": 100
+            "cycle_time_ms": 100,
+            # Analog points are fully project-defined (unlike DI/DO, which are
+            # fixed physical ELA/ADA channels) — see DeviceModel and
+            # AUDIT_REPORT.md §1. Each entry:
+            # {"address": str, "name": str, "unit": str, "min": float,
+            #  "max": float, "direction": "input" | "output"}
+            "analog_points": []
         }
 
         self.undo_stack = []
@@ -103,6 +109,10 @@ class Project:
 
         proj = cls()
         proj.settings = data.get("settings", proj.settings)
+        # Back-compat: a project file saved before analog points existed has a
+        # "settings" dict with no "analog_points" key at all — default it to an
+        # empty list rather than erroring or losing the rest of the settings.
+        proj.settings.setdefault("analog_points", [])
 
         block_data_list = data.get("blocks", [])
 

@@ -48,6 +48,17 @@ class Compiler:
         from logic_studio.core.project import Project
         isolated_project = Project.deserialize(project_json)
 
+        # Resolve each AI block's analog point range once, here, since the
+        # ExecutionEngine/CompiledProgram deliberately never holds a live
+        # Project reference (see AUDIT_REPORT.md §2.1). Validator has already
+        # confirmed the address exists with direction="input".
+        from logic_studio.core.device_model import DeviceModel
+        for block in isolated_project.blocks:
+            if block.type_id == "input.ai" and hasattr(block, 'set_range'):
+                point = DeviceModel.get_analog_point(self.project, block.properties.get("Address", ""))
+                if point:
+                    block.set_range(point.get("min"), point.get("max"))
+
         # In serialize/deserialize, UUIDs are fully preserved, so execution_order matches
         program = CompiledProgram(
             blocks=isolated_project.blocks,

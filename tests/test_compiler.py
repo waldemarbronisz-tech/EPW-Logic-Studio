@@ -94,6 +94,86 @@ def test_verify_checksum_ignores_non_schema_keys():
     tampered["block_count"] = tampered["block_count"] + 1
     assert verify_checksum(tampered) is False
 
+def test_analog_point_validation_and_range_resolution():
+    """AUDIT_REPORT.md §2.1/§2.3/§2.4: a valid AI/AO pair against a declared
+    analog point compiles, and the Compiler resolves the AI block's [min, max]
+    onto the isolated runtime instance (the engine has no live Project ref)."""
+    from logic_studio.blocks.analog_io import AnalogInputBlock, AnalogOutputBlock
+
+    p = Project()
+    p.settings["analog_points"] = [
+        {"address": "AI.TEMP", "name": "Temp", "unit": "°C", "min": -40.0, "max": 150.0, "direction": "input"},
+        {"address": "AO.SETPOINT", "name": "Setpoint", "unit": "°C", "min": 0.0, "max": 100.0, "direction": "output"},
+    ]
+
+    ai = AnalogInputBlock()
+    ai.properties["Address"] = "AI.TEMP"
+    ao = AnalogOutputBlock()
+    ao.properties["Address"] = "AO.SETPOINT"
+    ai.outputs[0].connect(ao.inputs[0])
+
+    p.add_block(ai)
+    p.add_block(ao)
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is not None, f"Compile failed: {c.errors}"
+
+    compiled_ai = res["program"].block_map[ai.uuid]
+    assert compiled_ai._range_min == -40.0
+    assert compiled_ai._range_max == 150.0
+
+def test_invalid_analog_input_address_fails_compilation():
+    from logic_studio.blocks.analog_io import AnalogInputBlock
+
+    p = Project()
+    ai = AnalogInputBlock()
+    ai.properties["Address"] = "AI.DOES_NOT_EXIST"
+    p.add_block(ai)
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is None
+    assert any("Invalid AI Address" in e for e in c.errors)
+
+def test_duplicate_analog_output_address_fails():
+    from logic_studio.blocks.analog_io import AnalogOutputBlock
+
+    p = Project()
+    p.settings["analog_points"] = [
+        {"address": "AO.X", "name": "X", "unit": "", "min": 0.0, "max": 10.0, "direction": "output"},
+    ]
+    ao1 = AnalogOutputBlock()
+    ao1.properties["Address"] = "AO.X"
+    ao2 = AnalogOutputBlock()
+    ao2.properties["Address"] = "AO.X"
+    p.add_block(ao1)
+    p.add_block(ao2)
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is None
+    assert any("Multiple analog outputs" in e for e in c.errors)
+
+def test_duplicate_analog_input_address_warns_not_fails():
+    from logic_studio.blocks.analog_io import AnalogInputBlock
+
+    p = Project()
+    p.settings["analog_points"] = [
+        {"address": "AI.X", "name": "X", "unit": "", "min": 0.0, "max": 10.0, "direction": "input"},
+    ]
+    ai1 = AnalogInputBlock()
+    ai1.properties["Address"] = "AI.X"
+    ai2 = AnalogInputBlock()
+    ai2.properties["Address"] = "AI.X"
+    p.add_block(ai1)
+    p.add_block(ai2)
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is not None, f"Compile failed: {c.errors}"
+    assert any("Multiple AI blocks read address" in w for w in c.warnings)
+
 def test_compiler_deterministic_execution_order():
     """AUDIT_REPORT.md §6: recompiling the same graph (same blocks, same UUIDs)
     must give the same execution_order regardless of the order blocks were
