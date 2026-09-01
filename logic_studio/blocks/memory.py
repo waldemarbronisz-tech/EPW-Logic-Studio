@@ -11,11 +11,11 @@ class MemoryBase(BaseLogicBlock):
 
         self.outputs.append(Pin("Q", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN))
         # Internal state memory
-        self.simulation_state["memory"] = False
+        self._memory = False
         self.is_stateful = True
 
     def reset_runtime_state(self):
-        self.simulation_state["memory"] = False
+        self._memory = False
 
 @BlockRegistry.register
 class SR(MemoryBase):
@@ -29,11 +29,11 @@ class SR(MemoryBase):
         r = bool(self.inputs[1].value)
 
         if s: # Set dominant
-            self.simulation_state["memory"] = True
+            self._memory = True
         elif r:
-            self.simulation_state["memory"] = False
+            self._memory = False
 
-        self.outputs[0].value = self.simulation_state["memory"]
+        self.outputs[0].value = self._memory
 
 @BlockRegistry.register
 class RS(MemoryBase):
@@ -47,8 +47,8 @@ class RS(MemoryBase):
         s = bool(self.inputs[1].value)
 
         if r: # Reset dominant
-            self.simulation_state["memory"] = False
+            self._memory = False
         elif s:
-            self.simulation_state["memory"] = True
+            self._memory = True
 
-        self.outputs[0].value = self.simulation_state["memory"]
+        self.outputs[0].value = self._memory

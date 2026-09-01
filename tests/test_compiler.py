@@ -43,6 +43,71 @@ def test_duplicate_ada_output():
     assert res is None # Compilation fails
     assert any("Multiple outputs assigned to address: ADA1" in e for e in c.errors)
 
+def test_export_checksum_roundtrip():
+    """AUDIT_REPORT.md §5.2: verify_checksum must accept a freshly exported
+    payload and reject one that was tampered with afterwards."""
+    from logic_studio.compiler.exporter import Exporter, verify_checksum
+
+    p = Project()
+    a = AndGate()
+    p.add_block(a)
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is not None
+
+    runtime_data = Exporter(p, res["program"].execution_order).export()
+
+    assert "checksum" in runtime_data
+    assert verify_checksum(runtime_data) is True
+
+    tampered = dict(runtime_data)
+    tampered["cycle_time_ms"] = tampered["cycle_time_ms"] + 1
+    assert verify_checksum(tampered) is False
+
+    missing_checksum = dict(runtime_data)
+    del missing_checksum["checksum"]
+    assert verify_checksum(missing_checksum) is False
+
+def test_compiler_deterministic_execution_order():
+    """AUDIT_REPORT.md §6: recompiling the same graph (same blocks, same UUIDs)
+    must give the same execution_order regardless of the order blocks were
+    added to the project."""
+    from logic_studio.blocks.timers import TON
+
+    # Same block instances (and therefore the same UUIDs) reused across every
+    # project below — only the insertion order into `blocks` changes.
+    di = DigitalOutputBlock()  # stand-in leaf; not actually wired
+    gate1 = AndGate()
+    gate2 = OrGate()
+    timer = TON()
+
+    gate1.outputs[0].connect(timer.inputs[0])
+    timer.outputs[0].connect(gate2.inputs[0])
+    gate2.outputs[0].connect(gate1.inputs[1])  # feedback through the stateful timer
+
+    blocks_by_name = {"gate1": gate1, "gate2": gate2, "timer": timer, "di": di}
+    orderings = [
+        ["gate1", "gate2", "timer", "di"],
+        ["di", "timer", "gate2", "gate1"],
+        ["timer", "di", "gate1", "gate2"],
+        ["gate2", "gate1", "di", "timer"],
+        ["di", "gate2", "timer", "gate1"],
+    ]
+
+    results = []
+    for ordering in orderings:
+        p = Project()
+        for name in ordering:
+            p.add_block(blocks_by_name[name])
+
+        c = Compiler(p)
+        res = c.compile()
+        assert res is not None, f"Compile failed for ordering {ordering}: {c.errors}"
+        results.append(res["program"].execution_order)
+
+    assert all(r == results[0] for r in results), f"execution_order not deterministic: {results}"
+
 def test_compiler_allows_stateful_cycles():
     p = Project()
     from logic_studio.blocks.timers import TON

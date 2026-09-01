@@ -1,4 +1,5 @@
-from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QTabWidget, QStatusBar, QToolBar, QMenuBar
+from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QTabWidget, QStatusBar, QToolBar, QMenuBar, QLabel
+from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtCore import Qt
 
 from logic_studio.ui.canvas.scene import LogicScene
@@ -16,100 +17,151 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("EPW Logic Studio")
         self.resize(1920, 1080)
 
+        self._setup_status_bar()
         self._setup_menus()
         self._setup_toolbar()
-        self._setup_status_bar()
         self._setup_layout()
+
+    def _make_action(self, text, slot=None, shortcut=None, checkable=False, checked=False):
+        """Create one QAction and wire it up — the same instance is added to both
+        the menu and the toolbar (AUDIT_REPORT.md §2.2/§2.3), so there is exactly
+        one place that knows what each command does."""
+        action = QAction(text, self)
+        if shortcut:
+            action.setShortcut(QKeySequence(shortcut))
+        if checkable:
+            action.setCheckable(True)
+            action.setChecked(checked)
+        if slot:
+            action.triggered.connect(slot)
+        return action
 
     def _setup_menus(self):
         menubar = self.menuBar()
+
+        # --- File ---
+        self.act_new = self._make_action("New", self._new_project, "Ctrl+N")
+        self.act_open = self._make_action("Open...", self._open_project, "Ctrl+O")
+        self.act_save = self._make_action("Save", self._save_project, "Ctrl+S")
+        self.act_save_as = self._make_action("Save As...", self._save_as_project, "Ctrl+Shift+S")
+        self.act_exit = self._make_action("Exit", self.close)
+
         file_menu = menubar.addMenu("File")
-        file_menu.addAction("New")
-        file_menu.addAction("Open...")
-        file_menu.addAction("Save")
-        file_menu.addAction("Save As...")
+        file_menu.addAction(self.act_new)
+        file_menu.addAction(self.act_open)
+        file_menu.addAction(self.act_save)
+        file_menu.addAction(self.act_save_as)
         file_menu.addSeparator()
-        file_menu.addAction("Exit", self.close)
+        file_menu.addAction(self.act_exit)
+
+        # --- Edit ---
+        self.act_undo = self._make_action("Undo", self._undo, "Ctrl+Z")
+        self.act_redo = self._make_action("Redo", self._redo, "Ctrl+Y")
+        self.act_delete = self._make_action("Delete", self._delete_selected, "Del")
 
         edit_menu = menubar.addMenu("Edit")
-        edit_menu.addAction("Undo")
-        edit_menu.addAction("Redo")
+        edit_menu.addAction(self.act_undo)
+        edit_menu.addAction(self.act_redo)
         edit_menu.addSeparator()
+        # Cut/Copy/Paste have no implementation behind them yet — left disabled
+        # rather than wired to a fake action, and not on the toolbar.
         act_cut = edit_menu.addAction("Cut")
         act_copy = edit_menu.addAction("Copy")
         act_paste = edit_menu.addAction("Paste")
         act_cut.setEnabled(False)
         act_copy.setEnabled(False)
         act_paste.setEnabled(False)
-        edit_menu.addAction("Delete")
+        edit_menu.addAction(self.act_delete)
+
+        # --- View ---
+        self.act_zoom_in = self._make_action("Zoom In", self._zoom_in)
+        self.act_zoom_out = self._make_action("Zoom Out", self._zoom_out)
+        self.act_reset_zoom = self._make_action("Reset Zoom", self._reset_zoom)
+        self.act_grid = self._make_action("Grid", self._toggle_grid, checkable=True, checked=True)
+        self.act_snap = self._make_action("Snap", self._toggle_snap, checkable=True, checked=True)
 
         view_menu = menubar.addMenu("View")
-        view_menu.addAction("Zoom In")
-        view_menu.addAction("Zoom Out")
-        view_menu.addAction("Reset Zoom")
+        view_menu.addAction(self.act_zoom_in)
+        view_menu.addAction(self.act_zoom_out)
+        view_menu.addAction(self.act_reset_zoom)
         view_menu.addSeparator()
-        view_menu.addAction("Grid")
-        view_menu.addAction("Snap")
+        view_menu.addAction(self.act_grid)
+        view_menu.addAction(self.act_snap)
+
+        # --- Project ---
+        # "Recent Projects" had no backing mechanism and was removed rather than
+        # left as a dead menu item (AUDIT_REPORT.md §2.3) — a real MRU list is a
+        # separate feature, not part of this fix pass.
+        self.act_project_settings = self._make_action("Project Settings", self._open_project_settings)
 
         project_menu = menubar.addMenu("Project")
-        project_menu.addAction("Project Settings")
-        project_menu.addAction("Recent Projects")
+        project_menu.addAction(self.act_project_settings)
+
+        # --- Logic ---
+        self.act_compile = self._make_action("Compile", self.compile_project, "F5")
+        self.act_export_runtime = self._make_action("Export Runtime", self._export_runtime)
 
         logic_menu = menubar.addMenu("Logic")
-        logic_menu.addAction("Compile")
-        logic_menu.addAction("Export Runtime")
+        logic_menu.addAction(self.act_compile)
+        logic_menu.addAction(self.act_export_runtime)
+
+        # --- Simulation ---
+        self.act_sim_start = self._make_action("Start", self.start_simulation, "F6")
+        self.act_sim_pause = self._make_action("Pause", self._pause_simulation)
+        self.act_sim_stop = self._make_action("Stop", self.stop_simulation, "F7")
 
         sim_menu = menubar.addMenu("Simulation")
-        sim_menu.addAction("Start")
-        sim_menu.addAction("Pause")
-        sim_menu.addAction("Stop")
+        sim_menu.addAction(self.act_sim_start)
+        sim_menu.addAction(self.act_sim_pause)
+        sim_menu.addAction(self.act_sim_stop)
 
-        window_menu = menubar.addMenu("Window")
-        tools_menu = menubar.addMenu("Tools")
+        # "Window" and "Tools" had no content at all and were removed
+        # (AUDIT_REPORT.md §2.3) rather than kept as empty menus.
+        self.act_about = self._make_action("O programie", self._show_about)
         help_menu = menubar.addMenu("Help")
+        help_menu.addAction(self.act_about)
 
     def _setup_toolbar(self):
         toolbar = QToolBar("Main Toolbar")
         toolbar.setMovable(True)
-        # Using placeholder text actions since we don't have physical 16x16 icon files,
-        # but configured exactly like a classic Windows 98 toolbar
         self.addToolBar(toolbar)
 
-        toolbar.addAction("New")
-        toolbar.addAction("Open")
-        toolbar.addAction("Save")
+        toolbar.addAction(self.act_new)
+        toolbar.addAction(self.act_open)
+        toolbar.addAction(self.act_save)
         toolbar.addSeparator()
-        toolbar.addAction("Undo")
-        toolbar.addAction("Redo")
+        toolbar.addAction(self.act_undo)
+        toolbar.addAction(self.act_redo)
         toolbar.addSeparator()
-        toolbar.addAction("Compile")
+        toolbar.addAction(self.act_compile)
         toolbar.addSeparator()
-        toolbar.addAction("Sim Start")
-        toolbar.addAction("Pause")
-        toolbar.addAction("Stop")
+        toolbar.addAction(self.act_sim_start)
+        toolbar.addAction(self.act_sim_pause)
+        toolbar.addAction(self.act_sim_stop)
         toolbar.addSeparator()
-        toolbar.addAction("Zoom In")
-        toolbar.addAction("Zoom Out")
-        toolbar.addAction("Grid")
-        toolbar.addAction("Snap")
+        toolbar.addAction(self.act_zoom_in)
+        toolbar.addAction(self.act_zoom_out)
+        toolbar.addAction(self.act_grid)
+        toolbar.addAction(self.act_snap)
 
     def _setup_status_bar(self):
         status = QStatusBar()
         self.setStatusBar(status)
 
-        # Win98 style status bar labels
-        from PySide6.QtWidgets import QLabel
-        self.lbl_ready = QLabel("Ready")
-        self.lbl_grid = QLabel("Grid ON")
-        self.lbl_snap = QLabel("Snap ON")
+        # Win98 style status bar labels. Every one of these is driven from a real
+        # source (AUDIT_REPORT.md §2.1) — see _setup_layout() for the signal wiring
+        # and compile_project()/start_simulation()/stop_simulation()/_on_sim_tick()
+        # for where each value actually gets pushed in.
+        self.lbl_ready = QLabel("Gotowy")
+        self.lbl_grid = QLabel("Grid: ON")
+        self.lbl_snap = QLabel("Snap: ON")
         self.lbl_cursor = QLabel("X: 0, Y: 0")
-        self.lbl_zoom = QLabel("100%")
+        self.lbl_zoom = QLabel("Zoom: 100%")
         self.lbl_sim = QLabel("Simulation: Stopped")
 
-        # New Milestone 4 Labels
         self.lbl_selected = QLabel("Selected: None")
         self.lbl_modified = QLabel("")
-        self.lbl_scan = QLabel("Scan: 0ms")
+        self.lbl_scan = QLabel("Scan: -")
 
         status.addWidget(self.lbl_ready, 1)
         status.addPermanentWidget(self.lbl_selected)
@@ -144,6 +196,8 @@ class MainWindow(QMainWindow):
 
         self.scene = LogicScene()
         self.view = LogicView(self.scene)
+        self.view.cursor_moved.connect(self._on_cursor_moved)
+        self.view.zoom_changed.connect(self._on_zoom_changed)
 
         self.output_panel = CompilerOutputPanel()
 
@@ -184,9 +238,6 @@ class MainWindow(QMainWindow):
         self.current_file = None
         self.is_dirty = False
 
-        # Connect Actions
-        self._connect_actions()
-
         self.update_title()
 
         # Connect Selection
@@ -214,48 +265,95 @@ class MainWindow(QMainWindow):
             title += " *"
 
         self.setWindowTitle(title)
+        self.lbl_modified.setText("*" if self.is_dirty else "")
 
     def set_dirty(self):
         if not self.is_dirty:
             self.is_dirty = True
             self.update_title()
 
-    def _connect_actions(self):
-        from PySide6.QtGui import QAction
-        # We find the actions from the toolbars and menus that were added as text
-        for action in self.findChildren(QAction):
-            t = action.text()
-            if t in ["Sim Start", "Start"]:
-                action.triggered.connect(self.start_simulation)
-            elif t == "Pause":
-                action.triggered.connect(self.engine.pause)
-            elif t == "Undo":
-                action.triggered.connect(self._undo)
-            elif t == "Redo":
-                action.triggered.connect(self._redo)
-            elif t == "Stop":
-                action.triggered.connect(self.stop_simulation)
-            elif t == "Compile":
-                action.triggered.connect(self.compile_project)
-            elif t == "Export Runtime":
-                action.triggered.connect(self._export_runtime)
-            elif t == "Save":
-                action.triggered.connect(self._save_project)
-            elif t in ["Save As", "Save As..."]:
-                action.triggered.connect(self._save_as_project)
-            elif t in ["Open", "Open..."]:
-                action.triggered.connect(self._open_project)
-            elif t == "New":
-                action.triggered.connect(self._new_project)
+    # ---- View: zoom / cursor / grid / snap ----------------------------------
+
+    def _on_cursor_moved(self, x, y):
+        self.lbl_cursor.setText(f"X: {int(x)}, Y: {int(y)}")
+
+    def _on_zoom_changed(self, factor):
+        self.lbl_zoom.setText(f"Zoom: {round(factor * 100)}%")
+
+    def _zoom_in(self):
+        self.view.zoom_in()
+
+    def _zoom_out(self):
+        self.view.zoom_out()
+
+    def _reset_zoom(self):
+        self.view.reset_zoom()
+
+    def _toggle_grid(self):
+        self.scene.grid_visible = self.act_grid.isChecked()
+        self.lbl_grid.setText(f"Grid: {'ON' if self.scene.grid_visible else 'OFF'}")
+        self.scene.update()
+
+    def _toggle_snap(self):
+        self.scene.snap_enabled = self.act_snap.isChecked()
+        self.lbl_snap.setText(f"Snap: {'ON' if self.scene.snap_enabled else 'OFF'}")
+
+    def _delete_selected(self):
+        self.scene.delete_selected_items()
+
+    # ---- Project Settings / About --------------------------------------------
+
+    def _open_project_settings(self):
+        from PySide6.QtWidgets import QDialog, QFormLayout, QLineEdit, QSpinBox, QDialogButtonBox
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Project Settings")
+        form = QFormLayout(dialog)
+
+        name_edit = QLineEdit(str(self.project.settings.get("name", "New Project")))
+        version_edit = QLineEdit(str(self.project.settings.get("version", "1.0")))
+        cycle_spin = QSpinBox()
+        cycle_spin.setRange(1, 60000)
+        cycle_spin.setSuffix(" ms")
+        cycle_spin.setValue(int(self.project.settings.get("cycle_time_ms", 100)))
+
+        form.addRow("Name", name_edit)
+        form.addRow("Version", version_edit)
+        form.addRow("Cycle Time", cycle_spin)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        form.addRow(buttons)
+
+        if dialog.exec() == QDialog.Accepted:
+            self.project.push_state()
+            self.project.settings["name"] = name_edit.text()
+            self.project.settings["version"] = version_edit.text()
+            self.project.settings["cycle_time_ms"] = cycle_spin.value()
+            self.set_dirty()
+
+    def _show_about(self):
+        from PySide6.QtWidgets import QMessageBox
+        from logic_studio import __version__
+        from logic_studio.core.project import EPWLOGIC_SCHEMA_VERSION
+
+        QMessageBox.about(
+            self,
+            "O programie",
+            f"EPW Logic Studio {__version__}\n"
+            f"Format projektu: EPW_LOGIC, schema_version {EPWLOGIC_SCHEMA_VERSION}"
+        )
+
+    # ---- Logic / Simulation ---------------------------------------------------
 
     def _export_runtime(self):
         self.compile_project()
 
-        if not self.engine.execution_order:
+        if not self.engine.program or not self.engine.program.execution_order:
             return # Compilation failed
 
         from PySide6.QtWidgets import QFileDialog
-        import os
         import json
 
         path, _ = QFileDialog.getSaveFileName(self, "Export Runtime", "", "EPW Runtime Files (*.epwlogic.runtime.json)")
@@ -264,8 +362,11 @@ class MainWindow(QMainWindow):
                 path += ".epwlogic.runtime.json"
 
             from logic_studio.compiler.exporter import Exporter
-            exporter = Exporter(self.project, self.engine.execution_order)
+            exporter = Exporter(self.project, self.engine.program.execution_order)
             runtime_data = exporter.export()
+
+            for w in exporter.warnings:
+                self.output_panel.log_warning(w)
 
             with open(path, 'w') as f:
                 json.dump(runtime_data, f, indent=4)
@@ -275,6 +376,8 @@ class MainWindow(QMainWindow):
     def compile_project(self):
         if self.engine:
             self.engine.stop()
+
+        self.lbl_ready.setText("Kompilacja...")
 
         from logic_studio.compiler.core import Compiler
         comp = Compiler(self.project)
@@ -291,10 +394,21 @@ class MainWindow(QMainWindow):
             for e in comp.errors:
                 self.output_panel.log_error(e)
             self.output_panel.log_message("Compilation failed.")
+            self.lbl_ready.setText("Kompilacja zakończona błędem")
         else:
+            block_count = len(self.project.blocks)
+            order_len = len(comp.last_execution_order)
+            self.output_panel.log_compiler(
+                f"Skompilowano {block_count} blok(ów). Długość execution_order: {order_len}."
+            )
             self.output_panel.log_message("Compilation successful.")
+            self.lbl_ready.setText("Gotowy")
             if "program" in res:
                 self.engine.load_program(res["program"])
+                self.output_panel.log_runtime(
+                    f"Program załadowany: {len(res['program'].blocks)} blok(ów), "
+                    f"execution_order={len(res['program'].execution_order)}."
+                )
 
     def start_simulation(self):
         # Force a fresh compile before every run to ensure safety
@@ -307,15 +421,30 @@ class MainWindow(QMainWindow):
 
         self.engine.start()
 
+        from logic_studio.engine.execution import ExecutionState
+        if self.engine.state == ExecutionState.FAULT:
+            self.output_panel.log_runtime("Engine transitioned to FAULT on start.")
+            self.lbl_ready.setText("Symulacja: błąd silnika")
+            return
+
         cycle_time_ms = self.project.settings.get("cycle_time_ms", 100)
         self.sim_timer.start(cycle_time_ms)
 
         self.lbl_sim.setText("Simulation: Running")
+        self.lbl_ready.setText("Symulacja uruchomiona")
+        self.output_panel.log_runtime("Simulation started.")
+
+    def _pause_simulation(self):
+        self.engine.pause()
+        self.lbl_sim.setText("Simulation: Paused")
+        self.output_panel.log_runtime("Simulation paused.")
 
     def stop_simulation(self):
         self.engine.stop()
         self.sim_timer.stop()
         self.lbl_sim.setText("Simulation: Stopped")
+        self.lbl_ready.setText("Gotowy")
+        self.output_panel.log_runtime("Simulation stopped.")
         # Reset block values
         for block in self.project.blocks:
             for p in block.inputs + block.outputs:
@@ -483,6 +612,12 @@ class MainWindow(QMainWindow):
 
             # 4. Refresh Canvas
             self.scene.refresh_live_states()
+
+            # 5. Scan diagnostics (AUDIT_REPORT.md §2.1)
+            self.lbl_scan.setText(
+                f"Scan: {self.engine.last_scan_duration_ms:.2f} ms "
+                f"(max {self.engine.max_scan_duration_ms:.2f})"
+            )
 
     def _update_simulation_panel(self):
         # Sync ELA/ADA block states to the UI

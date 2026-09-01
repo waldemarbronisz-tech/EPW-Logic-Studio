@@ -83,7 +83,7 @@ class LibraryPanel(QWidget):
         from logic_studio.blocks.registry import BlockRegistry
 
         standard_categories = [
-            "Bramki logiczne", "Wejścia / Wyjścia", "Elementy Analogowe", "Timery",
+            "Bramki logiczne", "Detekcja zboczy", "Wejścia / Wyjścia", "Elementy Analogowe", "Timery",
             "Przerzutniki", "Zabezpieczenia Analogowe", "Zabezpieczenia Dwustanowe",
             "Zabezpieczenia Technologiczne", "Łączniki", "Banki Nastaw",
             "Telemechanika", "Zabezpieczenia silnikowe", "Przyciski", "LED", "Liczniki"

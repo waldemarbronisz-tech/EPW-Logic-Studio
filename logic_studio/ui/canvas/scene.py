@@ -7,6 +7,8 @@ class LogicScene(QGraphicsScene):
         super().__init__(parent)
         self.setSceneRect(-5000, -5000, 10000, 10000)
         self.grid_size = 20
+        self.grid_visible = True
+        self.snap_enabled = True
 
         # Industrial visual style for grid
         self.grid_color = QColor(200, 200, 200)
@@ -121,6 +123,9 @@ class LogicScene(QGraphicsScene):
     def drawBackground(self, painter, rect):
         """Draws an industrial engineering dot grid background."""
         super().drawBackground(painter, rect)
+
+        if not self.grid_visible:
+            return
 
         left = int(rect.left()) - (int(rect.left()) % self.grid_size)
         top = int(rect.top()) - (int(rect.top()) % self.grid_size)

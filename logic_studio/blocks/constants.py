@@ -9,6 +9,7 @@ class ConstantBase(BaseLogicBlock):
         self.width = 60
         self.height = 60
         self.outputs = [Pin("Out", Pin.DIR_OUTPUT, pin_type)]
+        self.is_source = True
 
 @BlockRegistry.register
 class TrueConstant(ConstantBase):

@@ -305,6 +305,12 @@ class BlockItem(QGraphicsItem):
             self.setSelected(True)
 
     def itemChange(self, change, value):
+        if change == QGraphicsItem.ItemPositionChange and self.scene() is not None:
+            if getattr(self.scene(), 'snap_enabled', True):
+                grid = getattr(self.scene(), 'grid_size', 20)
+                return QPointF(round(value.x() / grid) * grid, round(value.y() / grid) * grid)
+            return value
+
         if change == QGraphicsItem.ItemPositionHasChanged:
             self.logic_block.set_position(self.pos().x(), self.pos().y())
             if self.scene():

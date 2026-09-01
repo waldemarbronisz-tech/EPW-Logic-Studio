@@ -12,7 +12,8 @@
 - [X] Port item geometry changed from circles to industrial tiny squares (3px radius equivalent).
 
 ### LIBRARY REWORK
-- [X] Restructured block categories to match requested Polish industrial categories: `Bramki logiczne`, `Wejścia / Wyjścia`, `Elementy Analogowe`, `Timery`, `Przerzutniki`, `Zabezpieczenia Analogowe`, `Zabezpieczenia Dwustanowe`, `Zabezpieczenia Technologiczne`, `Łączniki`, `Banki Nastaw`, `Telemechanika`, `Zabezpieczenia silnikowe`, `Przyciski`, `LED`, `Liczniki`, `Inne`.
+- [X] Restructured block categories to match requested Polish industrial categories: `Bramki logiczne`, `Detekcja zboczy`, `Wejścia / Wyjścia`, `Elementy Analogowe`, `Timery`, `Przerzutniki`, `Przyciski`, `LED`, `Liczniki`, `Telemechanika`, `Inne`.
+- [ ] `Zabezpieczenia Analogowe`, `Zabezpieczenia Dwustanowe`, `Zabezpieczenia Technologiczne`, `Łączniki`, `Banki Nastaw`, `Zabezpieczenia silnikowe` — struktura kategorii zadeklarowana w `LibraryPanel` (grupy istnieją i są ukrywane przy braku bloków), ale bloki do implementacji. Skorygowano z audytu (AUDIT_REPORT.md §7.1): wcześniej oznaczone jako ukończone, mimo że w `logic_studio/blocks/` nie było w nich ani jednego zarejestrowanego bloku.
 - [X] Registered new blocks: `AND-3`, `AND-4`, `OR-3`, `OR-4`, `NAND-3`, `NAND-4`, `NOR-3`, `NOR-4`, `Przycisk`, `LED`, `Komunikat użytkownika`, `Generator sygnału`.
 
 ### TEST FILES

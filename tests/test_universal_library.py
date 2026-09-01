@@ -58,7 +58,8 @@ def test_universal_library_integration():
 
     # 5. Simulation Execution
     # First tick
-    m.engine.program.block_map[vi.uuid].properties["Force State"] = "FORCE TRUE" # simulate active edge
+    # Force is runtime-only (AUDIT_REPORT.md §5.1): lives in simulation_state, not properties.
+    m.engine.program.block_map[vi.uuid].simulation_state["force_state"] = "FORCE TRUE" # simulate active edge
     m.engine.step()
 
     # Verify R_TRIG pulse is high on first scan
@@ -75,13 +76,17 @@ def test_universal_library_integration():
     assert m.engine.get_block_state(rtrig.uuid).outputs["Out"].value is False
 
     # 6. Save and Load
-    export_path = "examples/EPW_LOGIC_BLOCKS_INTEGRATION_TEST.epwlogic"
+    # Write to a scratch path, never back over the tracked examples/ fixture
+    # (that file is committed as a reference project, not a test output).
+    import tempfile
+    export_path = os.path.join(tempfile.gettempdir(), "EPW_LOGIC_BLOCKS_INTEGRATION_TEST.epwlogic")
     m.project.save_to_file(export_path)
     assert os.path.exists(export_path)
 
     # Load back
     m._open_project_headless(export_path)
     assert len(m.project.blocks) == 5
+    os.remove(export_path)
 
     # Verify states persisted
     const_real_loaded = None
@@ -99,9 +104,14 @@ def test_universal_library_integration():
     assert "format" in runtime_data
     assert len(runtime_data["blocks"]) == 5
 
-    # Verify boolean parsing fix via BaseLogicBlock property engine
+    # Verify generic string properties still round-trip via BaseLogicBlock property engine
+    vi.update_property("Tag", "VI.RENAMED")
+    assert vi.properties["Tag"] == "VI.RENAMED"
+
+    # Force is no longer a persisted property (AUDIT_REPORT.md §5.1) — update_property()
+    # must not silently create it, since anything landing in `properties` gets serialized.
     vi.update_property("Force State", "FORCE TRUE")
-    assert vi.properties["Force State"] == "FORCE TRUE"
+    assert "Force State" not in vi.properties
 
 
     # Ensure application doesn't block shutdown UI flows

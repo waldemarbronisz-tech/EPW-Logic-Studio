@@ -20,7 +20,10 @@ def test_type_id_persistence():
     assert loaded_b.type_id == "logic.not"
     assert loaded_b.display_name == "MY_NOT_GATE"
 
-def test_missing_block_graceful_fail():
+def test_missing_block_raises_instead_of_silently_dropping():
+    """AUDIT_REPORT.md §3.3: an unrecognized type_id must fail loudly, not
+    silently vanish from the loaded project — that would be a silent loss of
+    safety logic on a corrupted or newer-than-this-build file."""
     p = Project()
     b = NotGate()
     p.add_block(b)
@@ -29,9 +32,8 @@ def test_missing_block_graceful_fail():
     # Mangle the type_id to simulate missing plugin/block
     data["blocks"][0]["type_id"] = "logic.missing_xyz"
 
-    p2 = Project.deserialize(data)
-    # Should not crash, block list should be empty
-    assert len(p2.blocks) == 0
+    with pytest.raises(ValueError, match="logic.missing_xyz"):
+        Project.deserialize(data)
 
 def test_duplicate_pointers():
     # If we duplicate a block in scene, it must get a new UUID

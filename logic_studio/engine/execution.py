@@ -54,6 +54,18 @@ class ExecutionEngine:
         self.max_scan_duration_ms = 0.0
         self.cycle_counter = 0
 
+        # Output image written by blocks during a scan, pushed to the IOProvider
+        # atomically at the end of that scan (see step()).
+        self._output_buffer = {}
+
+    def queue_digital_output(self, address: str, value: bool):
+        """Called by output blocks during evaluate(). Buffers the write instead of
+        touching the IOProvider immediately, so every output block in a scan sees
+        the same consistent image and the physical/simulated outputs all change
+        together at the end of the scan, not one-by-one as execution_order happens
+        to visit them (see ARCHITECTURE.md §2, step 5 "push outputs")."""
+        self._output_buffer[address] = value
+
     def load_program(self, program: CompiledProgram):
         """Hot-swap the compiled program."""
         self.program = program
@@ -94,45 +106,55 @@ class ExecutionEngine:
                     p.value = None
 
     def step(self):
-        """Execute exactly one scan cycle if not FAULT."""
+        """Execute exactly one scan cycle if not FAULT.
+
+        Follows the 6-step PLC scan from ARCHITECTURE.md §2: acquire inputs,
+        execute the topological graph, push outputs — each block evaluated
+        exactly once per scan, and the output image written atomically at the
+        end so a downstream data recorder never sees a scan half-applied.
+        """
         if self.state == ExecutionState.FAULT or not self.program:
             return
 
         start_time = time.monotonic_ns()
+        self._output_buffer = {}
 
         block_map = self.program.block_map
+        pin_map = self.program.pin_map
 
-        # 1. Acquire input image and all source blocks that have no inputs
+        # 1. Acquire: evaluate source blocks (no logic inputs) once, up front,
+        # so their output is available to the rest of the graph this scan.
+        acquired = set()
         for uuid in self.program.execution_order:
             b = block_map.get(uuid)
-            if b and (b.type_id.startswith("input.") or not b.inputs or b.type_id == "virtual.input" or b.type_id == "const.real" or b.type_id == "system.signal"):
+            if b and getattr(b, 'is_source', False):
                 b.evaluate(engine=self)
+                acquired.add(uuid)
 
-        # 2. Execute graph
+        # 2. Execute graph: propagate connected values, then evaluate. Source
+        # blocks are skipped here — they already ran in step 1 and must not be
+        # evaluated a second time (e.g. a generator must not advance twice as fast).
         for uuid in self.program.execution_order:
-            if uuid in block_map:
-                block = block_map[uuid]
+            if uuid in acquired or uuid not in block_map:
+                continue
 
-                # Signal propagation (read from connected pins)
-                for pin in block.inputs:
-                    # In Kahn graph we might have stale logic if connections array maps output -> input.
-                    # Wait, out.connections contains input pin UUIDs. in.connections contains output pin UUIDs.
-                    for conn_uuid in pin.connections:
-                        source_pin = self._find_pin_by_uuid(conn_uuid, block_map)
-                        if source_pin and getattr(source_pin, 'direction', -1) == 1:
-                            pin.value = source_pin.value
-                            break # Only take first valid output connection
+            block = block_map[uuid]
 
-                # Also we must handle forward propagation if order is strict.
-                # Actually, connections are mutual in this system:
-                # out.connections has in.uuid, and in.connections has out.uuid.
+            for pin in block.inputs:
+                for conn_uuid in pin.connections:
+                    source_pin = pin_map.get(conn_uuid)
+                    if source_pin is not None and getattr(source_pin, 'direction', -1) == 1:
+                        pin.value = source_pin.value
+                        break  # Single-driver inputs: first (only) output connection wins.
 
-                # Execute logic
-                # Even if it's an input block, evaluating again is harmless if it's topological.
-                # Let's just evaluate everything in order.
-                block.evaluate(engine=self)
+            block.evaluate(engine=self)
 
-        # 3. Diagnostics
+        # 3. Push outputs: apply the buffered output image to the IOProvider in
+        # one pass, after every block has finished evaluating.
+        for address, value in self._output_buffer.items():
+            self.io.write_digital_output(address, value)
+
+        # 4. Diagnostics
         end_time = time.monotonic_ns()
         duration_ms = (end_time - start_time) / 1_000_000.0
         self.last_scan_duration_ms = duration_ms
@@ -162,13 +184,3 @@ class ExecutionEngine:
     def get_block_state(self, block_uuid: str) -> RuntimeBlockState:
         snapshot = self.get_runtime_snapshot()
         return snapshot.blocks.get(block_uuid)
-
-    def _find_pin_by_uuid(self, pin_uuid, block_map):
-        for block in block_map.values():
-            for p in block.outputs:
-                if p.uuid == pin_uuid:
-                    return p
-            for p in block.inputs:
-                if p.uuid == pin_uuid:
-                    return p
-        return None
