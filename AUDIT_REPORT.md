@@ -307,3 +307,25 @@ Explorer). Wszystkie punkty pokryte testami w
 - Gałąź EPM w Device Explorerze — jawnie odłożona do czasu powstania bloków pomiarowych EPM (sekcja 7 zlecenia).
 - Ikona/kolor bloków `analog.deadband`/`analog.quality` na kanwie pozostaje domyślnym stylem "COMPLEX" (jak SCALE/LIMIT/HYSTERESIS) — zlecenie nie wymagało dedykowanego kształtu dla tych dwóch bloków, tylko dla AI/AO (sekcja 2.5).
 - Krokowanie (`step_requested`) nie blokuje przycisków na poziomie samego silnika (`ExecutionEngine.step()` nadal wykona skan także w stanie STOPPED, zgodnie z zamierzonym użyciem) — ograniczenie do PAUSED/STOPPED-z-programem jest egzekwowane w `MainWindow._on_step_requested()`, zgodnie z literą zlecenia.
+
+## 13. Status napraw (branch `fix/export-contract`)
+
+Zamknięcie rozjazdu symulacja↔obiekt: punkty analogowe i rozwiązany zakres
+bloku AI trafiały wyłącznie do `CompiledProgram` w pamięci, nigdy do pliku
+`EPW_RUNTIME_LOGIC`. Wszystkie punkty pokryte testami w
+`QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` (71 → 88 testów, PASS).
+
+| # | Punkt | Status |
+|---|---|---|
+| 1.1 | `analog_points` nieobecne w eksporcie runtime | Naprawione — pełna kopia `project.settings["analog_points"]` na najwyższym poziomie eksportu. |
+| 1.2 | Blok AI w eksporcie bez rozwiązanego zakresu/jednostki | Naprawione — `_resolved_range_min/_resolved_range_max/_resolved_unit` w `properties` eksportowanego bloku AI; nigdy w pliku `.epwlogic`. |
+| 1.3 | Checksuma nie chroniła definicji punktów analogowych | Naprawione — `"analog_points"` dodane do `CHECKSUM_FIELDS`. |
+| 1.4 | Brak testu na ochronę punktów analogowych przez checksumę | Naprawione — `test_export_checksum_protects_analog_points`. |
+| 2.1 | `EPWLOGIC_SCHEMA_VERSION` wciąż 1 mimo `analog_points` | Naprawione — podniesione do 2, jawny łańcuch migracji `_MIGRATIONS`/`_migrate_v1_to_v2` (wchłania też dawną migrację Force State). |
+| 2.2 | `RUNTIME_SCHEMA_VERSION` wciąż 1 (literał) mimo rozrostu eksportu | Naprawione — stała `RUNTIME_SCHEMA_VERSION = 2` w `exporter.py`. |
+| 2.3 | Brak testu migracji `examples/` (v1→v2 w locie) | Naprawione — `test_examples_migrate_and_export_without_mass_rewrite`. |
+| 3.1–3.4 | Brak testów kontraktu eksportu (kompletność, odtwarzalność bez `Project`, ochrona checksumą, round-trip przez dysk) | Naprawione — nowy plik `tests/test_export_contract.py` (10 testów, w tym 12 wariantów parametryzowanych po `CHECKSUM_FIELDS`). |
+
+### Świadomie pominięte / poza zakresem tego PR
+- Migracja `EPW_RUNTIME_LOGIC` (`RUNTIME_SCHEMA_VERSION`) nie ma własnego łańcucha migracji jak `.epwlogic` — eksport jest zawsze generowany od nowa z aktualnego projektu, nigdy wczytywany z powrotem do Logic Studio, więc nie ma czego migrować po tej stronie; wersja służy wyłącznie konsumentowi (EPW-OS).
+- Nie dodano walidacji w `ProjectSettingsDialog` ostrzegającej przed usunięciem punktu analogowego wciąż referencjonowanego przez blok — zgłoszone jako pominięte już w poprzednim PR (§12), nie w zakresie tego zlecenia.
