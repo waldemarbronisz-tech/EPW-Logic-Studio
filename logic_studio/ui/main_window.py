@@ -451,6 +451,9 @@ class MainWindow(QMainWindow):
         for w in comp.warnings:
             self.output_panel.log_warning(w)
 
+        for i in comp.infos:
+            self.output_panel.log_message(i)
+
         if not res:
             for e in comp.errors:
                 self.output_panel.log_error(e)
@@ -470,6 +473,11 @@ class MainWindow(QMainWindow):
                     f"Program załadowany: {len(res['program'].blocks)} blok(ów), "
                     f"execution_order={len(res['program'].execution_order)}."
                 )
+
+        # Repaint every block so cycle-delay markers (§5.3) reflect this
+        # compile's cycle_delayed_reads immediately, not just on the next
+        # unrelated redraw.
+        self.scene.update()
 
         self._update_step_buttons()
 

@@ -67,7 +67,12 @@ def test_priority_a_audit(qsettings):
     # feat/internal-bits §2.1: virtual.input's free-text "Tag" was replaced
     # by "Bit" (a registry entry name, normally picked via
     # SignalPickerDialog — set directly here since this test predates that
-    # UI).
+    # UI). §4.4 requires the name to actually exist in the project's
+    # registry, or compilation fails.
+    m.project.settings["internal_bits"].append({
+        "name": "VI_PULSE_REQUEST", "type": "BOOL", "retentive": False,
+        "description": "", "label": "", "category": "",
+    })
     vi_a.update_property("Bit", "VI_PULSE_REQUEST")
     assert vi_a.properties["Bit"] == "VI_PULSE_REQUEST"
 

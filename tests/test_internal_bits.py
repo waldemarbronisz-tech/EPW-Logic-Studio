@@ -269,4 +269,201 @@ def test_system_signal_block_unrecognized_signal_returns_safe_value():
     block.evaluate(engine=None)
     assert block.outputs[0].value is False
 
+# ---- §4 validator ---------------------------------------------------------
+
+def _validate(project):
+    from logic_studio.compiler.validator import Validator
+    errors, warnings = [], []
+    Validator(project).run(errors, warnings)
+    return errors, warnings
+
+def test_validator_error_signal_not_in_registry():
+    """§4.4: the whole point of replacing free-text "Tag" with a registry —
+    a typo/unregistered name is now a compile ERROR."""
+    _app()
+    from logic_studio.blocks.registry import BlockRegistry
+    p = Project()
+    vi = BlockRegistry.create_block("virtual.input")
+    vi.properties["Bit"] = "NIGDY_NIEZAREJESTROWANY"
+    p.add_block(vi)
+
+    errors, warnings = _validate(p)
+    assert any("NIGDY_NIEZAREJESTROWANY" in e for e in errors)
+
+def test_validator_error_type_mismatch():
+    """§4.5: a BOOL block pointing at a REAL registry entry (or vice
+    versa) must be an ERROR."""
+    _app()
+    from logic_studio.blocks.registry import BlockRegistry
+    p = Project()
+    p.settings["internal_bits"] = [{"name": "X", "type": "REAL", "retentive": False}]
+    vi = BlockRegistry.create_block("virtual.input")  # BOOL block
+    vi.properties["Bit"] = "X"
+    p.add_block(vi)
+
+    errors, warnings = _validate(p)
+    assert any("X" in e and ("REAL" in e or "BOOL" in e) for e in errors)
+
+def test_validator_error_multiple_writers():
+    """§4.1: exactly like output.do — must name every writing block."""
+    _app()
+    from logic_studio.blocks.registry import BlockRegistry
+    p = Project()
+    p.settings["internal_bits"] = [{"name": "BLOKADA_ZS", "type": "BOOL", "retentive": False}]
+    vo1 = BlockRegistry.create_block("virtual.output")
+    vo1.properties["Bit"] = "BLOKADA_ZS"
+    vo1.display_name = "VO1"
+    vo2 = BlockRegistry.create_block("virtual.output")
+    vo2.properties["Bit"] = "BLOKADA_ZS"
+    vo2.display_name = "VO2"
+    p.add_block(vo1)
+    p.add_block(vo2)
+
+    errors, warnings = _validate(p)
+    matching = [e for e in errors if "BLOKADA_ZS" in e]
+    assert len(matching) == 1
+    assert "VO1" in matching[0] and "VO2" in matching[0]
+
+def test_validator_single_writer_is_not_an_error():
+    _app()
+    from logic_studio.blocks.registry import BlockRegistry
+    p = Project()
+    p.settings["internal_bits"] = [{"name": "BLOKADA_ZS", "type": "BOOL", "retentive": False}]
+    vo = BlockRegistry.create_block("virtual.output")
+    vo.properties["Bit"] = "BLOKADA_ZS"
+    p.add_block(vo)
+
+    errors, warnings = _validate(p)
+    assert not any("BLOKADA_ZS" in e for e in errors)
+
+def test_validator_warning_read_without_write():
+    """§4.2: warning, not error — legitimate mid-build state."""
+    _app()
+    from logic_studio.blocks.registry import BlockRegistry
+    p = Project()
+    p.settings["internal_bits"] = [{"name": "X", "type": "BOOL", "retentive": False}]
+    vi = BlockRegistry.create_block("virtual.input")
+    vi.properties["Bit"] = "X"
+    p.add_block(vi)
+
+    errors, warnings = _validate(p)
+    assert not any("X" in e for e in errors)
+    assert any("X" in w for w in warnings)
+
+def test_validator_warning_registered_but_unused():
+    """§4.3: housekeeping warning for a defined-but-dead registry entry."""
+    _app()
+    p = Project()
+    p.settings["internal_bits"] = [{"name": "NIEUZYWANY", "type": "BOOL", "retentive": False}]
+
+    errors, warnings = _validate(p)
+    assert any("NIEUZYWANY" in w for w in warnings)
+
+def test_validator_registry_name_errors_surface_as_compile_errors():
+    """Invalid registry entries (§1.3) block compilation too, not just the
+    registry editor UI — validate_internal_bits_registry() errors are
+    appended directly."""
+    _app()
+    p = Project()
+    p.settings["internal_bits"] = [{"name": "BAD NAME", "type": "BOOL", "retentive": False}]
+
+    errors, warnings = _validate(p)
+    assert any("BAD NAME" in e for e in errors)
+
+def test_validator_matched_writer_reader_pair_is_clean():
+    """A correctly wired writer+reader pair, both pointing at a real
+    registry entry, produces no errors and no internal-signal warnings."""
+    _app()
+    from logic_studio.blocks.registry import BlockRegistry
+    p = Project()
+    p.settings["internal_bits"] = [{"name": "X", "type": "BOOL", "retentive": False}]
+    vo = BlockRegistry.create_block("virtual.output")
+    vo.properties["Bit"] = "X"
+    vi = BlockRegistry.create_block("virtual.input")
+    vi.properties["Bit"] = "X"
+    p.add_block(vo)
+    p.add_block(vi)
+
+    errors, warnings = _validate(p)
+    assert not any("X" in e for e in errors)
+    assert not any("X" in w for w in warnings)
+
+# ---- §5 cycle-delay detection ---------------------------------------------
+
+def test_cycle_delay_detected_when_writer_is_scheduled_after_reader():
+    """§5.4: a project shaped so the writer necessarily lands later in
+    execution_order than the reader — compile, and confirm detection with
+    the correct uuid. The reader (is_source, no inputs) and const_true are
+    BOTH ready in round 0, so which of the two the tie-break (execution_
+    priority, then uuid) picks first is otherwise up to uuid comparison —
+    forced deterministic here with an explicitly low execution_priority on
+    the reader, same technique as the negative counter-test below, rather
+    than relying on however two random uuids happen to compare."""
+    _app()
+    from logic_studio.core.project import Project
+    from logic_studio.blocks.registry import BlockRegistry
+    from logic_studio.compiler.core import Compiler
+
+    p = Project()
+    p.settings["internal_bits"] = [{"name": "X", "type": "BOOL", "retentive": False, "description": "", "label": "", "category": ""}]
+
+    const_true = BlockRegistry.create_block("const.true")
+    not_gate = BlockRegistry.create_block("logic.not")
+    vo = BlockRegistry.create_block("virtual.output")
+    vo.properties["Bit"] = "X"
+    vi = BlockRegistry.create_block("virtual.input")
+    vi.properties["Bit"] = "X"
+    vi.execution_priority = -1000  # always wins the round-0 tie-break
+
+    assert const_true.outputs[0].connect(not_gate.inputs[0])
+    assert not_gate.outputs[0].connect(vo.inputs[0])
+
+    for b in (const_true, not_gate, vo, vi):
+        p.add_block(b)
+
+    compiler = Compiler(p)
+    compiled = compiler.compile()
+    assert compiled is not None, compiler.errors
+
+    order = compiled["program"].execution_order
+    assert order.index(vo.uuid) > order.index(vi.uuid), "writer must be scheduled after the reader for this to be a meaningful test"
+
+    assert vi.uuid in compiled["cycle_delayed_reads"]
+    assert vi.uuid in compiled["program"].cycle_delayed_reads
+    assert any("M.X" in msg for msg in compiler.infos)
+    assert any(vi.display_name in msg for msg in compiler.infos)
+
+def test_cycle_delay_not_flagged_when_writer_precedes_reader():
+    """Negative case: force the writer to sort BEFORE the reader in the
+    same (round-0, both unconnected) tie-break batch via a lower
+    execution_priority — confirms the detector isn't just always true."""
+    _app()
+    from logic_studio.core.project import Project
+    from logic_studio.blocks.registry import BlockRegistry
+    from logic_studio.compiler.core import Compiler
+
+    p = Project()
+    p.settings["internal_bits"] = [{"name": "Y", "type": "BOOL", "retentive": False, "description": "", "label": "", "category": ""}]
+
+    vo = BlockRegistry.create_block("virtual.output")
+    vo.properties["Bit"] = "Y"
+    vo.execution_priority = 0
+    vi = BlockRegistry.create_block("virtual.input")
+    vi.properties["Bit"] = "Y"
+    vi.execution_priority = 1
+
+    p.add_block(vo)
+    p.add_block(vi)
+
+    compiler = Compiler(p)
+    compiled = compiler.compile()
+    assert compiled is not None, compiler.errors
+
+    order = compiled["program"].execution_order
+    assert order.index(vo.uuid) < order.index(vi.uuid)
+
+    assert vi.uuid not in compiled["cycle_delayed_reads"]
+    assert not any("Y" in msg for msg in compiler.infos)
+
+
 

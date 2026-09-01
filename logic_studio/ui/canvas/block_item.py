@@ -447,6 +447,22 @@ class BlockItem(QGraphicsItem):
         "IO": lambda item: item._io_identifier(),
     }
 
+    def _is_cycle_delayed_read(self) -> bool:
+        """§5.3: best-effort check against the CURRENTLY COMPILED program's
+        cycle_delayed_reads (§5.2) — reads live off window.engine.program
+        each paint, like _lookup_analog_unit() reaches into the live
+        Project, so this is automatically correct after every recompile
+        with no separate "clear the marker" step needed."""
+        try:
+            window = self.scene().views()[0].window()
+            engine = getattr(window, 'engine', None)
+            program = getattr(engine, 'program', None) if engine else None
+            if program is None:
+                return False
+            return self.logic_block.uuid in getattr(program, 'cycle_delayed_reads', [])
+        except Exception:
+            return False
+
     def _paint_io_tag(self, painter):
         direction = self._io_direction()
         shapes.draw_io_shape(painter, QRectF(0, 0, self.width, self.height), direction)
@@ -496,6 +512,23 @@ class BlockItem(QGraphicsItem):
                 painter.setPen(QPen(style.COLOR_OUTLINE, 1))
                 painter.setBrush(style.COLOR_OUTLINE)
                 painter.drawRect(QRectF(self.width - 9, self.height - 9, 6, 6))
+
+        # Cycle-delay marker (§5.3) — only readers (virtual.input/
+        # internal.reg_in) can appear in cycle_delayed_reads; cleared
+        # automatically every recompile since this reads the CURRENT
+        # program's list live, never a value cached on this item.
+        if self.type_id in ("virtual.input", "internal.reg_in") and self._is_cycle_delayed_read():
+            painter.setPen(QPen(style.COLOR_WARNING, 1))
+            font = QFont(style.FONT_FAMILY, style.FONT_SIZE_PIN_LABEL, QFont.Bold)
+            painter.setFont(font)
+            painter.drawText(QRectF(2, self.height - 14, self.width - 4, 12), Qt.AlignLeft | Qt.AlignBottom, "z⁻¹")
+            self.setToolTip(
+                "Odczyt tego sygnału wewnętrznego wyprzedza jego zapis w bieżącej "
+                "kolejności wykonania — wartość pochodzi z poprzedniego cyklu skanu "
+                "(feat/internal-bits §5). Zobacz zakładkę \"Messages\" po kompilacji."
+            )
+        elif self.type_id in ("virtual.input", "internal.reg_in"):
+            self.setToolTip("")
 
     def _draw_io_text_lines(self, painter, lines, direction="input"):
         """Each line gets its OWN QRectF, never one multi-line wrapped
