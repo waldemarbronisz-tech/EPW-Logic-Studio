@@ -3,6 +3,11 @@ import hashlib
 from datetime import datetime, timezone
 
 from logic_studio import __version__
+from logic_studio.core.device_model import DeviceModel
+
+# Bump when the EPW_RUNTIME_LOGIC structure changes in a way a consumer
+# (EPW-OS) needs to know about. See AUDIT_REPORT.md §2.2.
+RUNTIME_SCHEMA_VERSION = 2
 
 # The closed set of fields that make up the EPW_RUNTIME_LOGIC schema and are
 # covered by the checksum. Compiler.compile() attaches a non-serializable
@@ -14,7 +19,7 @@ from logic_studio import __version__
 CHECKSUM_FIELDS = (
     "format", "schema_version", "source_version", "cycle_time_ms",
     "execution_order", "blocks", "generated_at", "generated_by",
-    "project_name", "block_count", "contains_forced_io",
+    "project_name", "block_count", "contains_forced_io", "analog_points",
 )
 
 
@@ -35,12 +40,31 @@ class Exporter:
             inputs = [{"pin_uuid": pin.uuid, "name": pin.name, "type": pin.data_type, "connections": pin.connections} for pin in block.inputs]
             outputs = [{"pin_uuid": pin.uuid, "name": pin.name, "type": pin.data_type, "connections": pin.connections} for pin in block.outputs]
 
+            # A block's exported properties may carry compiler-resolved,
+            # read-only fields on top of what the user configured (prefixed
+            # "_", see the input.ai case below and ARCHITECTURE.md "Kontrakt
+            # eksportu runtime"). Never mutate block.properties itself — this
+            # is a copy that only ever exists in the exported dict.
+            properties = dict(block.properties)
+
+            if block.type_id == "input.ai":
+                # A consumer reading this block's entry in isolation (no
+                # Project, just this JSON file — see AUDIT_REPORT.md §1.2)
+                # must still be able to reconstruct its quality-check range
+                # and unit, exactly like the compiler resolves it into the
+                # in-memory CompiledProgram via AnalogInputBlock.set_range().
+                point = DeviceModel.get_analog_point(self.project, properties.get("Address", ""))
+                if point:
+                    properties["_resolved_range_min"] = point.get("min")
+                    properties["_resolved_range_max"] = point.get("max")
+                    properties["_resolved_unit"] = point.get("unit", "")
+
             runtime_blocks[block.uuid] = {
                 "type_id": block.type_id,
                 "category": block.category,
                 "inputs": inputs,
                 "outputs": outputs,
-                "properties": block.properties
+                "properties": properties
             }
 
             force_state = block.simulation_state.get("force_state")
@@ -55,9 +79,15 @@ class Exporter:
                 "Eksport zawiera aktywne wymuszenia wejść: " + ", ".join(forced_block_names)
             )
 
+        # Full copy of every analog point the project declares — not just the
+        # ones a block currently references. A point may be defined for the
+        # future, or used only by an HMI layer with no logic block behind it
+        # at all, so EPW-OS needs the complete list (AUDIT_REPORT.md §1.1).
+        analog_points = [dict(p) for p in self.project.settings.get("analog_points", [])]
+
         payload = {
             "format": "EPW_RUNTIME_LOGIC",
-            "schema_version": 1,
+            "schema_version": RUNTIME_SCHEMA_VERSION,
             "source_version": self.project.settings.get("version", "1.0"),
             "cycle_time_ms": self.project.settings.get("cycle_time_ms", 100),
             "execution_order": self.execution_order,
@@ -67,6 +97,7 @@ class Exporter:
             "project_name": self.project.settings.get("name", "New Project"),
             "block_count": len(self.execution_order),
             "contains_forced_io": contains_forced_io,
+            "analog_points": analog_points,
         }
 
         # Checksum covers the canonical serialization of everything ABOVE, computed
