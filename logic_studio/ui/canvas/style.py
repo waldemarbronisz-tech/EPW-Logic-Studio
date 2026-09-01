@@ -37,3 +37,13 @@ PORT_CLICK_MARGIN = 4        # extra hit-test margin around a port square
 BLOCK_SELECTION_MARGIN = 4   # dashed selection rect padding beyond the body
 BOUNDING_RECT_MARGIN = 15    # default margin for BlockItem.boundingRect()
 XOR_ACCENT_OFFSET = 6        # gap between the XOR/XNOR extra curve and the shield
+
+GRID_SIZE = 20
+GRID_LINE_WIDTH = 1
+WIRE_THICKNESS = 2
+
+# Wire selection uses a different accent (cyan) than block selection (blue) —
+# kept as its own constant rather than unified, to not change either's
+# existing on-screen appearance while still centralizing the value.
+COLOR_GRID = QColor(200, 200, 200)
+COLOR_WIRE_SELECTED = QColor(0, 255, 255)

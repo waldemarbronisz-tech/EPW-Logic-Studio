@@ -2,6 +2,8 @@ from PySide6.QtWidgets import QGraphicsScene
 from PySide6.QtGui import QPen, QColor
 from PySide6.QtCore import Qt, QLineF, Signal
 
+from logic_studio.ui.canvas import style
+
 class LogicScene(QGraphicsScene):
     # Emitted whenever a block is placed via the library (drag or double-click)
     # — MainWindow connects this to LibraryPanel.record_recently_used() (§4.7)
@@ -11,14 +13,14 @@ class LogicScene(QGraphicsScene):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setSceneRect(-5000, -5000, 10000, 10000)
-        self.grid_size = 20
+        self.grid_size = style.GRID_SIZE
         self.grid_visible = True
         self.snap_enabled = True
 
         # Industrial visual style for grid
-        self.grid_color = QColor(200, 200, 200)
+        self.grid_color = style.COLOR_GRID
         self.grid_pen = QPen(self.grid_color)
-        self.grid_pen.setWidth(1)
+        self.grid_pen.setWidth(style.GRID_LINE_WIDTH)
         self.grid_pen.setStyle(Qt.DotLine)
 
         # Wiring State
