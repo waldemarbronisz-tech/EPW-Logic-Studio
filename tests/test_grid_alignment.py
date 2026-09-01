@@ -91,18 +91,12 @@ def test_deserialize_leaves_on_grid_positions_untouched():
     assert reloaded.blocks[0].x == 100
     assert reloaded.blocks[0].y == 200
 
-def test_block_width_is_a_grid_multiple_once_the_output_offset_is_added():
-    """A negated gate's body (width) is intentionally narrower than a grid
-    multiple — see block_item._determine_shape_style(): its output port sits
-    past the negation bubble at width + output_offset, and it's THAT sum
-    which is guaranteed to land on the grid (identically to the non-negated
-    sibling's port position, output_offset=0). Every other shape's width has
-    no offset and must be a grid multiple on its own."""
-    from logic_studio.ui.canvas import shapes
-
+def test_block_width_is_a_grid_multiple():
+    """Every block's width is a GRID_SIZE multiple on its own — including
+    negated gates, which are the same width as their non-negated sibling
+    (the bubble is drawn inset near the tip, not by narrowing the body; see
+    shapes.draw_gate_shape())."""
     for type_id in ALL_TYPE_IDS:
         block = BlockRegistry.create_block(type_id)
         item = BlockItem(block)
-        offset = shapes.gate_output_offset(item.shape_style) if item.shape_style in shapes.NEGATED_GATES else 0
-        assert (item.width + offset) % style.GRID_SIZE == 0, \
-            f"{type_id}: width {item.width} + output_offset {offset} not a GRID_SIZE multiple"
+        assert item.width % style.GRID_SIZE == 0, f"{type_id}: width {item.width} not a GRID_SIZE multiple"

@@ -40,17 +40,20 @@ def test_negated_gate_bubble_and_port_do_not_overlap(type_id):
     """§1: previously both the negation bubble and the output port were
     drawn at exactly (width, height/2) — the port (painted on top as a
     child item) fully occluded the bubble, making NAND indistinguishable
-    from AND, NOR from OR, XNOR from XOR. The port must now sit clear of
-    the bubble, not merely at a numerically different point."""
+    from AND, NOR from OR, XNOR from XOR. The bubble is now drawn inset,
+    centered at width - BUBBLE_RADIUS (never past `width`, where the port
+    sits) — the port must sit clear of the bubble's center, not merely at a
+    numerically different point."""
     _app()
     block = BlockRegistry.create_block(type_id)
     item = BlockItem(block)
 
     port_pos = _output_port(item).pos()
-    bubble_center = QPointF(item.width + style.BUBBLE_RADIUS, item.height / 2)
+    bubble_center = QPointF(item.width - style.BUBBLE_RADIUS, item.height / 2)
 
     assert port_pos != bubble_center, f"{type_id}: output port sits exactly on the negation bubble"
-    assert port_pos.x() > bubble_center.x(), f"{type_id}: output port must sit past the bubble, not on/before it"
+    assert port_pos.x() > bubble_center.x(), f"{type_id}: output port must sit past the bubble's center, not on/before it"
+    assert port_pos.x() == item.width, f"{type_id}: output port must sit at exactly `width`, same as a non-negated gate"
 
 @pytest.mark.parametrize("type_id", NON_NEGATED_TYPE_IDS)
 def test_non_negated_gate_output_port_flush_with_body(type_id):
@@ -98,12 +101,21 @@ def test_gate_body_has_no_separate_shorter_height():
     assert 0 < ys[0] < item.height
     assert 0 < ys[-1] < item.height
 
-def test_negation_bubble_position_matches_output_offset_helper():
-    """shapes.gate_output_offset() is the single place that decides where a
-    negated gate's port goes; draw_gate_shape() places the bubble using the
-    same BUBBLE_RADIUS constant — this pins that relationship down."""
-    assert shapes.gate_output_offset("NAND") == 2 * style.BUBBLE_RADIUS
-    assert shapes.gate_output_offset("AND") == 0.0
+def test_negated_and_non_negated_gates_are_the_same_width():
+    """AND and NAND (or any negated/non-negated pair with the same input
+    count) must be drawn at identical width — only the last few pixels near
+    the tip differ (bubble inset vs. none). An earlier version of this fix
+    shrank negated gates' width to make room for the bubble outside the
+    body, which made e.g. NAND visibly smaller than AND for no functional
+    reason ("bramki się rozjechały")."""
+    _app()
+    and_item = BlockItem(BlockRegistry.create_block("logic.and"))
+    nand_item = BlockItem(BlockRegistry.create_block("logic.nand"))
+    assert and_item.width == nand_item.width
+
+    and4_item = BlockItem(BlockRegistry.create_block("logic.and4"))
+    nand4_item = BlockItem(BlockRegistry.create_block("logic.nand4"))
+    assert and4_item.width == nand4_item.width
 
 def test_base_block_has_tag_and_comment_and_aliases():
     """§3.1/§4.6: every block gets Tag/Comment properties and an aliases

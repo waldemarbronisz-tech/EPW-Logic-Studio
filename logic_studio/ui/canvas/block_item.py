@@ -88,12 +88,14 @@ class BlockItem(QGraphicsItem):
             inputs_count = len(self.logic_block.inputs)
             self.height = max(2 * style.PORT_MARGIN, (inputs_count + 1) * style.PORT_PITCH)
 
-            # Negated gates keep width + output_offset constant at 2*GRID_SIZE
-            # (== the non-negated body width), so a gate's output port sits
-            # at the same local x regardless of negation — swapping AND for
-            # NAND never shifts the output connection point (§4.2).
-            output_offset = shapes.gate_output_offset(self.shape_style)
-            self.width = 2 * style.GRID_SIZE - output_offset
+            # Every gate is the same width regardless of negation — only how
+            # shapes.draw_gate_shape() fills the last few pixels near the tip
+            # differs (the body is drawn pulled back to make room for the
+            # bubble; see that function). The output port always sits at
+            # exactly `width`, identical to the non-negated sibling, so
+            # negating a gate never shifts its output connection point, and
+            # AND/NAND are always drawn the same size (§4.2).
+            self.width = 2 * style.GRID_SIZE
 
         elif self.category == "Wejścia / Wyjścia":
             self.shape_style = "IO"
@@ -150,11 +152,10 @@ class BlockItem(QGraphicsItem):
                 port = PortItem(pin, parent=self)
                 port.setPos(0, style.PORT_MARGIN + i * style.PORT_PITCH)
 
-            output_offset = shapes.gate_output_offset(self.shape_style)
             output_y = _round_half_up_to_pitch(self.height / 2, style.PORT_PITCH)
             for pin in self.logic_block.outputs:
                 port = PortItem(pin, parent=self)
-                port.setPos(self.width + output_offset, output_y)
+                port.setPos(self.width, output_y)
 
         elif self.shape_style == "IO":
             if "input" in self.type_id:
@@ -183,9 +184,10 @@ class BlockItem(QGraphicsItem):
         margin = style.BOUNDING_RECT_MARGIN
         block = self.logic_block
 
-        extra_right = 0.0
-        if self.shape_style in shapes.NEGATED_GATES:
-            extra_right = shapes.gate_output_offset(self.shape_style) + style.PORT_CLICK_MARGIN
+        # A negated gate's bubble is drawn inset within [width - 2*BUBBLE_
+        # RADIUS, width] — it never extends past the rect passed to
+        # draw_gate_shape(), so no extra margin is needed for it here; the
+        # base `margin` already covers the port's own click area.
 
         tag, comment = self._effective_tag_and_comment()
         top_margin = margin
@@ -198,7 +200,7 @@ class BlockItem(QGraphicsItem):
             # Room for the type-name label drawn below a gate's body (§7.2).
             bottom_margin = margin + 14
 
-        right_margin = margin + extra_right
+        right_margin = margin
         if comment:
             # Comment wraps up to 3x the block width (§7.2).
             right_margin = max(right_margin, self.width * 2 + margin)
