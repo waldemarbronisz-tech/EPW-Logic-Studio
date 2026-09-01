@@ -130,6 +130,23 @@ def draw_complex_shape(painter, rect: QRectF, inputs_count: int = 0, outputs_cou
     painter.drawRect(rect)
 
 
+def draw_doc_shape(painter, rect: QRectF):
+    """Icon-only symbol for doc.text/doc.note/doc.section (§10.3) — a page
+    outline with a few horizontal rules standing in for text lines. The
+    canvas itself never calls this: a placed DOC block renders its actual
+    Text via BlockItem._paint_doc_block(), not this generic glyph."""
+    painter.setPen(QPen(style.COLOR_OUTLINE, 1))
+    painter.setBrush(Qt.NoBrush)
+    painter.drawRect(rect)
+
+    x0, y0, w, h = rect.left(), rect.top(), rect.width(), rect.height()
+    n_lines = 3
+    inset = w * 0.18
+    for i in range(n_lines):
+        y = y0 + h * (0.28 + i * 0.22)
+        painter.drawLine(QPointF(x0 + inset, y), QPointF(x0 + w - inset, y))
+
+
 def draw_complex_icon_pin_marks(painter, rect: QRectF, inputs_count: int, outputs_count: int):
     """Small tick marks on a COMPLEX block's rectangle indicating how many
     inputs/outputs it has — used only for the library icon (§5.3), where

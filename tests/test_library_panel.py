@@ -210,6 +210,44 @@ def test_preview_panel_highlights_safety_relevant_pins():
     out_row = len(block.inputs)  # outputs listed after inputs
     assert panel.pins_table.item(out_row, 3).text() == "istotne dla bezpieczeństwa"
 
+def test_doc_block_icon_renders():
+    _app()
+    from logic_studio.ui import icons
+    for tid in ("doc.text", "doc.note", "doc.section"):
+        icon = icons.block_icon(tid)
+        assert not icon.isNull()
+
+def test_dokumentacja_category_is_last_in_library_tree(qsettings):
+    """§9.8: Dokumentacja is a real, visible category (not hidden — it holds
+    placeable canvas annotations), positioned after every functional
+    category."""
+    _app()
+    from logic_studio.ui.panels.library import LibraryPanel
+
+    panel = LibraryPanel(settings=qsettings)
+    names = [panel.tree.topLevelItem(i).text(0) for i in range(panel.tree.topLevelItemCount())]
+    assert "Dokumentacja" in names
+
+    functional = [n for n in names if n != "Ostatnio używane" and "w przygotowaniu" not in n and n != "Dokumentacja"]
+    assert names.index("Dokumentacja") > max(names.index(n) for n in functional)
+
+def test_doc_search_alias_finds_all_three_doc_blocks(qsettings):
+    _app()
+    from logic_studio.ui.panels.library import LibraryPanel, TYPE_ID_ROLE
+
+    panel = LibraryPanel(settings=qsettings)
+    panel.search_box.setText("komentarz")
+
+    visible = set()
+    for i in range(panel.tree.topLevelItemCount()):
+        root = panel.tree.topLevelItem(i)
+        for j in range(root.childCount()):
+            child = root.child(j)
+            if not child.isHidden():
+                visible.add(child.data(0, TYPE_ID_ROLE))
+
+    assert {"doc.text", "doc.note", "doc.section"} <= visible
+
 def test_pin_defaults_to_not_safety_relevant():
     from logic_studio.blocks.pin import Pin
     p = Pin("X", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN)

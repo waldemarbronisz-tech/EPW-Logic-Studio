@@ -115,7 +115,10 @@ class LibraryPanel(QWidget):
             "Bramki logiczne", "Detekcja zboczy", "Wejścia / Wyjścia", "Elementy Analogowe", "Timery",
             "Przerzutniki"
         ] + PLACEHOLDER_CATEGORIES + [
-            "Przyciski", "LED", "Liczniki", "Telemechanika", "Inne"
+            "Przyciski", "LED", "Liczniki", "Telemechanika", "Inne",
+            # Documentation blocks aren't executable logic — kept last, after
+            # every functional category (§9.8).
+            "Dokumentacja",
         ]
 
         # "Dokumentacja" (Text/Note/Section) is excluded from compilation

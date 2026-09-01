@@ -55,6 +55,42 @@ def test_block_height_is_a_grid_multiple():
         item = BlockItem(block)
         assert item.height % style.GRID_SIZE == 0, f"{type_id}: height {item.height} not a GRID_SIZE multiple"
 
+def test_deserialize_realigns_off_grid_block_positions():
+    """§4.6: a project saved with an off-grid block position (e.g. from
+    free-form dragging before snap-on-move existed) is realigned to the
+    grid on load — a no-op for anything already aligned."""
+    from logic_studio.core.project import Project
+    from logic_studio.blocks.logic_gates import AndGate
+
+    p = Project()
+    b = AndGate()
+    b.set_position(137, 54)  # deliberately off-grid
+    p.add_block(b)
+
+    data = p.serialize()
+    assert data["blocks"][0]["position"] == {"x": 137, "y": 54}
+
+    reloaded = Project.deserialize(data)
+    block = reloaded.blocks[0]
+    assert block.x % style.GRID_SIZE == 0
+    assert block.y % style.GRID_SIZE == 0
+    # Rounds to the nearest multiple, not just floors/truncates.
+    assert block.x == 140
+    assert block.y == 60
+
+def test_deserialize_leaves_on_grid_positions_untouched():
+    from logic_studio.core.project import Project
+    from logic_studio.blocks.logic_gates import AndGate
+
+    p = Project()
+    b = AndGate()
+    b.set_position(100, 200)
+    p.add_block(b)
+
+    reloaded = Project.deserialize(p.serialize())
+    assert reloaded.blocks[0].x == 100
+    assert reloaded.blocks[0].y == 200
+
 def test_block_width_is_a_grid_multiple_once_the_output_offset_is_added():
     """A negated gate's body (width) is intentionally narrower than a grid
     multiple — see block_item._determine_shape_style(): its output port sits

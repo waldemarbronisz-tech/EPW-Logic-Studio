@@ -41,6 +41,8 @@ def _shape_style_for(type_id: str, category: str) -> str:
         return "GATE_GENERIC"
     if category == "Wejścia / Wyjścia":
         return "IO"
+    if category == "Dokumentacja":
+        return "DOC"
     return "COMPLEX"
 
 
@@ -74,6 +76,8 @@ def block_icon(type_id: str, size: int = 24) -> QIcon:
         elif shape_style == "IO":
             direction = "input" if "input" in type_id else "output"
             shapes.draw_io_shape(painter, rect, direction)
+        elif shape_style == "DOC":
+            shapes.draw_doc_shape(painter, rect)
         else:
             shapes.draw_complex_shape(painter, rect)
             shapes.draw_complex_icon_pin_marks(painter, rect, len(dummy.inputs), len(dummy.outputs))
