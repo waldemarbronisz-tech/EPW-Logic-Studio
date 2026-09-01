@@ -29,6 +29,13 @@ COLOR_ERROR = QColor(220, 0, 0)
 COLOR_TAG_TEXT = QColor(0, 0, 0)
 COLOR_COMMENT_TEXT = QColor(90, 90, 90)
 COLOR_TYPE_LABEL_TEXT = QColor(0, 100, 0)
+COLOR_DOC_TEXT = QColor(60, 60, 60)
+COLOR_DOC_NOTE_BACKGROUND = QColor(255, 255, 224)  # pale yellow "sticky note"
+COLOR_DOC_NOTE_BORDER = QColor(210, 210, 160)
+
+FONT_SIZE_DOC_SECTION = 14
+FONT_SIZE_DOC_TEXT = 9
+FONT_SIZE_DOC_NOTE = 8
 
 # ---- Metrics ---------------------------------------------------------------
 BUBBLE_RADIUS = 4            # negation bubble on NOT/NAND/NOR/XNOR outputs
@@ -41,6 +48,18 @@ XOR_ACCENT_OFFSET = 6        # gap between the XOR/XNOR extra curve and the shie
 GRID_SIZE = 20
 GRID_LINE_WIDTH = 1
 WIRE_THICKNESS = 2
+
+# Port geometry (feat/block-rendering-library §4 — "the most important
+# section of this PR"): every port, on every block type, must land on a
+# grid intersection in scene coordinates. PORT_MARGIN is the offset of the
+# first port from the block's top/left edge; PORT_PITCH is the spacing
+# between consecutive ports. Both are GRID_SIZE so a block's own origin
+# being grid-aligned (enforced by snap-on-drop and snap-on-move) is
+# sufficient to put every port on the grid too.
+PORT_PITCH = 20
+PORT_MARGIN = 20
+
+DOC_NOTE_RESIZE_HANDLE = 10
 
 # Wire selection uses a different accent (cyan) than block selection (blue) —
 # kept as its own constant rather than unified, to not change either's

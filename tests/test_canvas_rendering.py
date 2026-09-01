@@ -56,14 +56,20 @@ def test_negated_gate_bubble_and_port_do_not_overlap(type_id):
 def test_non_negated_gate_output_port_flush_with_body(type_id):
     """Non-negated gates must be unaffected by the bubble fix: the output
     port stays flush with the body's right edge, at exactly `width` — no
-    layout shift for the sixteen minus four gates that never had a bubble."""
+    layout shift for the sixteen minus four gates that never had a bubble.
+    Its y is the body's vertical center rounded to the nearest PORT_PITCH
+    (feat/block-rendering-library §4.2) — exactly height/2 only when that's
+    already a grid multiple (odd input counts); otherwise the nearest one."""
     _app()
+    from logic_studio.ui.canvas.block_item import _round_half_up_to_pitch
+    from logic_studio.ui.canvas import style as canvas_style
+
     block = BlockRegistry.create_block(type_id)
     item = BlockItem(block)
 
     port_pos = _output_port(item).pos()
     assert port_pos.x() == item.width
-    assert port_pos.y() == item.height / 2
+    assert port_pos.y() == _round_half_up_to_pitch(item.height / 2, canvas_style.PORT_PITCH)
 
 def test_buffer_has_its_own_shape_and_no_pin_labels():
     """§2.4: logic.buffer must not fall back to GATE_GENERIC, and (like every

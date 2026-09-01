@@ -1,4 +1,6 @@
-from PySide6.QtWidgets import QGraphicsItem, QStyleOptionGraphicsItem
+import math
+
+from PySide6.QtWidgets import QGraphicsItem, QStyleOptionGraphicsItem, QInputDialog, QLineEdit
 from PySide6.QtGui import QPainter, QPen, QBrush, QColor, QFont, QCursor, QPainterPath, QFontMetricsF
 from PySide6.QtWidgets import QMenu
 from PySide6.QtCore import Qt, QRectF, QPointF
@@ -6,6 +8,19 @@ from PySide6.QtCore import Qt, QRectF, QPointF
 from logic_studio.ui.canvas import style, shapes
 
 GATE_SHAPES = ("AND", "OR", "NOT", "XOR", "NAND", "NOR", "XNOR", "BUFFER", "GATE_GENERIC")
+
+
+def _round_up_to_grid(value, grid=None):
+    grid = grid or style.GRID_SIZE
+    return math.ceil(value / grid) * grid
+
+
+def _round_half_up_to_pitch(value, pitch):
+    """Round-half-up (not Python's round-half-to-even) so a tie always
+    resolves the same, visually unsurprising way — used for a gate's output
+    port y, which sits at the body's vertical center and only lands exactly
+    on the grid when the input count is odd (§4.2)."""
+    return math.floor(value / pitch + 0.5) * pitch
 
 
 class BlockItem(QGraphicsItem):
@@ -32,13 +47,24 @@ class BlockItem(QGraphicsItem):
         self.category = logic_block.category
         self.type_id = logic_block.type_id
 
+        self._resizing = False
+        self._resize_start_scene_pos = None
+        self._resize_start_size = None
+
         self.setPos(logic_block.x, logic_block.y)
 
         self._determine_shape_style()
         self._create_ports()
 
+    # ---- Geometry (§4: every port must land on a grid intersection) --------
+
     def _determine_shape_style(self):
-        """Determines the visual rendering style based on category and type_id."""
+        """Determines the visual rendering style AND the block's size, based
+        on category and type_id. Sizing follows §4's grid rule everywhere:
+        every port sits at PORT_MARGIN + i*PORT_PITCH from the block's own
+        top/left edge, so a grid-aligned block origin (guaranteed by
+        snap-on-drop and snap-on-move) is enough to put every port on the
+        scene grid too — no per-block special-casing needed downstream."""
         if self.category == "Bramki logiczne":
             if self.type_id.startswith("logic.buffer"):
                 self.shape_style = "BUFFER"
@@ -59,71 +85,101 @@ class BlockItem(QGraphicsItem):
             else:
                 self.shape_style = "GATE_GENERIC"
 
-            # Gate sizes are relatively fixed but ports scale
-            self.width = 40
-            # The body always spans the block's full height now (§2.3) — no
-            # separate, possibly-shorter "gate_body_height" to keep in sync
-            # with where multi-input ports are actually placed.
             inputs_count = len(self.logic_block.inputs)
-            self.height = max(40, inputs_count * 20)
+            self.height = max(2 * style.PORT_MARGIN, (inputs_count + 1) * style.PORT_PITCH)
+
+            # Negated gates keep width + output_offset constant at 2*GRID_SIZE
+            # (== the non-negated body width), so a gate's output port sits
+            # at the same local x regardless of negation — swapping AND for
+            # NAND never shifts the output connection point (§4.2).
+            output_offset = shapes.gate_output_offset(self.shape_style)
+            self.width = 2 * style.GRID_SIZE - output_offset
 
         elif self.category == "Wejścia / Wyjścia":
             self.shape_style = "IO"
-            self.width = 80
-            # Analog IO shows address+unit and a live value on top of the name,
-            # so it needs a bit more room than the single-line DI/DO/VI/VO tags.
-            self.height = 45 if self.type_id in ("input.ai", "output.ao") else 30
+            self.height = 60 if self.type_id in ("input.ai", "output.ao") else 40
+
+            base_width = 80
+            identifier = self._io_identifier()
+            if identifier:
+                font = QFont(style.FONT_FAMILY, style.FONT_SIZE_TAG, QFont.Bold)
+                needed = QFontMetricsF(font).horizontalAdvance(identifier) + 2 * 6
+                base_width = max(base_width, _round_up_to_grid(needed))
+            self.width = base_width
+
+        elif self.category == "Dokumentacja":
+            self.shape_style = "DOC"
+            self._size_doc_block()
+
         else:
             self.shape_style = "COMPLEX"
-            # Complex blocks use the win98 style or clean rectangle with properties inside
+            inputs_count = len(self.logic_block.inputs)
+            outputs_count = len(self.logic_block.outputs)
+            min_height = style.PORT_MARGIN + max(inputs_count, outputs_count) * style.PORT_PITCH + style.PORT_MARGIN
+            self.height = _round_up_to_grid(max(self.height, min_height))
+            self.width = _round_up_to_grid(max(self.width, style.GRID_SIZE * 2))
+
+    def _size_doc_block(self):
+        """DOC blocks have no pins to align to a grid, so they size to their
+        text content instead (§6.6) — except doc.note, which is manually
+        resizable (§6.6/§6.5): its persisted width/height IS the size, only
+        rounded up to the grid, never recomputed from the text."""
+        if self.type_id == "doc.note":
+            self.width = _round_up_to_grid(max(self.logic_block.width, style.GRID_SIZE * 2))
+            self.height = _round_up_to_grid(max(self.logic_block.height, style.GRID_SIZE * 2))
+            return
+
+        text = self.logic_block.properties.get("Text", "") or " "
+        if self.type_id == "doc.section":
+            font = QFont(style.FONT_FAMILY, style.FONT_SIZE_DOC_SECTION, QFont.Bold)
+        else:
+            font = QFont(style.FONT_FAMILY, style.FONT_SIZE_DOC_TEXT)
+
+        fm = QFontMetricsF(font)
+        self.width = _round_up_to_grid(max(fm.horizontalAdvance(text) + 20, style.GRID_SIZE * 2))
+        self.height = _round_up_to_grid(max(fm.height() + 10, style.GRID_SIZE))
 
     def _create_ports(self):
         from logic_studio.ui.canvas.port_item import PortItem
 
-        if self.shape_style in GATE_SHAPES:
-            # Inputs distributed evenly on a vertical line (bus bar)
-            inputs_count = len(self.logic_block.inputs)
-            if inputs_count > 0:
-                spacing = self.height / (inputs_count + 1)
-                for i, pin in enumerate(self.logic_block.inputs):
-                    port = PortItem(pin, parent=self)
-                    port.setPos(0, (i + 1) * spacing)
+        if self.shape_style == "DOC":
+            return  # documentation blocks have no pins (§6.3)
 
-            # Output port sits past the negation bubble for NOT/NAND/NOR/XNOR
-            # (§1) — never on top of it, so the bubble stays visible instead
-            # of being fully occluded by the port square drawn on top of it.
-            output_x = self.width + shapes.gate_output_offset(self.shape_style)
+        if self.shape_style in GATE_SHAPES:
+            for i, pin in enumerate(self.logic_block.inputs):
+                port = PortItem(pin, parent=self)
+                port.setPos(0, style.PORT_MARGIN + i * style.PORT_PITCH)
+
+            output_offset = shapes.gate_output_offset(self.shape_style)
+            output_y = _round_half_up_to_pitch(self.height / 2, style.PORT_PITCH)
             for pin in self.logic_block.outputs:
                 port = PortItem(pin, parent=self)
-                port.setPos(output_x, self.height / 2)
+                port.setPos(self.width + output_offset, output_y)
 
         elif self.shape_style == "IO":
             if "input" in self.type_id:
-                # Port on the right
-                for pin in self.logic_block.outputs: # Input blocks have output pins
+                for pin in self.logic_block.outputs:  # Input blocks have output pins
                     port = PortItem(pin, parent=self)
-                    port.setPos(self.width, self.height / 2)
+                    port.setPos(self.width, style.PORT_MARGIN)
             else:
-                # Port on the left
-                for pin in self.logic_block.inputs: # Output blocks have input pins
+                for pin in self.logic_block.inputs:  # Output blocks have input pins
                     port = PortItem(pin, parent=self)
-                    port.setPos(0, self.height / 2)
+                    port.setPos(0, style.PORT_MARGIN)
 
         else:
-            # Complex blocks
-            y_offset = 20
-            for pin in self.logic_block.inputs:
+            for i, pin in enumerate(self.logic_block.inputs):
                 port = PortItem(pin, parent=self)
-                port.setPos(0, y_offset)
-                y_offset += 20
+                port.setPos(0, style.PORT_MARGIN + i * style.PORT_PITCH)
 
-            y_offset = 20
-            for pin in self.logic_block.outputs:
+            for i, pin in enumerate(self.logic_block.outputs):
                 port = PortItem(pin, parent=self)
-                port.setPos(self.width, y_offset)
-                y_offset += 20
+                port.setPos(self.width, style.PORT_MARGIN + i * style.PORT_PITCH)
 
     def boundingRect(self):
+        if self.shape_style == "DOC":
+            m = style.BLOCK_SELECTION_MARGIN + 2
+            return QRectF(-m, -m, self.width + m * 2, self.height + m * 2)
+
         margin = style.BOUNDING_RECT_MARGIN
         block = self.logic_block
 
@@ -131,19 +187,20 @@ class BlockItem(QGraphicsItem):
         if self.shape_style in shapes.NEGATED_GATES:
             extra_right = shapes.gate_output_offset(self.shape_style) + style.PORT_CLICK_MARGIN
 
+        tag, comment = self._effective_tag_and_comment()
         top_margin = margin
-        if block.properties.get("Tag") or block.properties.get("Comment"):
+        if tag or comment:
             # Room for the Tag line plus up to two Comment lines above the body.
             top_margin = margin + 40
 
         bottom_margin = margin
         if self.shape_style in GATE_SHAPES:
-            # Room for the type-name label drawn below a gate's body (§3.2).
+            # Room for the type-name label drawn below a gate's body (§7.2).
             bottom_margin = margin + 14
 
         right_margin = margin + extra_right
-        if block.properties.get("Comment"):
-            # Comment wraps up to 3x the block width (§3.2).
+        if comment:
+            # Comment wraps up to 3x the block width (§7.2).
             right_margin = max(right_margin, self.width * 2 + margin)
 
         return QRectF(
@@ -152,6 +209,8 @@ class BlockItem(QGraphicsItem):
             self.height + top_margin + bottom_margin
         )
 
+    # ---- Painting -----------------------------------------------------------
+
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget=None):
         painter.setRenderHint(QPainter.Antialiasing)
 
@@ -159,15 +218,17 @@ class BlockItem(QGraphicsItem):
             self._paint_logic_gate(painter)
         elif self.shape_style == "IO":
             self._paint_io_tag(painter)
+        elif self.shape_style == "DOC":
+            self._paint_doc_block(painter)
         else:
             self._paint_complex_block(painter)
 
-        self._paint_tag_and_comment(painter)
+        if self.shape_style != "DOC":
+            # Documentation blocks are annotations, not "functional blocks" —
+            # they don't get the Tag/Comment/"???" treatment from §7/§1.
+            self._paint_tag_and_comment(painter)
+            self._paint_unconnected_warning(painter)
 
-        # Draw Unconnected Warning (???)
-        self._paint_unconnected_warning(painter)
-
-        # Draw Selection Border
         if self.isSelected():
             rect = QRectF(0, 0, self.width, self.height)
             pen = QPen(self.selected_color, 1, Qt.DashLine)
@@ -180,50 +241,92 @@ class BlockItem(QGraphicsItem):
         body_rect = QRectF(0, 0, self.width, self.height)
         shapes.draw_gate_shape(painter, body_rect, self.shape_style, len(self.logic_block.inputs))
 
-        # Type-name label below the gate body, centered (§3.2).
+        # Type-name label below the gate body, centered (§7.2).
         painter.setPen(QPen(style.COLOR_TYPE_LABEL_TEXT))
         font = QFont(style.FONT_FAMILY, style.FONT_SIZE_PIN_LABEL)
         painter.setFont(font)
         label_rect = QRectF(-10, self.height + 1, self.width + 20, 13)
         painter.drawText(label_rect, Qt.AlignHCenter | Qt.AlignTop, self.logic_block.display_name)
 
+    # ---- IO blocks (§1, §5) --------------------------------------------------
+
+    def _io_identifier(self):
+        """Whatever actually configures this IO block: "Address" for
+        physical/analog IO (DI/DO/AI/AO), else "Tag" — Virtual IN/OUT and
+        system-signal blocks use "Tag" as their own HMI/network identifier
+        (see BaseLogicBlock.properties). Empty string if neither is set.
+        One place, used by both the on-block label and the missing-config
+        warning, so they can never read two different properties and
+        disagree with each other again (§1)."""
+        props = self.logic_block.properties
+        return props.get("Address", "") or props.get("Tag", "")
+
+    # Per shape_style, a callable (BlockItem) -> str returning the identifier
+    # that must be non-empty for the block to count as "configured" — add an
+    # entry here for a future category that needs the same red "???"
+    # treatment; _paint_unconnected_warning() itself never needs to change.
+    _REQUIRED_IDENTIFIER_GETTERS = {
+        "IO": lambda item: item._io_identifier(),
+    }
+
     def _paint_io_tag(self, painter):
         direction = "input" if "input" in self.type_id else "output"
         shapes.draw_io_shape(painter, QRectF(0, 0, self.width, self.height), direction)
 
-        # Draw text
-        painter.setPen(QPen(style.COLOR_TYPE_LABEL_TEXT))
-        font = QFont(style.FONT_FAMILY, style.FONT_SIZE_PIN_LABEL)
-        painter.setFont(font)
-
-        display_text = self.logic_block.display_name
+        identifier = self._io_identifier()
+        lines = [(identifier, True), (self.logic_block.display_name, False)]
 
         if self.type_id in ("input.ai", "output.ao"):
-            addr = self.logic_block.properties.get("Address", "")
-            unit = self._lookup_analog_unit(addr)
-            label = f"{addr} [{unit}]" if (addr and unit) else addr
-            if label:
-                display_text += f"\n{label}"
-
+            unit = self._lookup_analog_unit(identifier) if identifier else ""
             sim_value = self.logic_block.simulation_state.get("sim_value")
+            value_text = ""
             if sim_value is not None:
                 try:
-                    display_text += f"\n{float(sim_value):.2f}"
+                    value_text = f"{float(sim_value):.2f}"
                 except (TypeError, ValueError):
-                    pass
-        # Tag is no longer shown here as an ad-hoc second line — every block
-        # type (IO included) gets it drawn uniformly above the block by
-        # _paint_tag_and_comment(), so it isn't duplicated on this one.
+                    value_text = str(sim_value)
+            unit_line = " ".join(t for t in (unit, value_text) if t)
+            if unit_line:
+                lines.append((unit_line, False))
 
-        rect = QRectF(10, 2, self.width - 20, self.height - 4)
-        painter.drawText(rect, Qt.AlignLeft | Qt.AlignVCenter | Qt.TextWordWrap, display_text)
+        self._draw_io_text_lines(painter, lines)
 
         # Quality indicator: a red dot when the AI block's last reading was
-        # not trustworthy (AUDIT_REPORT.md §2.5/§2.1).
+        # not trustworthy.
         if self.type_id == "input.ai" and self.logic_block.simulation_state.get("quality") is False:
             painter.setPen(Qt.NoPen)
             painter.setBrush(style.COLOR_ERROR)
             painter.drawEllipse(QPointF(self.width - 6, 6), 4, 4)
+
+    def _draw_io_text_lines(self, painter, lines):
+        """Each line gets its OWN QRectF, never one multi-line wrapped
+        string — that's what let "VI.NEW_INPUT" float above the block and
+        "State"/"Cmd" pin labels overlap the block name before (§5). Text
+        that still doesn't fit is elided, never drawn past the block's own
+        outline; a line that would land past the bottom edge is skipped
+        entirely rather than spilling over."""
+        margin_x = 6
+        available_width = max(1.0, self.width - 2 * margin_x)
+        y = 3.0
+
+        for text, bold in lines:
+            if not text:
+                continue
+
+            size = style.FONT_SIZE_TAG if bold else style.FONT_SIZE_PIN_LABEL
+            font = QFont(style.FONT_FAMILY, size)
+            font.setBold(bold)
+            fm = QFontMetricsF(font)
+            line_height = fm.height()
+
+            if y + line_height > self.height - 2:
+                break
+
+            painter.setFont(font)
+            painter.setPen(QPen(style.COLOR_OUTLINE if bold else style.COLOR_TYPE_LABEL_TEXT))
+            elided = fm.elidedText(text, Qt.ElideRight, available_width)
+            painter.drawText(QRectF(margin_x, y, available_width, line_height), Qt.AlignLeft | Qt.AlignTop, elided)
+            y += line_height
 
     def _lookup_analog_unit(self, address: str) -> str:
         """Best-effort lookup of an analog point's unit for on-canvas display.
@@ -244,58 +347,142 @@ class BlockItem(QGraphicsItem):
         except Exception:
             return ""
 
+    # ---- COMPLEX blocks -------------------------------------------------------
+
     def _paint_complex_block(self, painter):
         rect = QRectF(0, 0, self.width, self.height)
         shapes.draw_complex_shape(painter, rect)
 
-        # Inner text
         painter.setPen(style.COLOR_OUTLINE)
         font = QFont(style.FONT_FAMILY, style.FONT_SIZE_PIN_LABEL)
         painter.setFont(font)
 
-        # Type name, centered inside the body (§3.2).
+        # Type name, centered inside the body (§7.2).
         painter.drawText(rect.adjusted(2, 2, -2, -2), Qt.AlignTop | Qt.AlignHCenter, self.logic_block.display_name)
 
-        # Parameters (e.g. T=1.00[s])
         param_text = ""
-
-        # Live simulation values
         sim_text = ""
         state = self.logic_block.simulation_state
 
-        if self.category == "Timers":
-            delay = self.logic_block.properties.get("Delay", 1000)
-            param_text = f"T={delay/1000:.2f}[s]"
-
-            if "running" in state:
-                if len(self.logic_block.outputs) > 1:
-                    val = self.logic_block.outputs[1].value
-                    if val is not None:
-                        sim_text = f"ET={val/1000:.2f}[s]"
-
+        if self.category == "Timery":
+            delay = self.logic_block.properties.get("Preset (ms)")
+            if delay is not None:
+                param_text = f"T={float(delay)/1000:.2f}[s]"
         elif self.category == "Liczniki":
-            limit = self.logic_block.properties.get("Limit", 0)
-            param_text = f"L={limit}"
+            preset = self.logic_block.properties.get("Preset")
+            if preset is not None:
+                param_text = f"PV={preset}"
             if "count" in state:
                 sim_text = f"CV={state['count']}"
 
-        # Draw Parameters
         if param_text:
             painter.setPen(QPen(style.COLOR_TYPE_LABEL_TEXT))
             painter.drawText(rect.adjusted(2, 15, -2, -2), Qt.AlignTop | Qt.AlignLeft, param_text)
 
-        # Draw Live Values
         if sim_text:
-            painter.setPen(QPen(Qt.red))
+            painter.setPen(QPen(style.COLOR_ERROR))
             painter.drawText(rect.adjusted(2, 28, -2, -2), Qt.AlignTop | Qt.AlignLeft, sim_text)
 
-    def _paint_tag_and_comment(self, painter):
-        """Tag (bold, above the block) and Comment (italic, below the Tag,
-        wrapped to at most 2 lines) — every block type, drawn from one place
-        so no shape-specific paint method duplicates it (§3.2)."""
+    # ---- Documentation blocks (§6) ---------------------------------------------
+
+    def _paint_doc_block(self, painter):
+        rect = QRectF(0, 0, self.width, self.height)
+        text = self.logic_block.properties.get("Text", "")
+
+        if self.type_id == "doc.note":
+            painter.setPen(QPen(style.COLOR_DOC_NOTE_BORDER, 1))
+            painter.setBrush(style.COLOR_DOC_NOTE_BACKGROUND)
+            painter.drawRect(rect)
+
+            painter.setPen(QPen(style.COLOR_DOC_TEXT))
+            painter.setFont(QFont(style.FONT_FAMILY, style.FONT_SIZE_DOC_NOTE))
+            painter.drawText(rect.adjusted(6, 6, -6, -6), Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap, text)
+
+            h = style.DOC_NOTE_RESIZE_HANDLE
+            painter.setPen(QPen(style.COLOR_DOC_NOTE_BORDER, 1))
+            for offset in (3, 6):
+                painter.drawLine(
+                    QPointF(self.width - offset, self.height),
+                    QPointF(self.width, self.height - offset)
+                )
+
+        elif self.type_id == "doc.section":
+            painter.setPen(QPen(style.COLOR_OUTLINE))
+            painter.setFont(QFont(style.FONT_FAMILY, style.FONT_SIZE_DOC_SECTION, QFont.Bold))
+            painter.drawText(rect, Qt.AlignLeft | Qt.AlignVCenter, text)
+
+        else:  # doc.text
+            painter.setPen(QPen(style.COLOR_DOC_TEXT))
+            painter.setFont(QFont(style.FONT_FAMILY, style.FONT_SIZE_DOC_TEXT))
+            painter.drawText(rect, Qt.AlignLeft | Qt.AlignVCenter, text)
+
+    def _is_doc_note_resizable(self):
+        return self.shape_style == "DOC" and self.type_id == "doc.note"
+
+    def _in_resize_handle(self, pos: QPointF) -> bool:
+        h = style.DOC_NOTE_RESIZE_HANDLE
+        handle_rect = QRectF(self.width - h, self.height - h, h, h)
+        return handle_rect.contains(pos)
+
+    def _start_doc_edit(self):
+        current_text = self.logic_block.properties.get("Text", "")
+        if self.type_id == "doc.note":
+            new_text, ok = QInputDialog.getMultiLineText(None, "Edytuj notatkę", "Tekst:", current_text)
+        else:
+            new_text, ok = QInputDialog.getText(None, "Edytuj tekst", "Tekst:", QLineEdit.Normal, current_text)
+        if ok:
+            self.apply_doc_text(new_text)
+
+    def apply_doc_text(self, new_text: str):
+        """Applies edited Text to a DOC block, pushes undo state, and refits
+        its size. Split out from _start_doc_edit() so this path is testable
+        without driving a real modal QInputDialog (§6.5)."""
+        if new_text == self.logic_block.properties.get("Text", ""):
+            return
+        self._push_state_if_possible()
+        self.logic_block.properties["Text"] = new_text
+        self.prepareGeometryChange()
+        self._determine_shape_style()
+        self.update()
+
+    def _push_state_if_possible(self):
+        if self.scene() and self.scene().views():
+            window = self.scene().views()[0].window()
+            project = getattr(window, 'project', None)
+            if project:
+                project.push_state()
+                window.set_dirty()
+
+    # ---- Tag / Comment (§7) -----------------------------------------------------
+
+    def _effective_tag_and_comment(self):
+        """(tag, comment) as they will actually be drawn above the block —
+        used by both _paint_tag_and_comment() and boundingRect() so they can
+        never disagree about how much space Tag/Comment need (that
+        disagreement was exactly bug §1's shape: two places reading related
+        state independently and drifting apart).
+
+        For IO blocks whose "Tag" IS their own identifier (Virtual IN/OUT,
+        system signals — see _io_identifier()), that value is already shown
+        inside the block by _paint_io_tag(); showing it again above the
+        block would just duplicate it. Only IO blocks addressed via
+        "Address" (DI/DO/AI/AO) treat "Tag" as the separate, generic
+        schematic designation from §7.1 here.
+        """
         block = self.logic_block
         tag = block.properties.get("Tag", "")
         comment = block.properties.get("Comment", "")
+
+        if self.shape_style == "IO" and not block.properties.get("Address"):
+            tag = ""
+
+        return tag, comment
+
+    def _paint_tag_and_comment(self, painter):
+        """Tag (bold, above the block) and Comment (italic, below the Tag,
+        wrapped to at most 2 lines) — every functional block type, drawn
+        from one place so no shape-specific paint method duplicates it."""
+        tag, comment = self._effective_tag_and_comment()
         if not tag and not comment:
             return
 
@@ -355,17 +542,14 @@ class BlockItem(QGraphicsItem):
         return lines
 
     def _paint_unconnected_warning(self, painter):
-        # Draw red '???' near unassigned tags or completely unconnected critical blocks
-        # Simplified logic: If it's an IO tag and has no Tag property, show ???
-        # (unchanged pre-existing check — see AUDIT_REPORT.md for the Tag/Address
-        # naming overlap this predates; not in scope for this PR).
-        if self.shape_style == "IO":
-            tag = self.logic_block.properties.get("Tag", "")
-            if not tag:
-                painter.setPen(QPen(Qt.red))
-                font = QFont(style.FONT_FAMILY, 8, QFont.Bold)
-                painter.setFont(font)
-                painter.drawText(QRectF(0, self.height, self.width, 15), Qt.AlignHCenter | Qt.AlignTop, "???")
+        getter = self._REQUIRED_IDENTIFIER_GETTERS.get(self.shape_style)
+        if getter and not getter(self):
+            painter.setPen(QPen(Qt.red))
+            font = QFont(style.FONT_FAMILY, 8, QFont.Bold)
+            painter.setFont(font)
+            painter.drawText(QRectF(0, self.height, self.width, 15), Qt.AlignHCenter | Qt.AlignTop, "???")
+
+    # ---- Interaction --------------------------------------------------------
 
     def contextMenuEvent(self, event):
         menu = QMenu()
@@ -390,10 +574,54 @@ class BlockItem(QGraphicsItem):
         elif action == prop_action:
             self.setSelected(True)
 
+    def mousePressEvent(self, event):
+        if self._is_doc_note_resizable() and self._in_resize_handle(event.pos()):
+            self._resizing = True
+            self._resize_start_scene_pos = event.scenePos()
+            self._resize_start_size = (self.width, self.height)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._resizing:
+            delta = event.scenePos() - self._resize_start_scene_pos
+            min_size = style.GRID_SIZE * 2
+            new_w = max(min_size, self._resize_start_size[0] + delta.x())
+            new_h = max(min_size, self._resize_start_size[1] + delta.y())
+            if self.scene() is None or getattr(self.scene(), 'snap_enabled', True):
+                new_w = _round_up_to_grid(new_w)
+                new_h = _round_up_to_grid(new_h)
+
+            self.prepareGeometryChange()
+            self.width = new_w
+            self.height = new_h
+            self.logic_block.width = new_w
+            self.logic_block.height = new_h
+            self.update()
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._resizing:
+            self._resizing = False
+            self._push_state_if_possible()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if self.shape_style == "DOC":
+            self._start_doc_edit()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemPositionChange and self.scene() is not None:
             if getattr(self.scene(), 'snap_enabled', True):
-                grid = getattr(self.scene(), 'grid_size', 20)
+                grid = getattr(self.scene(), 'grid_size', style.GRID_SIZE)
                 return QPointF(round(value.x() / grid) * grid, round(value.y() / grid) * grid)
             return value
 
