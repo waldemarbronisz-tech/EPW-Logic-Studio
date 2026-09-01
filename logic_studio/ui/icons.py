@@ -77,7 +77,12 @@ def block_icon(type_id: str, size: int = 24) -> QIcon:
             # in silhouette, not in pin-lead styling.
             shapes.draw_gate_shape(painter, rect, shape_style, len(dummy.inputs), draw_leads=False)
         elif shape_style == "IO":
-            direction = "input" if "input" in type_id else "output"
+            # Derived from the block's actual pins, not a `"input" in
+            # type_id` substring check — that heuristic silently broke for
+            # "internal.reg_in" (feat/internal-bits §2.2), which contains
+            # "in" but not the substring "input"; see block_item.py's
+            # BlockItem._io_direction() for the canonical version.
+            direction = "input" if dummy.outputs else "output"
             shapes.draw_io_shape(painter, rect, direction)
         elif shape_style == "DOC":
             shapes.draw_doc_shape(painter, rect)

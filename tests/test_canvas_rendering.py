@@ -2,7 +2,8 @@
 only — no engine/compiler behavior is exercised here."""
 import pytest
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import QPointF
+from PySide6.QtCore import QPointF, Qt
+from PySide6.QtGui import QFont, QFontMetricsF
 
 from logic_studio.blocks import register_builtin_blocks
 from logic_studio.blocks.registry import BlockRegistry
@@ -92,22 +93,38 @@ def test_buffer_has_its_own_shape_and_no_pin_labels():
     assert "BUFFER" in GATE_SHAPES
 
 IO_TYPE_IDS = ["input.di", "output.do", "input.ai", "output.ao", "virtual.input", "virtual.output"]
+SINGLE_PIN_IO_TYPE_IDS = ["input.di", "output.do", "output.ao", "virtual.input", "virtual.output"]
 
-@pytest.mark.parametrize("type_id", IO_TYPE_IDS)
-def test_io_block_ports_have_no_pin_label(type_id):
+@pytest.mark.parametrize("type_id", SINGLE_PIN_IO_TYPE_IDS)
+def test_single_pin_io_block_ports_have_no_pin_label(type_id):
     """A DO/AO block's single input port sits on the SAME left edge as the
     block's own Address/display-name text (_draw_io_text_lines) — drawing
     the pin's generic name ("Cmd"/"State") there used to render right on
     top of that text (e.g. ADA01.DO14's "Cmd" over its green "DO" label).
-    Every IO block has exactly one pin whose name never adds information
-    the block's own face doesn't already show, so PortItem must suppress it
-    for shape_style "IO", exactly like it already does for gates."""
+    A single-pin IO block's one pin never adds information the block's own
+    face doesn't already show, so PortItem must suppress its label, exactly
+    like it already does for gates."""
     _app()
-    from logic_studio.ui.canvas.block_item import NO_PIN_LABEL_SHAPES
+    from logic_studio.ui.canvas.block_item import pin_labels_suppressed
     block = BlockRegistry.create_block(type_id)
     item = BlockItem(block)
     assert item.shape_style == "IO"
-    assert "IO" in NO_PIN_LABEL_SHAPES
+    assert len(block.inputs) + len(block.outputs) == 1
+    assert pin_labels_suppressed(item)
+
+def test_multi_pin_io_block_ports_keep_their_pin_label():
+    """§0.1 audit follow-up: input.ai has TWO outputs (Value, Quality) — the
+    old blanket "every IO block suppresses pin labels" rule made them
+    indistinguishable on the canvas (both are bare identical squares with
+    no text), on top of the positioning bug that put them at the same spot
+    in the first place. A multi-pin IO block needs its labels."""
+    _app()
+    from logic_studio.ui.canvas.block_item import pin_labels_suppressed
+    block = BlockRegistry.create_block("input.ai")
+    item = BlockItem(block)
+    assert item.shape_style == "IO"
+    assert len(block.inputs) + len(block.outputs) == 2
+    assert not pin_labels_suppressed(item)
 
 def test_gate_body_has_no_separate_shorter_height():
     """§2.3: the body always spans the block's full height now — there is
@@ -212,15 +229,15 @@ def test_io_block_output_do_address_text_no_longer_shares_a_row_with_a_pin_label
     """Reproduces the exact reported case: an output.do block's Address
     ("ADA01.DO14") and display-name ("DO") text both start flush against
     the left edge — the same edge its single input pin (port at x=0) sits
-    on. Confirms the fix's precondition (shape_style "IO" join
-    NO_PIN_LABEL_SHAPES) rather than re-deriving pixel positions."""
+    on. Confirms the fix's precondition (its one pin's label is suppressed)
+    rather than re-deriving pixel positions."""
     _app()
-    from logic_studio.ui.canvas.block_item import NO_PIN_LABEL_SHAPES
+    from logic_studio.ui.canvas.block_item import pin_labels_suppressed
 
     block = BlockRegistry.create_block("output.do")
     block.properties["Address"] = "ADA01.DO14"
     item = BlockItem(block)
-    assert item.shape_style in NO_PIN_LABEL_SHAPES
+    assert pin_labels_suppressed(item)
 
 # ---- Gate lead-line redesign (reference screenshot: IEC/ANSI-style short
 # lead wires on every pin, body pulled back from the port squares instead of
@@ -296,3 +313,99 @@ def test_icon_rendering_does_not_crash_for_any_gate_shape():
     for type_id in ALL_GATE_TYPE_IDS:
         icon = block_icon(type_id, size=24)
         assert icon is not None
+
+# ---- §0.2 audit follow-up: pin labels must elide, not silently clip -------
+# (a fixed 50px rect + Qt's own clipping used to drop the BEGINNING of a
+# long output-side label, since AlignRight anchors the far end near the
+# port — "Out Of Range" rendered as "Of Range", the opposite of what the
+# pin means).
+
+ALL_BLOCK_TYPE_IDS_FOR_LABEL_TEST = [
+    type_id
+    for category in BlockRegistry.get_categories()
+    for type_id in BlockRegistry.get_blocks_in_category(category)
+]
+
+def _elided_pin_label(pin_name, block_width):
+    """Reproduces PortItem.paint()'s exact label-sizing logic, so the test
+    verifies the real thing rather than a re-derivation of it."""
+    font = QFont(style.FONT_FAMILY, style.FONT_SIZE_PIN_LABEL)
+    fm = QFontMetricsF(font)
+    side_width = max(10.0, block_width * style.PIN_LABEL_SIDE_FRACTION)
+    elided = fm.elidedText(pin_name, Qt.ElideRight, side_width)
+    return elided, side_width, fm
+
+@pytest.mark.parametrize("type_id", ALL_BLOCK_TYPE_IDS_FOR_LABEL_TEST)
+def test_every_pin_label_fits_or_ends_with_ellipsis(type_id):
+    _app()
+    ELLIPSIS = "…"
+    block = BlockRegistry.create_block(type_id)
+    item = BlockItem(block)
+
+    for pin in list(block.inputs) + list(block.outputs):
+        elided, side_width, fm = _elided_pin_label(pin.name, item.width)
+        rendered_width = fm.horizontalAdvance(elided)
+        fits = rendered_width <= side_width + 0.5  # tolerance for float rounding
+        ends_with_ellipsis = elided.endswith(ELLIPSIS)
+        assert fits or ends_with_ellipsis, \
+            f"{type_id}: pin {pin.name!r} elided to {elided!r} ({rendered_width}px) doesn't fit {side_width}px and has no ellipsis"
+
+def test_analog_quality_out_of_range_label_keeps_its_beginning():
+    """The concrete case from the audit: analog.quality's "Out Of Range"
+    output must still start with "Out" once elided — not have its
+    beginning silently dropped."""
+    _app()
+    block = BlockRegistry.create_block("analog.quality")
+    item = BlockItem(block)
+
+    pin = next(p for p in block.outputs if p.name == "Out Of Range")
+    elided, side_width, fm = _elided_pin_label(pin.name, item.width)
+    assert elided.startswith("Out"), \
+        f"analog.quality's 'Out Of Range' label must start with 'Out', got {elided!r}"
+
+# ---- §0.4/§0.5 audit follow-up: IO block text vs. the chevron notch ------
+
+def test_output_direction_io_text_margin_clears_the_notch():
+    """An output-direction chevron (DO/AO/Virtual OUT) has a notch carved
+    into its left edge (shapes.draw_io_shape()) — the identifier text's
+    left margin must start at or past the notch's rightmost point, never
+    inside it (§0.4: "ADA01.DO01"'s first letter used to sit on the notch's
+    diagonal edge)."""
+    _app()
+    from logic_studio.ui.canvas.block_item import io_text_margin_x
+    block = BlockRegistry.create_block("output.do")
+    block.properties["Address"] = "ADA01.DO01"
+    item = BlockItem(block)
+
+    input_margin = io_text_margin_x(item.width, "input")
+    output_margin = io_text_margin_x(item.width, "output")
+    assert output_margin >= shapes.io_notch_width(item.width)
+    assert output_margin > input_margin, \
+        "output-direction margin must reserve extra room for the notch, beyond the plain input-direction margin"
+
+def test_input_and_output_io_block_widths_use_the_same_formula():
+    """§0.5: input.di and output.do must compute width via the exact same
+    formula (io_text_margin_x() + the same font-metrics/rounding steps) —
+    not "equal width" outright. An output-direction block's chevron has a
+    notch (§0.4) an input-direction one doesn't, so for the same address
+    text it legitimately needs a bit more room to keep that text clear of
+    the notch; forcing equal width back would just reintroduce §0.4's
+    overlap for the output side. What must be unified is the METHOD, and
+    the observable, principled consequence is output width >= input width
+    for the same address length — never narrower, and never equal only by
+    coincidence of two independent unrelated formulas."""
+    _app()
+    from logic_studio.ui.canvas.block_item import io_text_margin_x
+    di = BlockRegistry.create_block("input.di")
+    di.properties["Address"] = "ELA01.DI01"
+    do = BlockRegistry.create_block("output.do")
+    do.properties["Address"] = "ADA01.DO01"
+    assert len(di.properties["Address"]) == len(do.properties["Address"])
+
+    di_item = BlockItem(di)
+    do_item = BlockItem(do)
+    assert do_item.width >= di_item.width, \
+        f"output.do width {do_item.width} must be >= input.di width {di_item.width} (extra room for the notch)"
+    # Same formula, different inputs — not two independently-hardcoded paths.
+    assert io_text_margin_x(100, "input") == 6
+    assert io_text_margin_x(100, "output") == 6 + shapes.io_notch_width(100)

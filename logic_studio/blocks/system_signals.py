@@ -4,22 +4,59 @@ from logic_studio.blocks.registry import BlockRegistry
 
 @BlockRegistry.register
 class SystemBooleanSignalBlock(BaseLogicBlock):
-    def __init__(self, type_id="system.signal", default_name="SYS SIG", category="Inne", description="System Boolean Signal"):
+    """feat/internal-bits §3.4: reads a signal from the fixed system-signal
+    catalog (core/system_signals_catalog.json) via
+    IOProvider.read_system_signal() — a THIRD address space, separate from
+    both physical DI/DO and the project's internal-bits registry. Used to
+    overload "Tag" and go through read_digital_input(), meaning a system
+    signal and a physical DI channel could collide by address — see
+    PROBLEM in the audit. type_id/class name unchanged for file
+    back-compat; the "Tag"->"Sygnał" property rename is handled by
+    Project's v2->v3 migration (core/project.py)."""
+
+    def __init__(self, type_id="system.signal", default_name="Sygnał systemowy", category="Inne", description="System Signal"):
         super().__init__(type_id, default_name, category, description)
 
-        self.color = "#800080" # Purple
+        self.color = "#800080"  # Purple
         self.outputs.append(Pin("Out", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN))
 
-        self.properties["Signal"] = "Sys.Ready"
-        self.properties["Tag"] = "SYS_READY"
+        self.properties["Sygnał"] = ""
         self.is_source = True
+        self._sync_output_type()
+
+    def _sync_output_type(self):
+        """Output pin type must match the selected catalog signal's own
+        type (§3.4: "typ wyjścia zgodny z typem sygnału w katalogu") — most
+        signals are BOOL, but SYS.SCAN_TIME/SYS.CYCLE_COUNT/
+        SYS.ACCESS_LEVEL are REAL. Called from evaluate() too (cheap,
+        idempotent) so a project loaded via deserialize() — which sets
+        `properties` directly, bypassing update_property() — still ends up
+        with the right pin type without a separate sync step."""
+        from logic_studio.core import system_signals
+        signal_id = self.properties.get("Sygnał", "")
+        entry = system_signals.get_signal(signal_id) if signal_id else None
+        self.outputs[0].data_type = Pin.TYPE_FLOAT if entry and entry.get("type") == "REAL" else Pin.TYPE_BOOLEAN
+        # §3.4: a catalog signal marked safety_relevant carries that flag
+        # onto the pin (ElementPreviewPanel highlights it, §6 of the
+        # rendering-library PR).
+        self.outputs[0].safety_relevant = bool(entry.get("safety_relevant")) if entry else False
+
+    def update_property(self, key, value):
+        super().update_property(key, value)
+        if key == "Sygnał":
+            self._sync_output_type()
 
     def evaluate(self, engine=None):
-        if engine and hasattr(engine, 'io'):
-            # Fetch from IO provider or simulation memory. E.g., simulated system states
-            self.outputs[0].value = engine.io.read_digital_input(self.properties.get("Tag", "SYS_READY"))
+        self._sync_output_type()
+        signal_id = self.properties.get("Sygnał", "")
+        if engine and hasattr(engine, 'io') and engine.io is not None and signal_id:
+            now_ms = engine.time.current_time_ms() if hasattr(engine, 'time') and engine.time else 0
+            self.outputs[0].value = engine.io.read_system_signal(signal_id, now_ms)
         else:
-            self.outputs[0].value = False
+            # Safe value for an unset/unrecognized signal (§3.4 migration
+            # note) — False for BOOL, 0.0 for REAL, never None.
+            self.outputs[0].value = 0.0 if self.outputs[0].data_type == Pin.TYPE_FLOAT else False
+        self.simulation_state["sim_value"] = self.outputs[0].value
 
 @BlockRegistry.register
 class ButtonBlock(BaseLogicBlock):

@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QGraphicsItem, QStyleOptionGraphicsItem
-from PySide6.QtGui import QPainter, QPen, QBrush, QColor, QFont
+from PySide6.QtGui import QPainter, QPen, QBrush, QColor, QFont, QFontMetricsF
 from PySide6.QtCore import Qt, QRectF
 
 from logic_studio.ui.canvas import style
@@ -36,21 +36,37 @@ class PortItem(QGraphicsItem):
         painter.setBrush(QBrush(fill_color))
         painter.drawRect(rect_pin)
 
-        # Draw label if needed — suppressed for gates (label under the body
-        # says enough) and for IO blocks (their single pin's generic name
-        # would repeat, and for output-direction IO blocks collide with, the
-        # Address/display-name text already drawn on the block's own face).
+        # Draw label if needed — suppressed for gates always, and for IO
+        # blocks only when they have exactly one pin (see
+        # block_item.pin_labels_suppressed() for why it's conditional there).
         parent_block = self.parentItem()
-        from logic_studio.ui.canvas.block_item import NO_PIN_LABEL_SHAPES
-        if parent_block and getattr(parent_block, 'shape_style', '') in NO_PIN_LABEL_SHAPES:
+        from logic_studio.ui.canvas.block_item import pin_labels_suppressed
+        if parent_block and pin_labels_suppressed(parent_block):
              return
 
         painter.setPen(QPen(style.COLOR_OUTLINE))
         font = QFont(style.FONT_FAMILY, style.FONT_SIZE_PIN_LABEL)
         painter.setFont(font)
+        fm = QFontMetricsF(font)
+
+        # §0.2 audit follow-up: available width now comes from the block's
+        # own width (PIN_LABEL_SIDE_FRACTION per side, a no-man's-land left
+        # in the middle) instead of a fixed 50px rect that both ignored the
+        # block's actual size and — combined with AlignRight on the output
+        # side — silently dropped the BEGINNING of a long name via Qt's own
+        # clipping instead of an explicit ellipsis (analog.quality's
+        # "Out Of Range" rendered as "Of Range", the opposite of what the
+        # pin means). Eliding explicitly, before drawText, keeps the
+        # ellipsis at the END regardless of which side the label is on.
+        gap = style.PIN_LABEL_GAP
+        block_width = getattr(self.parentItem(), 'width', 100.0) if parent_block else 100.0
+        side_width = max(10.0, block_width * style.PIN_LABEL_SIDE_FRACTION)
+        elided = fm.elidedText(self.pin.name, Qt.ElideRight, side_width)
 
         from logic_studio.blocks.pin import Pin
         if self.pin.direction == Pin.DIR_INPUT:
-            painter.drawText(QRectF(self.radius + 2, -10, 50, 20), Qt.AlignLeft | Qt.AlignVCenter, self.pin.name)
+            rect = QRectF(self.radius + gap, -10, side_width, 20)
+            painter.drawText(rect, Qt.AlignLeft | Qt.AlignVCenter, elided)
         else:
-            painter.drawText(QRectF(-50 - self.radius - 2, -10, 50, 20), Qt.AlignRight | Qt.AlignVCenter, self.pin.name)
+            rect = QRectF(-side_width - self.radius - gap, -10, side_width, 20)
+            painter.drawText(rect, Qt.AlignRight | Qt.AlignVCenter, elided)

@@ -128,9 +128,19 @@ def test_gate_input_pins_are_vertically_symmetric_in_the_body(type_id, inputs_co
     PORT_MARGIN (still GRID_SIZE, 20), so a multi-input gate's height is
     `2*PORT_MARGIN + (n-1)*PORT_PITCH` — not the old `(n+1)*PORT_PITCH`,
     which only produced a symmetric result back when PORT_MARGIN and
-    PORT_PITCH happened to be equal. The margin above the first input pin
-    must exactly equal the margin below the last one, for every input
-    count — not just coincidentally for whichever count was eyeballed."""
+    PORT_PITCH happened to be equal.
+
+    §0.3 audit follow-up: height is additionally rounded UP to a multiple
+    of 2*PORT_PITCH so height/2 always lands exactly on a PORT_PITCH
+    multiple (gate_output_y(h) == h/2 exactly, everywhere — see
+    test_gate_output_y_matches_body_center_exactly below) — the output
+    port must sit exactly where the D-shape/shield curve's tip actually is,
+    not wherever the nearest PORT_PITCH multiple to the true center happens
+    to be. For an ODD input count the raw (unrounded) height was already a
+    2*PORT_PITCH multiple, so this costs nothing — margins stay exactly
+    symmetric. For an EVEN input count it adds one extra PORT_PITCH of
+    height, all of it below the last input (top margin is still exactly
+    PORT_MARGIN) — a known, deliberate trade-off, not a regression."""
     _app()
     from logic_studio.blocks.pin import Pin
 
@@ -144,8 +154,10 @@ def test_gate_input_pins_are_vertically_symmetric_in_the_body(type_id, inputs_co
     top_margin = input_ys[0]
     bottom_margin = item.height - input_ys[-1]
     assert top_margin == style.PORT_MARGIN
-    assert bottom_margin == top_margin, \
-        f"{type_id}: top margin {top_margin} != bottom margin {bottom_margin} — pins are not vertically symmetric"
+
+    expected_extra = 0 if inputs_count % 2 == 1 else style.PORT_PITCH
+    assert bottom_margin == top_margin + expected_extra, \
+        f"{type_id}: top margin {top_margin}, bottom margin {bottom_margin} — expected bottom == top + {expected_extra}"
 
 def test_four_input_gate_is_shorter_than_before_the_grid_density_redesign():
     """Concrete regression pin: a 4-input gate used to be
@@ -157,4 +169,49 @@ def test_four_input_gate_is_shorter_than_before_the_grid_density_redesign():
     block = BlockRegistry.create_block("logic.and4")
     item = BlockItem(block)
     assert item.height < 100
-    assert item.height == 2 * style.PORT_MARGIN + 3 * style.PORT_PITCH
+    # 2*PORT_MARGIN + 3*PORT_PITCH = 70, rounded up to the next 2*PORT_PITCH
+    # multiple (§0.3) = 80.
+    raw_height = 2 * style.PORT_MARGIN + 3 * style.PORT_PITCH
+    import math
+    assert item.height == math.ceil(raw_height / (2 * style.PORT_PITCH)) * (2 * style.PORT_PITCH)
+
+# ---- §0.1 audit follow-up: input.ai's Value and Quality outputs used to
+# both land at exactly (width, PORT_MARGIN) — same position, so a click
+# always hit whichever was on top in Z-order and the other was simply
+# unreachable by a wire. This is the test that would have caught it two PRs
+# earlier, per the audit's own framing. -------------------------------------
+
+@pytest.mark.parametrize("type_id", ALL_TYPE_IDS)
+def test_no_two_ports_share_a_position(type_id):
+    _app()
+    block = BlockRegistry.create_block(type_id)
+    item = BlockItem(block)
+
+    ports = [c for c in item.childItems() if isinstance(c, PortItem)]
+    positions = [(p.pos().x(), p.pos().y()) for p in ports]
+    seen = set()
+    for port, pos in zip(ports, positions):
+        assert pos not in seen, \
+            f"{type_id}: port {port.pin.name!r} at {pos} overlaps another port at the exact same position"
+        seen.add(pos)
+
+# ---- §0.3 audit follow-up: the output port must sit exactly on the body's
+# vertical center, not the nearest PORT_PITCH multiple to it — for an even
+# input count those used to differ by up to PORT_PITCH/2, visibly
+# separating the D-shape/shield curve's tip from the output port square. --
+
+GATE_TYPE_IDS = [
+    type_id
+    for category in BlockRegistry.get_categories()
+    for type_id in BlockRegistry.get_blocks_in_category(category)
+    if BlockRegistry.create_block(type_id).category == "Bramki logiczne"
+]
+
+@pytest.mark.parametrize("type_id", GATE_TYPE_IDS)
+def test_gate_output_y_matches_body_center_exactly(type_id):
+    from logic_studio.ui.canvas import shapes as canvas_shapes
+
+    block = BlockRegistry.create_block(type_id)
+    item = BlockItem(block)
+    assert canvas_shapes.gate_output_y(item.height) == item.height / 2, \
+        f"{type_id}: gate_output_y({item.height}) != {item.height}/2 — output port not on the body's true center"

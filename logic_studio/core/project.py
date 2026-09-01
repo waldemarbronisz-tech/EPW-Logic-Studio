@@ -1,11 +1,12 @@
 import json
+import re
 
 from logic_studio.core.grid import GRID_SIZE
 
 # Bump when the on-disk .epwlogic schema changes in a way that requires migration.
 # Every bump needs a matching _migrate_vN_to_v(N+1)(data) function registered in
 # _MIGRATIONS below — see AUDIT_REPORT.md §2 "Wersjonowanie schematów".
-EPWLOGIC_SCHEMA_VERSION = 2
+EPWLOGIC_SCHEMA_VERSION = 3
 
 
 def _migrate_v1_to_v2(data: dict) -> dict:
@@ -36,12 +37,89 @@ def _migrate_v1_to_v2(data: dict) -> dict:
     return data
 
 
+_VIRTUAL_IO_TYPE_IDS = ("virtual.input", "virtual.output")
+
+# Same forbidden-character set as internal_bits.validate_internal_bit_name()
+# — duplicated as a raw pattern (not imported) to keep this migration usable
+# even if that module's validation rule ever changes shape; migrating old
+# data should stay stable independent of the CURRENT validation rule.
+_MIGRATION_FORBIDDEN_CHARS = re.compile(r'[\s/\\\'"ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]')
+
+
+def _migrate_v2_to_v3(data: dict) -> dict:
+    """v2 -> v3 (feat/internal-bits §8.2):
+    - settings.internal_bits introduced. Default to [] when absent.
+    - virtual.input/virtual.output blocks used a free-text "Tag" property
+      as their signal name — no registry, no uniqueness check, a typo
+      silently created a new signal instead of erroring (feat/internal-bits
+      §PROBLEM). For every such block with a non-empty Tag, this creates
+      (or reuses) a BOOL, non-retentive settings.internal_bits entry named
+      after that Tag, and rewrites the block's property from "Tag" to
+      "Bit" pointing at it. Two blocks with the same Tag (case-
+      insensitively) merge into ONE registry entry, exactly as
+      §2.1 requires — this never changes which blocks are logically wired
+      to which signal, only how that signal is named/validated going
+      forward. A Tag containing characters the new registry doesn't allow
+      (spaces, quotes, ...) is sanitized (replaced with "_") rather than
+      left to fail validation on the very first load.
+    """
+    settings = data.setdefault("settings", {})
+    internal_bits = settings.setdefault("internal_bits", [])
+    by_lower_name = {e["name"].lower(): e for e in internal_bits}
+
+    for b_data in data.get("blocks", []):
+        if b_data.get("type_id") not in _VIRTUAL_IO_TYPE_IDS:
+            continue
+        properties = b_data.get("properties")
+        if not isinstance(properties, dict):
+            continue
+        tag = properties.pop("Tag", None)
+        if not tag:
+            properties.setdefault("Bit", "")
+            continue
+
+        name = _MIGRATION_FORBIDDEN_CHARS.sub("_", tag)
+        existing = by_lower_name.get(name.lower())
+        if existing is None:
+            entry = {
+                "name": name, "type": "BOOL", "retentive": False,
+                "description": "", "label": "", "category": "",
+            }
+            internal_bits.append(entry)
+            by_lower_name[name.lower()] = entry
+
+        properties["Bit"] = name
+
+    # system.signal used "Tag" to name a system signal too (overloading the
+    # SAME property key the generic Tag/Comment feature uses for an
+    # unrelated purpose — see PROBLEM in the audit) — carry that value
+    # forward as "Sygnał" (§3.4) rather than dropping it. Unlike virtual.*
+    # above, this does NOT create a registry entry — the system-signal
+    # catalog is a fixed platform contract, not project-defined — and the
+    # old value is NOT sanitized/validated here: if it doesn't match a
+    # current catalog id (e.g. the old default "SYS_READY" vs the
+    # catalog's "SYS.READY"), that's exactly the "sygnał spoza katalogu"
+    # case §4.4/§3.4's migration note says the validator must flag live,
+    # not something this migration should silently paper over.
+    for b_data in data.get("blocks", []):
+        if b_data.get("type_id") != "system.signal":
+            continue
+        properties = b_data.get("properties")
+        if not isinstance(properties, dict):
+            continue
+        tag = properties.pop("Tag", None)
+        properties["Sygnał"] = tag or properties.get("Sygnał", "")
+
+    data["schema_version"] = 3
+    return data
+
+
 # Keyed by the version a migration upgrades FROM. Project.deserialize() walks
 # this sequentially — apply the migration for the file's current version,
-# re-check, repeat — so a v1 file is ready for a future v2 -> v3 migration to
-# be added the exact same way: one function, one new entry here.
+# re-check, repeat — so a v1 file goes through v1->v2->v3 in one load.
 _MIGRATIONS = {
     1: _migrate_v1_to_v2,
+    2: _migrate_v2_to_v3,
 }
 
 
@@ -59,7 +137,13 @@ class Project:
             # AUDIT_REPORT.md §1. Each entry:
             # {"address": str, "name": str, "unit": str, "min": float,
             #  "max": float, "direction": "input" | "output"}
-            "analog_points": []
+            "analog_points": [],
+            # Internal signal registry (feat/internal-bits §1) — project-
+            # defined BOOL/REAL signals virtual.input/output and
+            # internal.reg_in/out reference by name. See
+            # core/internal_bits.py for the entry shape and
+            # internal_bit_id() (the derived M./MR./MW./MWR.<name> id).
+            "internal_bits": []
         }
 
         self.undo_stack = []
@@ -154,6 +238,7 @@ class Project:
         # missing entirely skips the migration chain above, same leniency as
         # before schema versioning existed).
         proj.settings.setdefault("analog_points", [])
+        proj.settings.setdefault("internal_bits", [])
 
         block_data_list = data.get("blocks", [])
 

@@ -1,0 +1,56 @@
+{
+  "format": "EPW_SIGNAL_CATALOG",
+  "schema_version": 1,
+  "catalog_version": "1.0.0",
+  "_comment": "Fixed platform contract, identical in every project — see ARCHITECTURE.md 'Przestrzenie nazw sygnałów'. Deliberately does NOT yet include EPM recorder, protection (zabezpieczenia), or telemechanics signals — those wait on that part of the platform contract being frozen. A new signal is a MINOR catalog_version bump; removing or renaming one is MAJOR (a project compiled against an older catalog_version than a signal's introduction should be handled by EPW-OS's own compatibility check, not this file).",
+  "categories": [
+    {
+      "id": "SYS.STATE",
+      "name": "Stan systemu",
+      "signals": [
+        {"id": "SYS.READY", "description": "Sterownik gotowy do pracy", "label": "GOTOWY", "type": "BOOL", "source": "runtime", "safety_relevant": false},
+        {"id": "SYS.HEALTH", "description": "System sprawny", "label": "ZDROWY", "type": "BOOL", "source": "runtime", "safety_relevant": true},
+        {"id": "SYS.FAULT", "description": "Awaria systemu, logika zatrzymana", "label": "AWARIA", "type": "BOOL", "source": "runtime", "safety_relevant": true},
+        {"id": "SYS.SCAN_OVERRUN", "description": "Przekroczony czas cyklu", "label": "PRZEKR.", "type": "BOOL", "source": "runtime", "safety_relevant": false},
+        {"id": "SYS.FIRST_SCAN", "description": "Pierwszy cykl po uruchomieniu", "label": "1.CYKL", "type": "BOOL", "source": "runtime", "safety_relevant": false},
+        {"id": "SYS.TRAINING_MODE", "description": "Tryb szkoleniowy aktywny", "label": "SZKOL.", "type": "BOOL", "source": "runtime", "safety_relevant": false},
+        {"id": "SYS.SCAN_TIME", "description": "Czas ostatniego cyklu [ms]", "label": "", "type": "REAL", "source": "runtime", "safety_relevant": false},
+        {"id": "SYS.CYCLE_COUNT", "description": "Licznik cykli", "label": "", "type": "REAL", "source": "runtime", "safety_relevant": false}
+      ]
+    },
+    {
+      "id": "SYS.COMMS",
+      "name": "Komunikacja",
+      "signals": [
+        {"id": "SYS.COMMS_OK", "description": "Komunikacja z nadrzędnym sprawna", "label": "KOM OK", "type": "BOOL", "source": "runtime", "safety_relevant": false},
+        {"id": "SYS.TIME_SYNC_OK", "description": "Synchronizacja czasu poprawna", "label": "CZAS OK", "type": "BOOL", "source": "runtime", "safety_relevant": false},
+        {"id": "ELA01.ONLINE", "description": "Moduł ELA01 komunikuje się poprawnie", "label": "ELA OK", "type": "BOOL", "source": "runtime", "safety_relevant": false},
+        {"id": "ELA01.FAULT", "description": "Awaria modułu ELA01", "label": "ELA AW", "type": "BOOL", "source": "runtime", "safety_relevant": true},
+        {"id": "ADA01.ONLINE", "description": "Moduł ADA01 komunikuje się poprawnie", "label": "ADA OK", "type": "BOOL", "source": "runtime", "safety_relevant": false},
+        {"id": "ADA01.FAULT", "description": "Awaria modułu ADA01", "label": "ADA AW", "type": "BOOL", "source": "runtime", "safety_relevant": true},
+        {"id": "ADA01.SAFE_PATH_OK", "description": "Sprzętowa droga wyłączenia sprawna", "label": "DROGA OK", "type": "BOOL", "source": "runtime", "safety_relevant": true}
+      ]
+    },
+    {
+      "id": "SYS.ACCESS",
+      "name": "Poziom dostępu",
+      "signals": [
+        {"id": "SYS.ACCESS_LEVEL", "description": "Aktualny poziom dostępu (0-3)", "label": "POZIOM", "type": "REAL", "source": "runtime", "safety_relevant": false},
+        {"id": "SYS.ACCESS_USER", "description": "Poziom User aktywny", "label": "", "type": "BOOL", "source": "runtime", "safety_relevant": false},
+        {"id": "SYS.ACCESS_OPERATOR", "description": "Poziom Operator aktywny", "label": "", "type": "BOOL", "source": "runtime", "safety_relevant": false},
+        {"id": "SYS.ACCESS_ENGINEER", "description": "Poziom Engineer aktywny", "label": "", "type": "BOOL", "source": "runtime", "safety_relevant": false}
+      ]
+    },
+    {
+      "id": "SYS.PULSE",
+      "name": "Generatory czasu",
+      "signals": [
+        {"id": "SYS.PULSE_100MS", "description": "Impuls 100 ms", "label": "", "type": "BOOL", "source": "runtime", "safety_relevant": false},
+        {"id": "SYS.PULSE_500MS", "description": "Impuls 500 ms", "label": "", "type": "BOOL", "source": "runtime", "safety_relevant": false},
+        {"id": "SYS.PULSE_1S", "description": "Impuls 1 s", "label": "", "type": "BOOL", "source": "runtime", "safety_relevant": false},
+        {"id": "SYS.BLINK_SLOW", "description": "Miganie wolne (1 Hz)", "label": "MIG WOLNE", "type": "BOOL", "source": "runtime", "safety_relevant": false},
+        {"id": "SYS.BLINK_FAST", "description": "Miganie szybkie (4 Hz)", "label": "MIG SZYBKIE", "type": "BOOL", "source": "runtime", "safety_relevant": false}
+      ]
+    }
+  ]
+}

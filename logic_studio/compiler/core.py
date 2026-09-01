@@ -59,6 +59,20 @@ class Compiler:
                 if point:
                     block.set_range(point.get("min"), point.get("max"))
 
+        # Same reasoning, for internal-signal blocks (feat/internal-bits
+        # §2): a block's "Bit" property only names a registry entry — its
+        # type/retentive flag (which together determine the actual
+        # M./MR./MW./MWR.<name> id) live in the registry, not on the block.
+        # Validator has already confirmed every "Bit" resolves to a
+        # registry entry of the matching type (§4.4/§4.5).
+        from logic_studio.core.internal_bits import internal_bit_id
+        _INTERNAL_SIGNAL_TYPE_IDS = ("virtual.input", "virtual.output", "internal.reg_in", "internal.reg_out")
+        for block in isolated_project.blocks:
+            if block.type_id in _INTERNAL_SIGNAL_TYPE_IDS and hasattr(block, 'set_signal_id'):
+                entry = DeviceModel.get_internal_bit(self.project, block.properties.get("Bit", ""))
+                if entry:
+                    block.set_signal_id(internal_bit_id(entry))
+
         # In serialize/deserialize, UUIDs are fully preserved, so execution_order matches
         program = CompiledProgram(
             blocks=isolated_project.blocks,
