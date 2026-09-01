@@ -111,7 +111,15 @@ class LogicView(QGraphicsView):
 
     def dropEvent(self, event):
         if event.mimeData().hasText():
-            block_type = event.mimeData().text()
+            payload = event.mimeData().text()
+            # DeviceExplorerPanel encodes "type_id|address" so a DI/DO/AI/AO
+            # dragged from there arrives already configured; the library
+            # panel drags plain type_id text, unchanged.
+            if "|" in payload:
+                block_type, address = payload.split("|", 1)
+            else:
+                block_type, address = payload, None
+
             scene_pos = self.mapToScene(event.position().toPoint())
 
             if getattr(self.scene(), 'snap_enabled', True):
@@ -121,7 +129,7 @@ class LogicView(QGraphicsView):
             else:
                 x, y = scene_pos.x(), scene_pos.y()
 
-            self.scene().add_block_from_library(block_type, x, y)
+            self.scene().add_block_from_library(block_type, x, y, address=address)
             event.acceptProposedAction()
         else:
             event.ignore()

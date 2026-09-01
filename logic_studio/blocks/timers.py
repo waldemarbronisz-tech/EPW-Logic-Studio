@@ -43,6 +43,7 @@ class TimerBase(BaseLogicBlock):
 class TON(TimerBase):
     def __init__(self, type_id="timer.ton", default_name="TON", category="Timery", description="Timer On Delay"):
         super().__init__(type_id, default_name, category, description)
+        self.aliases = ["opóźnienie załączenia", "zwłoka"]
 
     def evaluate(self, engine=None):
         in_state = bool(self.inputs[0].value)
@@ -68,6 +69,7 @@ class TON(TimerBase):
 class TOF(TimerBase):
     def __init__(self, type_id="timer.tof", default_name="TOF", category="Timery", description="Timer Off Delay"):
         super().__init__(type_id, default_name, category, description)
+        self.aliases = ["opóźnienie wyłączenia"]
         self._q_state = False
         self.outputs[0].value = False
 
@@ -101,6 +103,7 @@ class TOF(TimerBase):
 class TP(TimerBase):
     def __init__(self, type_id="timer.tp", default_name="TP", category="Timery", description="Pulse Timer"):
         super().__init__(type_id, default_name, category, description)
+        self.aliases = ["impuls", "monostabilny"]
 
     def evaluate(self, engine=None):
         in_state = bool(self.inputs[0].value)

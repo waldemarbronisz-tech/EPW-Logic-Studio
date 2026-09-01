@@ -31,6 +31,7 @@ class CounterBase(BaseLogicBlock):
 class CTU(CounterBase):
     def __init__(self, type_id="counter.ctu", default_name="CTU", category="Liczniki", description="Count Up"):
         super().__init__(type_id, default_name, category, description)
+        self.aliases = ["licznik"]
         self.inputs.append(Pin("CU", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
         self.inputs.append(Pin("R", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
         self.inputs.append(Pin("PV", Pin.DIR_INPUT, Pin.TYPE_INTEGER))
@@ -59,6 +60,7 @@ class CTU(CounterBase):
 class CTD(CounterBase):
     def __init__(self, type_id="counter.ctd", default_name="CTD", category="Liczniki", description="Count Down"):
         super().__init__(type_id, default_name, category, description)
+        self.aliases = ["licznik"]
         self.inputs.append(Pin("CD", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
         self.inputs.append(Pin("LD", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
         self.inputs.append(Pin("PV", Pin.DIR_INPUT, Pin.TYPE_INTEGER))
@@ -87,6 +89,7 @@ class CTD(CounterBase):
 class CTUD(CounterBase):
     def __init__(self, type_id="counter.ctud", default_name="CTUD", category="Liczniki", description="Count Up Down"):
         super().__init__(type_id, default_name, category, description)
+        self.aliases = ["licznik"]
         self.height = 140
         self.inputs.append(Pin("CU", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
         self.inputs.append(Pin("CD", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))

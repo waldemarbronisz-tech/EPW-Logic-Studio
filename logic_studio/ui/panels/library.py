@@ -1,150 +1,291 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLineEdit, QScrollArea, QGroupBox, QGridLayout, QPushButton
-from PySide6.QtGui import QDrag
-from PySide6.QtCore import Qt, QMimeData
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLineEdit, QTreeWidget, QTreeWidgetItem
+from PySide6.QtGui import QDrag, QColor, QBrush
+from PySide6.QtCore import Qt, QMimeData, QSettings, QPoint, Signal
 
-class BlockDragButton(QPushButton):
-    def __init__(self, display_name, type_id, parent=None):
-        super().__init__(display_name, parent)
-        self.display_name = display_name
-        self.type_id = type_id
-        # Make it look like a classic block icon button
-        self.setFixedSize(60, 40)
-        self.setStyleSheet("""
-            QPushButton {
-                background: #C0C0C0;
-                border-left: 1px solid #FFFFFF;
-                border-top: 1px solid #FFFFFF;
-                border-right: 1px solid #808080;
-                border-bottom: 1px solid #808080;
-                font-weight: bold;
-                font-size: 8pt;
-            }
-            QPushButton:hover {
-                background: #D0D0D0;
-            }
-        """)
+from logic_studio.ui.icons import block_icon
 
-    def mouseMoveEvent(self, event):
-        if event.buttons() == Qt.LeftButton:
-            drag = QDrag(self)
-            mime = QMimeData()
-            mime.setText(self.type_id)
-            drag.setMimeData(mime)
-            drag.exec(Qt.CopyAction)
-        super().mouseMoveEvent(event)
+# Categories with structure but, as of this build, no registered blocks
+# behind them (see AUDIT_REPORT.md) — shown grayed out and unexpandable
+# instead of hidden, so an engineer sees the product's intended map instead
+# of a gap (§4.8).
+PLACEHOLDER_CATEGORIES = [
+    "Zabezpieczenia Analogowe", "Zabezpieczenia Dwustanowe",
+    "Zabezpieczenia Technologiczne", "Łączniki", "Banki Nastaw",
+    "Zabezpieczenia silnikowe",
+]
 
-    def mouseDoubleClickEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            # Emulate dropping the block in the center of the canvas view
-            window = self.window()
-            if hasattr(window, 'view'):
-                view = window.view
-                scene_pos = view.mapToScene(view.viewport().rect().center())
+RECENT_LABEL = "Ostatnio używane"
+RECENT_MAX = 10
 
-                # Snap to grid
-                grid = view.scene().grid_size
-                x = round(scene_pos.x() / grid) * grid
-                y = round(scene_pos.y() / grid) * grid
+DRAG_THRESHOLD_PX = 4
 
-                view.scene().add_block_from_library(self.type_id, x, y)
-        super().mouseDoubleClickEvent(event)
+TYPE_ID_ROLE = Qt.UserRole
 
-class LibraryPanel(QWidget):
+
+class LibraryTree(QTreeWidget):
+    """QTreeWidget that drives drag-and-drop manually (mime data = plain
+    type_id text, matching what LogicView.dropEvent already expects) with an
+    explicit distance threshold, so a plain click/double-click doesn't also
+    fire a drag (§4.3)."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setDragEnabled(False)  # driven manually below, not Qt's default item-drag
+        self._press_pos = None
+        self._press_type_id = None
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            item = self.itemAt(event.pos())
+            type_id = item.data(0, TYPE_ID_ROLE) if item else None
+            if type_id:
+                self._press_pos = event.pos()
+                self._press_type_id = type_id
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._press_type_id and (event.buttons() & Qt.LeftButton) and self._press_pos is not None:
+            if (event.pos() - self._press_pos).manhattanLength() > DRAG_THRESHOLD_PX:
+                type_id = self._press_type_id
+                self._press_type_id = None
+                self._press_pos = None
+                drag = QDrag(self)
+                mime = QMimeData()
+                mime.setText(type_id)
+                drag.setMimeData(mime)
+                drag.setPixmap(block_icon(type_id, size=24).pixmap(24, 24))
+                drag.exec(Qt.CopyAction)
+                return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._press_pos = None
+        self._press_type_id = None
+        super().mouseReleaseEvent(event)
+
+
+class LibraryPanel(QWidget):
+    # Emitted when the current tree item changes to a real block (not a
+    # category header) — MainWindow connects this to the element preview
+    # panel (§6).
+    selection_changed = Signal(str)
+
+    def __init__(self, parent=None, settings=None):
+        super().__init__(parent)
+        # Injectable so tests don't write expand-state/recently-used into the
+        # real user registry (QSettings("BroniszLabs", "EPW Logic Studio") is
+        # NativeFormat on Windows == the actual HKCU registry).
+        self.settings = settings if settings is not None else QSettings("BroniszLabs", "EPW Logic Studio")
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # Search Box
         self.search_box = QLineEdit()
-        self.search_box.setPlaceholderText("Search...")
-        self.search_box.textChanged.connect(self._filter_library)
+        self.search_box.setPlaceholderText("Szukaj...")
+        self.search_box.textChanged.connect(self._filter_tree)
         layout.addWidget(self.search_box)
 
-        # Scroll Area for Toolbox
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.tree = LibraryTree()
+        self.tree.setHeaderHidden(True)
+        self.tree.setDragEnabled(False)
+        self.tree.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self.tree.itemExpanded.connect(self._on_item_expanded_changed)
+        self.tree.itemCollapsed.connect(self._on_item_expanded_changed)
+        self.tree.currentItemChanged.connect(self._on_current_item_changed)
+        layout.addWidget(self.tree)
 
-        self.content_widget = QWidget()
-        self.content_layout = QVBoxLayout(self.content_widget)
-        self.content_layout.setContentsMargins(2, 2, 2, 2)
-        self.content_layout.setSpacing(4)
+        self._recent_root = None
+        self._category_roots = {}
 
-        self.scroll.setWidget(self.content_widget)
-        layout.addWidget(self.scroll)
+        self._populate_tree()
 
-        self.category_groups = []
-        self.block_buttons = []
+    # ---- Tree construction ----------------------------------------------
 
-        self._populate_categories()
-
-    def _populate_categories(self):
+    def _populate_tree(self):
         from logic_studio.blocks.registry import BlockRegistry
+
+        self.tree.clear()
+        self._category_roots = {}
+
+        self._recent_root = QTreeWidgetItem(self.tree, [RECENT_LABEL])
+        self._recent_root.setExpanded(self._is_expanded(RECENT_LABEL, default=True))
+        self._rebuild_recent_section()
 
         standard_categories = [
             "Bramki logiczne", "Detekcja zboczy", "Wejścia / Wyjścia", "Elementy Analogowe", "Timery",
-            "Przerzutniki", "Zabezpieczenia Analogowe", "Zabezpieczenia Dwustanowe",
-            "Zabezpieczenia Technologiczne", "Łączniki", "Banki Nastaw",
-            "Telemechanika", "Zabezpieczenia silnikowe", "Przyciski", "LED", "Liczniki"
+            "Przerzutniki"
+        ] + PLACEHOLDER_CATEGORIES + [
+            "Przyciski", "LED", "Liczniki", "Telemechanika", "Inne",
+            # Documentation blocks aren't executable logic — kept last, after
+            # every functional category (§9.8).
+            "Dokumentacja",
         ]
 
-        all_cats = list(set(standard_categories + BlockRegistry.get_categories()))
+        # "Dokumentacja" (Text/Note/Section) is excluded from compilation
+        # (GraphBuilder/Compiler) because those blocks don't execute — but
+        # they ARE placeable canvas annotations, so the library still lists
+        # them like any other block type.
+        registered_categories = set(BlockRegistry.get_categories())
+        all_cats = list(dict.fromkeys(standard_categories).keys() | registered_categories)
 
-        # Sort based on standard order then alpha
         def sort_key(cat):
             try:
-                return standard_categories.index(cat)
+                return (0, standard_categories.index(cat))
             except ValueError:
-                return 999
-        all_cats.sort(key=lambda x: (sort_key(x), x))
+                return (1, cat)
+        all_cats.sort(key=sort_key)
 
         for cat in all_cats:
-            group = QGroupBox(cat)
-            group_layout = QGridLayout(group)
-            group_layout.setSpacing(2)
-            group_layout.setContentsMargins(2, 12, 2, 2)
+            if cat in PLACEHOLDER_CATEGORIES:
+                self._add_placeholder_category(cat)
+                continue
 
-            blocks = BlockRegistry.get_blocks_in_category(cat)
-            if not blocks:
-                group.hide()
+            type_ids = BlockRegistry.get_blocks_in_category(cat)
+            if not type_ids:
+                continue
 
-            col = 0
-            row = 0
-            for type_id in blocks:
-                b_class = BlockRegistry.get_block_class(type_id)
-                if not b_class:
-                    continue
-                # Instantiate a dummy to get the friendly display name
-                dummy = b_class()
-                btn = BlockDragButton(dummy.display_name, type_id)
-                group_layout.addWidget(btn, row, col)
-                self.block_buttons.append((btn, group))
+            root = QTreeWidgetItem(self.tree, [cat])
+            root.setExpanded(self._is_expanded(cat, default=True))
+            self._category_roots[cat] = root
 
-                col += 1
-                if col > 3: # 4 items per row
-                    col = 0
-                    row += 1
+            for type_id in sorted(type_ids, key=lambda t: self._display_name(t)):
+                self._add_block_item(root, type_id)
 
-            self.content_layout.addWidget(group)
-            self.category_groups.append(group)
+    def _add_block_item(self, parent, type_id):
+        item = QTreeWidgetItem(parent, [self._display_name(type_id)])
+        item.setData(0, TYPE_ID_ROLE, type_id)
+        item.setIcon(0, block_icon(type_id))
+        item.setToolTip(0, self._description(type_id))
+        return item
 
-        self.content_layout.addStretch()
+    def _add_placeholder_category(self, cat):
+        root = QTreeWidgetItem(self.tree, [f"{cat} (w przygotowaniu)"])
+        root.setDisabled(True)
+        root.setForeground(0, QBrush(QColor(150, 150, 150)))
+        # No children -> the expand arrow never appears; explicit for clarity.
+        root.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicator)
 
-    def _filter_library(self, text):
-        text = text.lower()
+    @staticmethod
+    def _display_name(type_id):
+        from logic_studio.blocks.registry import BlockRegistry
+        block_class = BlockRegistry.get_block_class(type_id)
+        if not block_class:
+            return type_id
+        return block_class().display_name
 
-        # Hide/show logic
-        for btn, group in self.block_buttons:
-            if text in btn.display_name.lower():
-                btn.show()
-            else:
-                btn.hide()
+    @staticmethod
+    def _description(type_id):
+        from logic_studio.blocks.registry import BlockRegistry
+        block_class = BlockRegistry.get_block_class(type_id)
+        if not block_class:
+            return ""
+        return block_class().description
 
-        for group in self.category_groups:
-            # Check if group has any visible children
-            visible_children = sum(1 for btn, g in self.block_buttons if g == group and not btn.isHidden())
-            if visible_children > 0:
-                group.show()
-            else:
-                group.hide()
+    # ---- Expand-state persistence (§4.1) ---------------------------------
+
+    def _is_expanded(self, category, default):
+        val = self.settings.value(f"library/expanded/{category}", default)
+        if isinstance(val, str):
+            return val.lower() in ("true", "1")
+        return bool(val)
+
+    def _on_item_expanded_changed(self, item):
+        cat = item.text(0)
+        self.settings.setValue(f"library/expanded/{cat}", item.isExpanded())
+
+    # ---- Recently used (§4.7) --------------------------------------------
+
+    def _recent_list(self):
+        val = self.settings.value("library/recent", [])
+        if val is None:
+            return []
+        if isinstance(val, str):
+            return [val] if val else []
+        return list(val)
+
+    def record_recently_used(self, type_id):
+        """Call whenever a block is actually placed on the canvas — from
+        either a library drag/double-click or a plain canvas paste/duplicate
+        path that goes through LogicScene.add_block_from_library()."""
+        from logic_studio.blocks.registry import BlockRegistry
+        if not BlockRegistry.get_block_class(type_id):
+            return
+
+        recent = [t for t in self._recent_list() if t != type_id]
+        recent.insert(0, type_id)
+        recent = recent[:RECENT_MAX]
+        self.settings.setValue("library/recent", recent)
+        self._rebuild_recent_section()
+
+    def _rebuild_recent_section(self):
+        if self._recent_root is None:
+            return
+        self._recent_root.takeChildren()
+        for type_id in self._recent_list():
+            self._add_block_item(self._recent_root, type_id)
+        self._recent_root.setHidden(self._recent_root.childCount() == 0)
+
+    def _on_current_item_changed(self, current, previous):
+        type_id = current.data(0, TYPE_ID_ROLE) if current else None
+        if type_id:
+            self.selection_changed.emit(type_id)
+
+    # ---- Insertion (§4.4) -------------------------------------------------
+
+    def _on_item_double_clicked(self, item, column):
+        type_id = item.data(0, TYPE_ID_ROLE)
+        if not type_id:
+            return
+        window = self.window()
+        view = getattr(window, 'view', None)
+        if view is None:
+            return
+
+        scene_pos = view.mapToScene(view.viewport().rect().center())
+        if getattr(view.scene(), 'snap_enabled', True):
+            grid = view.scene().grid_size
+            x = round(scene_pos.x() / grid) * grid
+            y = round(scene_pos.y() / grid) * grid
+        else:
+            x, y = scene_pos.x(), scene_pos.y()
+
+        view.scene().add_block_from_library(type_id, x, y)
+
+    # ---- Search (§4.5) -----------------------------------------------------
+
+    def _filter_tree(self, text):
+        text = text.strip().lower()
+
+        for cat, root in self._category_roots.items():
+            visible_children = 0
+            for i in range(root.childCount()):
+                child = root.child(i)
+                match = not text or self._matches(child.data(0, TYPE_ID_ROLE), text)
+                child.setHidden(not match)
+                if match:
+                    visible_children += 1
+            root.setHidden(visible_children == 0)
+            if text and visible_children:
+                root.setExpanded(True)
+
+        if self._recent_root:
+            visible_children = 0
+            for i in range(self._recent_root.childCount()):
+                child = self._recent_root.child(i)
+                match = not text or self._matches(child.data(0, TYPE_ID_ROLE), text)
+                child.setHidden(not match)
+                if match:
+                    visible_children += 1
+            self._recent_root.setHidden(visible_children == 0)
+
+    @staticmethod
+    def _matches(type_id, text):
+        if not type_id:
+            return False
+        from logic_studio.blocks.registry import BlockRegistry
+        block_class = BlockRegistry.get_block_class(type_id)
+        if not block_class:
+            return text in type_id.lower()
+        dummy = block_class()
+        haystacks = [dummy.display_name, type_id, dummy.description] + list(getattr(dummy, 'aliases', []))
+        return any(text in h.lower() for h in haystacks if h)

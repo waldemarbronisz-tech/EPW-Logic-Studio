@@ -23,6 +23,11 @@ class Pin:
 
         self.value = None # For simulation/runtime
 
+        # UI-only metadata: highlighted in the element preview panel (§6) as
+        # "istotne dla bezpieczeństwa". Not set by any block today — ready
+        # for use once the Zabezpieczenia * block categories exist.
+        self.safety_relevant: bool = False
+
     def connect(self, other_pin: 'Pin') -> bool:
         """Connect this pin to another pin if types/directions match."""
         if self.direction == other_pin.direction:

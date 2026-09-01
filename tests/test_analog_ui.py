@@ -104,7 +104,106 @@ def test_device_explorer_analog_branch_empty_and_populated():
     root = panel.tree.topLevelItem(0)
     analog_branch = next(root.child(i) for i in range(root.childCount()) if root.child(i).text(0) == "Analog")
     assert analog_branch.childCount() == 1
-    assert "AI.TEMP" in analog_branch.child(0).text(0)
+
+def test_device_explorer_leaves_carry_type_id_and_address():
+    """Follow-up to feat/block-rendering-library: every address leaf must be
+    draggable straight onto the canvas as an already-configured block."""
+    _app()
+    from logic_studio.ui.panels.device_explorer import DeviceExplorerPanel, TYPE_ID_ROLE, ADDRESS_ROLE
+
+    p = Project()
+    p.settings["analog_points"] = [
+        {"address": "AI.TEMP", "name": "Temp", "unit": "°C", "min": -40.0, "max": 150.0, "direction": "input"},
+        {"address": "AO.SP", "name": "Setpoint", "unit": "°C", "min": -40.0, "max": 150.0, "direction": "output"},
+    ]
+    panel = DeviceExplorerPanel(project=p)
+
+    root = panel.tree.topLevelItem(0)
+    ela = next(root.child(i) for i in range(root.childCount()) if root.child(i).text(0) == "ELA-01")
+    di_group = ela.child(0)
+    first_di = di_group.child(0)
+    assert first_di.text(0) == "ELA01.DI01"
+    assert first_di.data(0, TYPE_ID_ROLE) == "input.di"
+    assert first_di.data(0, ADDRESS_ROLE) == "ELA01.DI01"
+
+    ada = next(root.child(i) for i in range(root.childCount()) if root.child(i).text(0) == "ADA-01")
+    do_group = ada.child(0)
+    first_do = do_group.child(0)
+    assert first_do.data(0, TYPE_ID_ROLE) == "output.do"
+    assert first_do.data(0, ADDRESS_ROLE) == "ADA01.DO01"
+
+    analog_branch = next(root.child(i) for i in range(root.childCount()) if root.child(i).text(0) == "Analog")
+    ai_leaf = next(analog_branch.child(i) for i in range(analog_branch.childCount())
+                   if analog_branch.child(i).data(0, ADDRESS_ROLE) == "AI.TEMP")
+    assert ai_leaf.data(0, TYPE_ID_ROLE) == "input.ai"
+    ao_leaf = next(analog_branch.child(i) for i in range(analog_branch.childCount())
+                   if analog_branch.child(i).data(0, ADDRESS_ROLE) == "AO.SP")
+    assert ao_leaf.data(0, TYPE_ID_ROLE) == "output.ao"
+
+def test_device_explorer_folder_items_are_not_draggable():
+    _app()
+    from logic_studio.ui.panels.device_explorer import DeviceExplorerPanel, TYPE_ID_ROLE
+
+    panel = DeviceExplorerPanel(project=Project())
+    root = panel.tree.topLevelItem(0)
+    assert root.data(0, TYPE_ID_ROLE) is None
+    ela = root.child(0)
+    assert ela.data(0, TYPE_ID_ROLE) is None
+    di_group = ela.child(0)
+    assert di_group.data(0, TYPE_ID_ROLE) is None
+
+def test_scene_add_block_from_library_sets_address_when_given():
+    _app()
+    register_builtin_blocks()
+    from logic_studio.ui.canvas.scene import LogicScene
+
+    scene = LogicScene()
+    scene.add_block_from_library("input.di", 40, 60, address="ELA01.DI06")
+
+    from logic_studio.ui.canvas.block_item import BlockItem
+    item = next(i for i in scene.items() if isinstance(i, BlockItem))
+    assert item.logic_block.properties["Address"] == "ELA01.DI06"
+
+def test_scene_add_block_from_library_without_address_keeps_default():
+    _app()
+    register_builtin_blocks()
+    from logic_studio.ui.canvas.scene import LogicScene
+    from logic_studio.blocks.io_blocks import DigitalInputBlock
+
+    scene = LogicScene()
+    scene.add_block_from_library("input.di", 0, 0)
+
+    from logic_studio.ui.canvas.block_item import BlockItem
+    item = next(i for i in scene.items() if isinstance(i, BlockItem))
+    assert item.logic_block.properties["Address"] == DigitalInputBlock().properties["Address"]
+
+def test_view_drop_event_splits_type_id_and_address_payload():
+    """Parses the "type_id|address" mime payload DeviceTree produces —
+    exercised through LogicView.dropEvent()'s actual splitting logic by
+    driving it with a real drop, not by re-implementing the split in the
+    test."""
+    _app()
+    register_builtin_blocks()
+    from logic_studio.ui.canvas.scene import LogicScene
+    from logic_studio.ui.canvas.view import LogicView
+    from logic_studio.ui.canvas.block_item import BlockItem
+    from PySide6.QtCore import QMimeData, QPointF, Qt
+    from PySide6.QtGui import QDropEvent
+
+    scene = LogicScene()
+    view = LogicView(scene)
+
+    mime = QMimeData()
+    mime.setText("input.di|ELA01.DI06")
+
+    event = QDropEvent(
+        QPointF(50, 50), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier, QDropEvent.Type.Drop
+    )
+    view.dropEvent(event)
+
+    item = next(i for i in scene.items() if isinstance(i, BlockItem))
+    assert item.logic_block.type_id == "input.di"
+    assert item.logic_block.properties["Address"] == "ELA01.DI06"
 
 def test_simulation_panel_analog_widgets_rebuild_on_set_project():
     _app()
@@ -156,7 +255,7 @@ def test_simulation_panel_slider_spinbox_sync():
     spin.setValue(10.0)
     assert slider.value() == 1000
 
-def test_analog_chain_full_scan_through_main_window():
+def test_analog_chain_full_scan_through_main_window(qsettings):
     """End-to-end: AI (project analog point) -> AO, driven entirely through
     SimulationPanel widgets and MainWindow's push/pull, matching what
     _on_sim_tick / manual step do."""
@@ -164,7 +263,7 @@ def test_analog_chain_full_scan_through_main_window():
     from logic_studio.ui.main_window import MainWindow
 
     register_builtin_blocks()
-    m = MainWindow()
+    m = MainWindow(settings=qsettings)
     m.scene.clear()
     m.project.settings["analog_points"] = [
         {"address": "AI.TEMP", "name": "Temp", "unit": "°C", "min": -40.0, "max": 150.0, "direction": "input"},
@@ -193,13 +292,13 @@ def test_analog_chain_full_scan_through_main_window():
     m.is_dirty = False
     m.close()
 
-def test_step_buttons_enabled_state_transitions():
+def test_step_buttons_enabled_state_transitions(qsettings):
     _app()
     from logic_studio.ui.main_window import MainWindow
     from logic_studio.engine.execution import ExecutionState
 
     register_builtin_blocks()
-    m = MainWindow()
+    m = MainWindow(settings=qsettings)
     m.scene.clear()
 
     # No compiled program yet -> disabled.
@@ -224,12 +323,12 @@ def test_step_buttons_enabled_state_transitions():
     m.is_dirty = False
     m.close()
 
-def test_step_requested_ignored_while_running():
+def test_step_requested_ignored_while_running(qsettings):
     _app()
     from logic_studio.ui.main_window import MainWindow
 
     register_builtin_blocks()
-    m = MainWindow()
+    m = MainWindow(settings=qsettings)
     m.scene.clear()
     m.scene.add_block_from_library('const.true', 0, 0)
     m.compile_project()

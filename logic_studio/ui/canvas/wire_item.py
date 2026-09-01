@@ -2,6 +2,8 @@ from PySide6.QtWidgets import QGraphicsPathItem
 from PySide6.QtGui import QPainterPath, QPen, QColor
 from PySide6.QtCore import Qt, QPointF
 
+from logic_studio.ui.canvas import style
+
 class WireItem(QGraphicsPathItem):
     def __init__(self, source_port, dest_port=None, parent=None):
         super().__init__(parent)
@@ -12,8 +14,8 @@ class WireItem(QGraphicsPathItem):
         self.setZValue(-1) # Draw wires behind blocks
         self.setFlag(QGraphicsPathItem.ItemIsSelectable, True)
 
-        self.color = QColor(0, 0, 0) # Dark gray OFF state
-        self.thickness = 2
+        self.color = style.COLOR_LOGIC_LOW # OFF state
+        self.thickness = style.WIRE_THICKNESS
 
         self.update_path()
 
@@ -24,11 +26,11 @@ class WireItem(QGraphicsPathItem):
 
         val = self.source_port.pin.value
         if isinstance(val, bool):
-            self.color = QColor(0, 255, 0) if val else QColor(0, 0, 0)
+            self.color = style.COLOR_LOGIC_HIGH if val else style.COLOR_LOGIC_LOW
         elif val is not None:
-            self.color = QColor(0, 200, 255) # Light blue for non-bool active data
+            self.color = style.COLOR_ANALOG_VALUE
         else:
-            self.color = QColor(0, 0, 0)
+            self.color = style.COLOR_LOGIC_LOW
 
         self.update_path()
 
@@ -74,7 +76,6 @@ class WireItem(QGraphicsPathItem):
         # SquareCap and MiterJoin ensure strict 90-degree visually sharp lines
         pen = QPen(self.color, self.thickness, Qt.SolidLine, Qt.SquareCap, Qt.MiterJoin)
         if self.isSelected():
-            # Cyan selection for better visibility
-            pen.setColor(QColor(0, 255, 255))
+            pen.setColor(style.COLOR_WIRE_SELECTED)
             pen.setWidth(self.thickness) # Keep thickness same but change color
         self.setPen(pen)

@@ -1,20 +1,35 @@
 from PySide6.QtWidgets import QGraphicsScene
 from PySide6.QtGui import QPen, QColor
-from PySide6.QtCore import Qt, QLineF
+from PySide6.QtCore import Qt, QLineF, Signal
+
+from logic_studio.ui.canvas import style
 
 class LogicScene(QGraphicsScene):
+    # Emitted whenever a block is placed via the library (drag or double-click)
+    # — MainWindow connects this to LibraryPanel.record_recently_used() (§4.7)
+    # so "recently used" reflects every insertion path, not just one of them.
+    block_added = Signal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setSceneRect(-5000, -5000, 10000, 10000)
-        self.grid_size = 20
+        self.grid_size = style.GRID_SIZE
         self.grid_visible = True
         self.snap_enabled = True
 
         # Industrial visual style for grid
-        self.grid_color = QColor(200, 200, 200)
+        self.grid_color = style.COLOR_GRID
         self.grid_pen = QPen(self.grid_color)
-        self.grid_pen.setWidth(1)
+        self.grid_pen.setWidth(style.GRID_LINE_WIDTH)
         self.grid_pen.setStyle(Qt.DotLine)
+
+        # Finer sub-grid at PORT_PITCH — the actual pin-spacing unit since
+        # the grid-density redesign — drawn fainter than the major
+        # GRID_SIZE grid above, purely as a placement aid.
+        self.minor_grid_size = style.PORT_PITCH
+        self.minor_grid_pen = QPen(style.COLOR_GRID_MINOR)
+        self.minor_grid_pen.setWidth(style.GRID_LINE_WIDTH)
+        self.minor_grid_pen.setStyle(Qt.DotLine)
 
         # Wiring State
         self.current_wire = None
@@ -95,8 +110,13 @@ class LogicScene(QGraphicsScene):
             elif isinstance(item, PortItem):
                 item.update_live_state()
 
-    def add_block_from_library(self, type_id: str, x: float, y: float):
-        """Called by the view upon drop event. Instantiates and adds to scene."""
+    def add_block_from_library(self, type_id: str, x: float, y: float, address: str = None):
+        """Called by the view upon drop event (also by the library panel's
+        double-click insert). Instantiates and adds to scene. `address`, if
+        given, is written straight into the new block's "Address" property
+        — used when dragging a DI/DO/AI/AO leaf from DeviceExplorerPanel, so
+        the block lands already configured instead of needing a property-
+        grid detour to set its Address."""
         from logic_studio.blocks.registry import BlockRegistry
         from logic_studio.ui.canvas.block_item import BlockItem
 
@@ -104,6 +124,9 @@ class LogicScene(QGraphicsScene):
 
         if not block:
             return # Invalid drop
+
+        if address and "Address" in block.properties:
+            block.properties["Address"] = address
 
         block.set_position(x, y)
 
@@ -120,12 +143,32 @@ class LogicScene(QGraphicsScene):
                 window.set_dirty()
                 project.add_block(block)
 
+        self.block_added.emit(type_id)
+
     def drawBackground(self, painter, rect):
-        """Draws an industrial engineering dot grid background."""
+        """Draws an industrial engineering dot grid background: the major
+        GRID_SIZE grid blocks snap to, plus a fainter PORT_PITCH sub-grid —
+        the actual pin-spacing unit — so the finer grid pins land on is
+        visible on the canvas, not just implicit in the geometry."""
         super().drawBackground(painter, rect)
 
         if not self.grid_visible:
             return
+
+        if self.minor_grid_size < self.grid_size:
+            minor_left = int(rect.left()) - (int(rect.left()) % self.minor_grid_size)
+            minor_top = int(rect.top()) - (int(rect.top()) % self.minor_grid_size)
+
+            minor_lines = []
+            for x in range(minor_left, int(rect.right()), self.minor_grid_size):
+                if x % self.grid_size != 0:
+                    minor_lines.append(QLineF(x, rect.top(), x, rect.bottom()))
+            for y in range(minor_top, int(rect.bottom()), self.minor_grid_size):
+                if y % self.grid_size != 0:
+                    minor_lines.append(QLineF(rect.left(), y, rect.right(), y))
+
+            painter.setPen(self.minor_grid_pen)
+            painter.drawLines(minor_lines)
 
         left = int(rect.left()) - (int(rect.left()) % self.grid_size)
         top = int(rect.top()) - (int(rect.top()) % self.grid_size)

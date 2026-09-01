@@ -14,6 +14,7 @@ class BaseAnalogBlock(BaseLogicBlock):
 class ScaleBlock(BaseAnalogBlock):
     def __init__(self, type_id="analog.scale", default_name="SCALE", category="Elementy Analogowe", description="Linear Scaling"):
         super().__init__(type_id, default_name, category, description)
+        self.aliases = ["skalowanie", "przeliczenie"]
         self.height = 100
 
         self.inputs.append(Pin("In", Pin.DIR_INPUT, Pin.TYPE_FLOAT))
@@ -127,6 +128,7 @@ class DeadbandBlock(BaseAnalogBlock):
 
     def __init__(self, type_id="analog.deadband", default_name="DEADBAND", category="Elementy Analogowe", description="Report-by-Exception Deadband"):
         super().__init__(type_id, default_name, category, description)
+        self.aliases = ["strefa nieczułości", "martwa strefa"]
         self.height = 80
 
         self.inputs.append(Pin("In", Pin.DIR_INPUT, Pin.TYPE_FLOAT))
@@ -180,6 +182,7 @@ class QualityBlock(BaseAnalogBlock):
 
     def __init__(self, type_id="analog.quality", default_name="QUALITY", category="Elementy Analogowe", description="Signal Quality Supervision"):
         super().__init__(type_id, default_name, category, description)
+        self.aliases = ["jakość sygnału", "nadzór pomiaru"]
         self.height = 100
 
         self.inputs.append(Pin("In", Pin.DIR_INPUT, Pin.TYPE_FLOAT))

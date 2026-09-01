@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QTabWidget, QStatusBar, QToolBar, QMenuBar, QLabel
-from PySide6.QtGui import QAction, QKeySequence
-from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction, QKeySequence, QActionGroup
+from PySide6.QtCore import Qt, QSettings
 
 from logic_studio.ui.canvas.scene import LogicScene
 from logic_studio.ui.canvas.view import LogicView
@@ -9,24 +9,36 @@ from logic_studio.ui.panels.device_explorer import DeviceExplorerPanel
 from logic_studio.ui.panels.property_grid import PropertyGridPanel
 from logic_studio.ui.panels.compiler_output import CompilerOutputPanel
 from logic_studio.ui.panels.simulation import SimulationPanel
+from logic_studio.ui.panels.element_preview import ElementPreviewPanel
+from logic_studio.ui.icons import action_icon
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, settings=None):
         super().__init__()
         self.setWindowTitle("EPW Logic Studio")
         self.resize(1920, 1080)
+
+        # Injectable so tests (and any headless/CI construction) don't write
+        # tree-expand-state/toolbar-style/recently-used into the real user
+        # registry — QSettings("BroniszLabs", "EPW Logic Studio") is
+        # NativeFormat on Windows, i.e. the actual HKCU registry.
+        self.settings = settings if settings is not None else QSettings("BroniszLabs", "EPW Logic Studio")
 
         self._setup_status_bar()
         self._setup_menus()
         self._setup_toolbar()
         self._setup_layout()
 
-    def _make_action(self, text, slot=None, shortcut=None, checkable=False, checked=False):
+    def _make_action(self, text, slot=None, shortcut=None, checkable=False, checked=False, icon_name=None):
         """Create one QAction and wire it up — the same instance is added to both
         the menu and the toolbar (AUDIT_REPORT.md §2.2/§2.3), so there is exactly
-        one place that knows what each command does."""
+        one place that knows what each command does. icon_name, if given, is
+        rendered procedurally via icons.action_icon() (feat/block-rendering-
+        library §5.4) — no image files."""
         action = QAction(text, self)
+        if icon_name:
+            action.setIcon(action_icon(icon_name))
         if shortcut:
             action.setShortcut(QKeySequence(shortcut))
         if checkable:
@@ -40,9 +52,9 @@ class MainWindow(QMainWindow):
         menubar = self.menuBar()
 
         # --- File ---
-        self.act_new = self._make_action("New", self._new_project, "Ctrl+N")
-        self.act_open = self._make_action("Open...", self._open_project, "Ctrl+O")
-        self.act_save = self._make_action("Save", self._save_project, "Ctrl+S")
+        self.act_new = self._make_action("New", self._new_project, "Ctrl+N", icon_name="new")
+        self.act_open = self._make_action("Open...", self._open_project, "Ctrl+O", icon_name="open")
+        self.act_save = self._make_action("Save", self._save_project, "Ctrl+S", icon_name="save")
         self.act_save_as = self._make_action("Save As...", self._save_as_project, "Ctrl+Shift+S")
         self.act_exit = self._make_action("Exit", self.close)
 
@@ -55,8 +67,8 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.act_exit)
 
         # --- Edit ---
-        self.act_undo = self._make_action("Undo", self._undo, "Ctrl+Z")
-        self.act_redo = self._make_action("Redo", self._redo, "Ctrl+Y")
+        self.act_undo = self._make_action("Undo", self._undo, "Ctrl+Z", icon_name="undo")
+        self.act_redo = self._make_action("Redo", self._redo, "Ctrl+Y", icon_name="redo")
         self.act_delete = self._make_action("Delete", self._delete_selected, "Del")
 
         edit_menu = menubar.addMenu("Edit")
@@ -74,11 +86,11 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self.act_delete)
 
         # --- View ---
-        self.act_zoom_in = self._make_action("Zoom In", self._zoom_in)
-        self.act_zoom_out = self._make_action("Zoom Out", self._zoom_out)
+        self.act_zoom_in = self._make_action("Zoom In", self._zoom_in, icon_name="zoom_in")
+        self.act_zoom_out = self._make_action("Zoom Out", self._zoom_out, icon_name="zoom_out")
         self.act_reset_zoom = self._make_action("Reset Zoom", self._reset_zoom)
-        self.act_grid = self._make_action("Grid", self._toggle_grid, checkable=True, checked=True)
-        self.act_snap = self._make_action("Snap", self._toggle_snap, checkable=True, checked=True)
+        self.act_grid = self._make_action("Grid", self._toggle_grid, checkable=True, checked=True, icon_name="grid")
+        self.act_snap = self._make_action("Snap", self._toggle_snap, checkable=True, checked=True, icon_name="snap")
 
         view_menu = menubar.addMenu("View")
         view_menu.addAction(self.act_zoom_in)
@@ -87,6 +99,20 @@ class MainWindow(QMainWindow):
         view_menu.addSeparator()
         view_menu.addAction(self.act_grid)
         view_menu.addAction(self.act_snap)
+        view_menu.addSeparator()
+
+        # Toolbar display mode (§5.4): icons / icons+text / text, persisted.
+        toolbar_menu = view_menu.addMenu("Toolbar")
+        toolbar_style_group = QActionGroup(self)
+        toolbar_style_group.setExclusive(True)
+
+        self.act_toolbar_icons = self._make_action("Ikony", lambda: self._set_toolbar_style("icons"), checkable=True)
+        self.act_toolbar_icons_text = self._make_action("Ikony i tekst", lambda: self._set_toolbar_style("icons_text"), checkable=True)
+        self.act_toolbar_text = self._make_action("Tekst", lambda: self._set_toolbar_style("text"), checkable=True)
+
+        for act in (self.act_toolbar_icons, self.act_toolbar_icons_text, self.act_toolbar_text):
+            toolbar_style_group.addAction(act)
+            toolbar_menu.addAction(act)
 
         # --- Project ---
         # "Recent Projects" had no backing mechanism and was removed rather than
@@ -98,7 +124,7 @@ class MainWindow(QMainWindow):
         project_menu.addAction(self.act_project_settings)
 
         # --- Logic ---
-        self.act_compile = self._make_action("Compile", self.compile_project, "F5")
+        self.act_compile = self._make_action("Compile", self.compile_project, "F5", icon_name="compile")
         self.act_export_runtime = self._make_action("Export Runtime", self._export_runtime)
 
         logic_menu = menubar.addMenu("Logic")
@@ -106,9 +132,9 @@ class MainWindow(QMainWindow):
         logic_menu.addAction(self.act_export_runtime)
 
         # --- Simulation ---
-        self.act_sim_start = self._make_action("Start", self.start_simulation, "F6")
-        self.act_sim_pause = self._make_action("Pause", self._pause_simulation)
-        self.act_sim_stop = self._make_action("Stop", self.stop_simulation, "F7")
+        self.act_sim_start = self._make_action("Start", self.start_simulation, "F6", icon_name="start")
+        self.act_sim_pause = self._make_action("Pause", self._pause_simulation, icon_name="pause")
+        self.act_sim_stop = self._make_action("Stop", self.stop_simulation, "F7", icon_name="stop")
 
         sim_menu = menubar.addMenu("Simulation")
         sim_menu.addAction(self.act_sim_start)
@@ -122,27 +148,52 @@ class MainWindow(QMainWindow):
         help_menu.addAction(self.act_about)
 
     def _setup_toolbar(self):
-        toolbar = QToolBar("Main Toolbar")
-        toolbar.setMovable(True)
-        self.addToolBar(toolbar)
+        self.toolbar = QToolBar("Main Toolbar")
+        self.toolbar.setMovable(True)
+        self.addToolBar(self.toolbar)
 
-        toolbar.addAction(self.act_new)
-        toolbar.addAction(self.act_open)
-        toolbar.addAction(self.act_save)
-        toolbar.addSeparator()
-        toolbar.addAction(self.act_undo)
-        toolbar.addAction(self.act_redo)
-        toolbar.addSeparator()
-        toolbar.addAction(self.act_compile)
-        toolbar.addSeparator()
-        toolbar.addAction(self.act_sim_start)
-        toolbar.addAction(self.act_sim_pause)
-        toolbar.addAction(self.act_sim_stop)
-        toolbar.addSeparator()
-        toolbar.addAction(self.act_zoom_in)
-        toolbar.addAction(self.act_zoom_out)
-        toolbar.addAction(self.act_grid)
-        toolbar.addAction(self.act_snap)
+        self.toolbar.addAction(self.act_new)
+        self.toolbar.addAction(self.act_open)
+        self.toolbar.addAction(self.act_save)
+        self.toolbar.addSeparator()
+        self.toolbar.addAction(self.act_undo)
+        self.toolbar.addAction(self.act_redo)
+        self.toolbar.addSeparator()
+        self.toolbar.addAction(self.act_compile)
+        self.toolbar.addSeparator()
+        self.toolbar.addAction(self.act_sim_start)
+        self.toolbar.addAction(self.act_sim_pause)
+        self.toolbar.addAction(self.act_sim_stop)
+        self.toolbar.addSeparator()
+        self.toolbar.addAction(self.act_zoom_in)
+        self.toolbar.addAction(self.act_zoom_out)
+        self.toolbar.addAction(self.act_grid)
+        self.toolbar.addAction(self.act_snap)
+
+        self._restore_toolbar_style()
+
+    def _set_toolbar_style(self, mode: str):
+        """icons / icons_text / text — persisted (§5.4)."""
+        style_map = {
+            "icons": Qt.ToolButtonIconOnly,
+            "icons_text": Qt.ToolButtonTextUnderIcon,
+            "text": Qt.ToolButtonTextOnly,
+        }
+        self.toolbar.setToolButtonStyle(style_map.get(mode, Qt.ToolButtonIconOnly))
+        self.settings.setValue("toolbar/style", mode)
+
+        action_map = {
+            "icons": self.act_toolbar_icons,
+            "icons_text": self.act_toolbar_icons_text,
+            "text": self.act_toolbar_text,
+        }
+        action = action_map.get(mode)
+        if action and not action.isChecked():
+            action.setChecked(True)
+
+    def _restore_toolbar_style(self):
+        mode = self.settings.value("toolbar/style", "icons")
+        self._set_toolbar_style(mode)
 
     def _setup_status_bar(self):
         status = QStatusBar()
@@ -186,15 +237,24 @@ class MainWindow(QMainWindow):
 
         # 1. Left Panel (Library & Device Explorer)
         left_tabs = QTabWidget()
-        self.library_panel = LibraryPanel()
+        self.library_panel = LibraryPanel(settings=self.settings)
+        self.element_preview = ElementPreviewPanel(settings=self.settings)
+        self.library_panel.selection_changed.connect(lambda tid: self.element_preview.show_type_id(tid))
+
+        library_splitter = QSplitter(Qt.Vertical)
+        library_splitter.addWidget(self.library_panel)
+        library_splitter.addWidget(self.element_preview)
+        library_splitter.setSizes([600, 200])  # ~3:1 (§6)
+
         self.device_panel = DeviceExplorerPanel()
-        left_tabs.addTab(self.library_panel, "Library")
+        left_tabs.addTab(library_splitter, "Library")
         left_tabs.addTab(self.device_panel, "Device Explorer")
 
         # 2. Center Panel (Canvas and Bottom Output)
         center_splitter = QSplitter(Qt.Vertical)
 
         self.scene = LogicScene()
+        self.scene.block_added.connect(self.library_panel.record_recently_used)
         self.view = LogicView(self.scene)
         self.view.cursor_moved.connect(self._on_cursor_moved)
         self.view.zoom_changed.connect(self._on_zoom_changed)
@@ -684,6 +744,8 @@ class MainWindow(QMainWindow):
         if selected and isinstance(selected[0], BlockItem):
             self.property_panel.load_block_properties(selected[0].logic_block, self.project)
             self.lbl_selected.setText(f"Selected: {selected[0].logic_block.display_name}")
+            self.element_preview.show_block_instance(selected[0].logic_block)
         else:
             self.property_panel._set_empty_state()
             self.lbl_selected.setText("Selected: None")
+            self.element_preview.clear_canvas_selection()

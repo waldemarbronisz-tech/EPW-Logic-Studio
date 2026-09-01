@@ -1,5 +1,7 @@
 import json
 
+from logic_studio.core.grid import GRID_SIZE
+
 # Bump when the on-disk .epwlogic schema changes in a way that requires migration.
 # Every bump needs a matching _migrate_vN_to_v(N+1)(data) function registered in
 # _MIGRATIONS below — see AUDIT_REPORT.md §2 "Wersjonowanie schematów".
@@ -170,6 +172,18 @@ class Project:
                 continue
 
             block = block_class.deserialize(b_data)
+
+            # One-time realignment (feat/block-rendering-library §4.6): a
+            # block saved before ports were grid-aligned may sit at an
+            # off-grid position. Its own ports are always placed at
+            # grid-multiple offsets from ITS origin (block_item.py), so the
+            # only thing that can put a port off-grid in scene coordinates
+            # is an off-grid block origin — round it here, once, on every
+            # load. A no-op for anything already on-grid.
+            block.set_position(
+                round(block.x / GRID_SIZE) * GRID_SIZE,
+                round(block.y / GRID_SIZE) * GRID_SIZE,
+            )
 
             legacy_force = b_data.pop("_legacy_force_state", None)
             if legacy_force:
