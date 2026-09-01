@@ -15,6 +15,9 @@ class IOProvider:
     def write_analog_output(self, address: str, value: float):
         raise NotImplementedError()
 
+    def read_analog_output(self, address: str) -> float:
+        raise NotImplementedError()
+
 class SimulationIOProvider(IOProvider):
     """Memory-backed IO for headless testing and Logic Studio GUI simulation."""
     def __init__(self):
@@ -41,6 +44,9 @@ class SimulationIOProvider(IOProvider):
 
     def write_analog_output(self, address: str, value: float):
         self.output_image["analog"][address] = value
+
+    def read_analog_output(self, address: str) -> float:
+        return self.output_image["analog"].get(address, 0.0)
 
     def set_digital_input(self, address: str, value: bool):
         self.input_image["digital"][address] = value

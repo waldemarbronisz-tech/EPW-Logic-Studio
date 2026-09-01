@@ -89,10 +89,14 @@ class PropertyGridPanel(QWidget):
         self.table.setItem(0, 0, item)
         self.table.setItem(0, 1, QTableWidgetItem(""))
 
-    def load_block_properties(self, block):
-        """Loads properties from a BaseLogicBlock instance."""
+    def load_block_properties(self, block, project=None):
+        """Loads properties from a BaseLogicBlock instance. `project` is only
+        needed for input.ai/output.ao's Address combobox, whose choices come
+        from the project's dynamic analog_points list rather than a fixed
+        DeviceModel channel list (AUDIT_REPORT.md §2.4)."""
         self.table.blockSignals(True) # Prevent triggering itemChanged during load
         self.current_block = block
+        self.current_project = project
         self.table.setRowCount(0)
 
         # Common properties defined in SRS
@@ -142,6 +146,15 @@ class PropertyGridPanel(QWidget):
                     combo.addItems(DeviceModel.get_ela_addresses())
                 else:
                     combo.addItems(DeviceModel.get_ada_addresses())
+                combo.setCurrentText(str(value))
+                combo.currentTextChanged.connect(lambda text, k=key: self._on_combo_changed(k, text))
+                self.table.setCellWidget(row, 1, combo)
+            elif key == "Address" and block.type_id in ["input.ai", "output.ao"] and project is not None:
+                combo = QComboBox()
+                if block.type_id == "input.ai":
+                    combo.addItems(DeviceModel.get_analog_input_addresses(project))
+                else:
+                    combo.addItems(DeviceModel.get_analog_output_addresses(project))
                 combo.setCurrentText(str(value))
                 combo.currentTextChanged.connect(lambda text, k=key: self._on_combo_changed(k, text))
                 self.table.setCellWidget(row, 1, combo)

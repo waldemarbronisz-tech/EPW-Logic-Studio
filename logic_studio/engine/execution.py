@@ -55,8 +55,14 @@ class ExecutionEngine:
         self.cycle_counter = 0
 
         # Output image written by blocks during a scan, pushed to the IOProvider
-        # atomically at the end of that scan (see step()).
-        self._output_buffer = {}
+        # atomically at the end of that scan (see step()). Split by kind since
+        # IOProvider has separate digital/analog write methods.
+        self._output_buffer = {"digital": {}, "analog": {}}
+
+        # Every output address ever queued during this engine's lifetime, so
+        # stop()/FAULT can drive all of them to a safe state even ones that
+        # were not touched during the final scan (see stop()).
+        self._touched_outputs = {"digital": set(), "analog": set()}
 
     def queue_digital_output(self, address: str, value: bool):
         """Called by output blocks during evaluate(). Buffers the write instead of
@@ -64,7 +70,29 @@ class ExecutionEngine:
         the same consistent image and the physical/simulated outputs all change
         together at the end of the scan, not one-by-one as execution_order happens
         to visit them (see ARCHITECTURE.md §2, step 5 "push outputs")."""
-        self._output_buffer[address] = value
+        self._output_buffer["digital"][address] = value
+        self._touched_outputs["digital"].add(address)
+
+    def queue_analog_output(self, address: str, value: float):
+        """Analog counterpart of queue_digital_output() — same atomic-flush
+        buffering, written out via IOProvider.write_analog_output()."""
+        self._output_buffer["analog"][address] = value
+        self._touched_outputs["analog"].add(address)
+
+    def _fail_safe_outputs(self):
+        """Drive every output address ever queued during this engine's
+        lifetime to its safe state (digital False, analog 0.0) and drop
+        anything buffered for a scan that never got to flush. Called from
+        stop() and from the FAULT transition in start() — see 'fail-safe on
+        stop' in ARCHITECTURE.md. Outputs are never left latched on their
+        last value when the process is not actively being scanned."""
+        self._output_buffer = {"digital": {}, "analog": {}}
+        if self.io is None:
+            return
+        for address in self._touched_outputs["digital"]:
+            self.io.write_digital_output(address, False)
+        for address in self._touched_outputs["analog"]:
+            self.io.write_analog_output(address, 0.0)
 
     def load_program(self, program: CompiledProgram):
         """Hot-swap the compiled program."""
@@ -75,6 +103,7 @@ class ExecutionEngine:
     def start(self):
         if not self.program or not self.program.execution_order:
             self.state = ExecutionState.FAULT
+            self._fail_safe_outputs()
             print("Cannot start simulation without a valid compiled execution program.")
             return
 
@@ -96,7 +125,18 @@ class ExecutionEngine:
             self.state = ExecutionState.RUNNING
 
     def stop(self):
+        """Stop the engine.
+
+        Fail-safe on stop: outputs are NOT latched at their last value. Every
+        output address ever queued during this engine's lifetime is driven to
+        its safe state (digital False, analog 0.0) via the IOProvider before
+        block runtime state (timers, latches, counters, edge memories, ...) is
+        reset. The same fail-safe zeroing happens on a transition to FAULT
+        (see start()). pause() deliberately does NOT do this — a pause
+        freezes the scan, it does not shut the process down.
+        """
         self.state = ExecutionState.STOPPED
+        self._fail_safe_outputs()
         if self.program:
             for b in self.program.blocks:
                 b.simulation_state.clear()
@@ -117,7 +157,7 @@ class ExecutionEngine:
             return
 
         start_time = time.monotonic_ns()
-        self._output_buffer = {}
+        self._output_buffer = {"digital": {}, "analog": {}}
 
         block_map = self.program.block_map
         pin_map = self.program.pin_map
@@ -151,8 +191,10 @@ class ExecutionEngine:
 
         # 3. Push outputs: apply the buffered output image to the IOProvider in
         # one pass, after every block has finished evaluating.
-        for address, value in self._output_buffer.items():
+        for address, value in self._output_buffer["digital"].items():
             self.io.write_digital_output(address, value)
+        for address, value in self._output_buffer["analog"].items():
+            self.io.write_analog_output(address, value)
 
         # 4. Diagnostics
         end_time = time.monotonic_ns()

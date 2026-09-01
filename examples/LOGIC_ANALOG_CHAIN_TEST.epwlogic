@@ -1,0 +1,321 @@
+{
+    "format": "EPW_LOGIC",
+    "schema_version": 1,
+    "settings": {
+        "name": "LOGIC_ANALOG_CHAIN_TEST",
+        "version": "1.0",
+        "cycle_time_ms": 100,
+        "analog_points": [
+            {
+                "address": "AI.TEMP_TR1",
+                "name": "TR1",
+                "unit": "\u00b0C",
+                "min": -40.0,
+                "max": 150.0,
+                "direction": "input"
+            }
+        ]
+    },
+    "blocks": [
+        {
+            "uuid": "717240bc-d67c-4eb3-8128-4be02153c5b3",
+            "type_id": "input.ai",
+            "display_name": "AI",
+            "category": "Wej\u015bcia / Wyj\u015bcia",
+            "description": "Analog Input",
+            "position": {
+                "x": 0,
+                "y": 0
+            },
+            "size": {
+                "width": 100,
+                "height": 60
+            },
+            "inputs": [],
+            "outputs": [
+                {
+                    "uuid": "b147d604-2c4c-443b-998c-171bdc741cbf",
+                    "name": "Value",
+                    "direction": "output",
+                    "data_type": "REAL",
+                    "connections": [
+                        "65b386c2-74a7-49c8-a1f9-f587de566e7c"
+                    ]
+                },
+                {
+                    "uuid": "be342fb7-d0d9-4d4b-83d4-4c812e9cacf0",
+                    "name": "Quality",
+                    "direction": "output",
+                    "data_type": "BOOL",
+                    "connections": []
+                }
+            ],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#CC8400",
+            "visibility": true,
+            "enabled": true,
+            "properties": {
+                "Address": "AI.TEMP_TR1",
+                "Comment": "Temperatura TR1"
+            }
+        },
+        {
+            "uuid": "1261d6a9-d214-475b-8bc1-11cec2e99665",
+            "type_id": "analog.deadband",
+            "display_name": "DEADBAND",
+            "category": "Elementy Analogowe",
+            "description": "Report-by-Exception Deadband",
+            "position": {
+                "x": 200,
+                "y": 0
+            },
+            "size": {
+                "width": 100,
+                "height": 80
+            },
+            "inputs": [
+                {
+                    "uuid": "65b386c2-74a7-49c8-a1f9-f587de566e7c",
+                    "name": "In",
+                    "direction": "input",
+                    "data_type": "REAL",
+                    "connections": [
+                        "b147d604-2c4c-443b-998c-171bdc741cbf"
+                    ]
+                }
+            ],
+            "outputs": [
+                {
+                    "uuid": "d605b0fa-a2b1-46e7-aa0d-f9b7d5fc12b4",
+                    "name": "Out",
+                    "direction": "output",
+                    "data_type": "REAL",
+                    "connections": [
+                        "ebb657cb-8b64-43b2-8f37-cf21b34349cc",
+                        "9ea575ac-a4e4-452f-a4a5-96fe0550c82d"
+                    ]
+                },
+                {
+                    "uuid": "28dcdd8d-13ea-4625-ae85-1078cd2370f8",
+                    "name": "Changed",
+                    "direction": "output",
+                    "data_type": "BOOL",
+                    "connections": []
+                }
+            ],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#808000",
+            "visibility": true,
+            "enabled": true,
+            "properties": {
+                "Address": "",
+                "Comment": "",
+                "Mode": "Bezwzgledny",
+                "Deadband": 0.5,
+                "Range": 100.0
+            }
+        },
+        {
+            "uuid": "d4fffa0a-a730-40ad-a776-e2bfed860710",
+            "type_id": "analog.quality",
+            "display_name": "QUALITY",
+            "category": "Elementy Analogowe",
+            "description": "Signal Quality Supervision",
+            "position": {
+                "x": 400,
+                "y": -100
+            },
+            "size": {
+                "width": 100,
+                "height": 100
+            },
+            "inputs": [
+                {
+                    "uuid": "ebb657cb-8b64-43b2-8f37-cf21b34349cc",
+                    "name": "In",
+                    "direction": "input",
+                    "data_type": "REAL",
+                    "connections": [
+                        "d605b0fa-a2b1-46e7-aa0d-f9b7d5fc12b4"
+                    ]
+                }
+            ],
+            "outputs": [
+                {
+                    "uuid": "6d2e332d-a639-4dcc-9f6b-f60833bf3e19",
+                    "name": "Good",
+                    "direction": "output",
+                    "data_type": "BOOL",
+                    "connections": []
+                },
+                {
+                    "uuid": "a0eb3df8-1d6b-44e6-a705-0ce44a25bacf",
+                    "name": "Out Of Range",
+                    "direction": "output",
+                    "data_type": "BOOL",
+                    "connections": []
+                },
+                {
+                    "uuid": "bd787744-b8e1-4022-8634-cb7203e6834b",
+                    "name": "Rate Fault",
+                    "direction": "output",
+                    "data_type": "BOOL",
+                    "connections": []
+                },
+                {
+                    "uuid": "b226a929-89ab-442f-a6f7-674e8d639f38",
+                    "name": "Stuck",
+                    "direction": "output",
+                    "data_type": "BOOL",
+                    "connections": []
+                }
+            ],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#808000",
+            "visibility": true,
+            "enabled": true,
+            "properties": {
+                "Address": "",
+                "Comment": "",
+                "Min": -40.0,
+                "Max": 150.0,
+                "Max Rate": 0.0,
+                "Stuck Scans": 0
+            }
+        },
+        {
+            "uuid": "8c3b48ce-c954-453a-9fce-fd734244db15",
+            "type_id": "const.real",
+            "display_name": "Setpoint",
+            "category": "Inne",
+            "description": "Real Constant",
+            "position": {
+                "x": 400,
+                "y": 150
+            },
+            "size": {
+                "width": 60,
+                "height": 60
+            },
+            "inputs": [],
+            "outputs": [
+                {
+                    "uuid": "72c5ff58-18a2-4f73-abca-f50b56cd5ae4",
+                    "name": "Out",
+                    "direction": "output",
+                    "data_type": "REAL",
+                    "connections": [
+                        "87c0bf9b-be86-439e-8b69-48952dfb35e6"
+                    ]
+                }
+            ],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#555555",
+            "visibility": true,
+            "enabled": true,
+            "properties": {
+                "Address": "",
+                "Comment": "",
+                "Value": 80.0
+            }
+        },
+        {
+            "uuid": "41531b52-6f41-4a7f-b945-ed3b4b75bb69",
+            "type_id": "compare.gt",
+            "display_name": ">",
+            "category": "Elementy Analogowe",
+            "description": "Greater Than",
+            "position": {
+                "x": 600,
+                "y": 0
+            },
+            "size": {
+                "width": 80,
+                "height": 80
+            },
+            "inputs": [
+                {
+                    "uuid": "9ea575ac-a4e4-452f-a4a5-96fe0550c82d",
+                    "name": "In1",
+                    "direction": "input",
+                    "data_type": "REAL",
+                    "connections": [
+                        "d605b0fa-a2b1-46e7-aa0d-f9b7d5fc12b4"
+                    ]
+                },
+                {
+                    "uuid": "87c0bf9b-be86-439e-8b69-48952dfb35e6",
+                    "name": "In2",
+                    "direction": "input",
+                    "data_type": "REAL",
+                    "connections": [
+                        "72c5ff58-18a2-4f73-abca-f50b56cd5ae4"
+                    ]
+                }
+            ],
+            "outputs": [
+                {
+                    "uuid": "714d601d-70fe-4b5d-b878-b3f792dacd11",
+                    "name": "Out",
+                    "direction": "output",
+                    "data_type": "BOOL",
+                    "connections": [
+                        "6371061a-23f8-46ea-80f0-16897735b0da"
+                    ]
+                }
+            ],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#000080",
+            "visibility": true,
+            "enabled": true,
+            "properties": {
+                "Address": "",
+                "Comment": "",
+                "Hysteresis": 2.0,
+                "T On (ms)": 500,
+                "T Off (ms)": 0
+            }
+        },
+        {
+            "uuid": "913ddd92-6613-427a-9e5e-c0624db7d31c",
+            "type_id": "output.do",
+            "display_name": "DO",
+            "category": "Wej\u015bcia / Wyj\u015bcia",
+            "description": "Automation Digital Output (ADA)",
+            "position": {
+                "x": 800,
+                "y": 0
+            },
+            "size": {
+                "width": 100,
+                "height": 60
+            },
+            "inputs": [
+                {
+                    "uuid": "6371061a-23f8-46ea-80f0-16897735b0da",
+                    "name": "Cmd",
+                    "direction": "input",
+                    "data_type": "BOOL",
+                    "connections": [
+                        "714d601d-70fe-4b5d-b878-b3f792dacd11"
+                    ]
+                }
+            ],
+            "outputs": [],
+            "execution_state": "Idle",
+            "execution_priority": 1,
+            "color": "#800000",
+            "visibility": true,
+            "enabled": true,
+            "properties": {
+                "Address": "ADA01.DO01",
+                "Comment": "Alarm wysokiej temperatury TR1"
+            }
+        }
+    ]
+}

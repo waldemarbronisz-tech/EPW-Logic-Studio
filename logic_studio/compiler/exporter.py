@@ -4,6 +4,19 @@ from datetime import datetime, timezone
 
 from logic_studio import __version__
 
+# The closed set of fields that make up the EPW_RUNTIME_LOGIC schema and are
+# covered by the checksum. Compiler.compile() attaches a non-serializable
+# "program" (CompiledProgram) key on top of Exporter.export()'s return value
+# for the ExecutionEngine's own use — that key (and anything else outside this
+# set) is deliberately ignored by both checksumming and verification, so
+# handing verify_checksum() a compile() result instead of an export() result
+# degrades to "checksum still valid" rather than a TypeError.
+CHECKSUM_FIELDS = (
+    "format", "schema_version", "source_version", "cycle_time_ms",
+    "execution_order", "blocks", "generated_at", "generated_by",
+    "project_name", "block_count", "contains_forced_io",
+)
+
 
 class Exporter:
     def __init__(self, project, execution_order):
@@ -64,18 +77,27 @@ class Exporter:
 
     @staticmethod
     def _compute_checksum(payload: dict) -> str:
-        canonical = json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+        subset = {k: payload[k] for k in CHECKSUM_FIELDS if k in payload}
+        canonical = json.dumps(subset, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
         return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
 
 
 def verify_checksum(data: dict) -> bool:
-    """Recomputes the SHA-256 checksum of an EPW_RUNTIME_LOGIC payload and compares
-    it against the "checksum" field. Returns False if the field is missing, or if
-    anything in the payload was altered after export."""
+    """Recomputes the SHA-256 checksum over CHECKSUM_FIELDS only and compares
+    it against the "checksum" field. Returns False (never raises) if the
+    checksum is missing, if any covered field was altered after export, or if
+    the payload can't be serialized at all — a dict that also carries
+    unrelated, non-serializable keys (e.g. a compile() result's "program")
+    is handled the same as a clean export() result, since those keys are
+    outside CHECKSUM_FIELDS and are simply ignored."""
     if "checksum" not in data:
         return False
 
-    payload = {k: v for k, v in data.items() if k != "checksum"}
-    canonical = json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+    try:
+        subset = {k: data[k] for k in CHECKSUM_FIELDS if k in data}
+        canonical = json.dumps(subset, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
+    except TypeError:
+        return False
+
     expected = hashlib.sha256(canonical.encode('utf-8')).hexdigest()
     return expected == data["checksum"]

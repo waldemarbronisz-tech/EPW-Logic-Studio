@@ -23,3 +23,27 @@ class DeviceModel:
         for dev in cls.ADA_DEVICES:
             addrs.extend([f"{dev}.DO{i:02d}" for i in range(1, cls.ADA_CHANNELS + 1)])
         return addrs
+
+    # ---- Analog points -------------------------------------------------------
+    # Unlike DI/DO, analog points have no fixed hardware channel count — they
+    # are entirely defined by the project (project.settings["analog_points"]),
+    # so these operate on a `project`, not on class-level constants.
+
+    @classmethod
+    def get_analog_points(cls, project) -> list:
+        return list(project.settings.get("analog_points", []))
+
+    @classmethod
+    def get_analog_input_addresses(cls, project) -> list:
+        return [p["address"] for p in cls.get_analog_points(project) if p.get("direction") == "input"]
+
+    @classmethod
+    def get_analog_output_addresses(cls, project) -> list:
+        return [p["address"] for p in cls.get_analog_points(project) if p.get("direction") == "output"]
+
+    @classmethod
+    def get_analog_point(cls, project, address):
+        for p in cls.get_analog_points(project):
+            if p.get("address") == address:
+                return p
+        return None

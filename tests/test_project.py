@@ -58,6 +58,37 @@ def test_simulation_state_is_not_persisted():
     for block_data in data["blocks"]:
         assert "simulation_state" not in block_data
 
+def test_analog_points_roundtrip():
+    p = Project()
+    p.settings["analog_points"] = [
+        {"address": "AI.TEMP", "name": "Temp", "unit": "°C", "min": -40.0, "max": 150.0, "direction": "input"},
+    ]
+    b = NotGate()
+    p.add_block(b)
+
+    data = p.serialize()
+    p2 = Project.deserialize(data)
+    assert p2.settings["analog_points"] == [
+        {"address": "AI.TEMP", "name": "Temp", "unit": "°C", "min": -40.0, "max": 150.0, "direction": "input"},
+    ]
+
+def test_analog_points_default_empty_for_new_project():
+    p = Project()
+    assert p.settings["analog_points"] == []
+
+def test_analog_points_backward_compat_missing_key():
+    """AUDIT_REPORT.md §1.1: a project file saved before analog points
+    existed has a settings dict with no "analog_points" key at all."""
+    data = {
+        "format": "EPW_LOGIC",
+        "schema_version": 1,
+        "settings": {"name": "Old Project", "version": "1.0", "cycle_time_ms": 100},
+        "blocks": [],
+    }
+    p = Project.deserialize(data)
+    assert p.settings["analog_points"] == []
+    assert p.settings["name"] == "Old Project"  # rest of settings untouched
+
 def test_format_validation():
     data = {
         "format": "WRONG_FORMAT",
