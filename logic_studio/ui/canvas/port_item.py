@@ -38,7 +38,8 @@ class PortItem(QGraphicsItem):
 
         # Draw label if needed (disabled for gates to match reference)
         parent_block = self.parentItem()
-        if parent_block and getattr(parent_block, 'shape_style', '') in ["AND", "OR", "NOT", "XOR", "NAND", "NOR", "XNOR"]:
+        from logic_studio.ui.canvas.block_item import GATE_SHAPES
+        if parent_block and getattr(parent_block, 'shape_style', '') in GATE_SHAPES:
              return # Standard gates don't have pin labels in reference
 
         painter.setPen(QPen(Qt.black))

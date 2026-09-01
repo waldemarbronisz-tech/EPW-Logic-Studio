@@ -1,7 +1,12 @@
 from PySide6.QtWidgets import QGraphicsItem, QStyleOptionGraphicsItem
-from PySide6.QtGui import QPainter, QPen, QBrush, QColor, QFont, QCursor, QPainterPath
+from PySide6.QtGui import QPainter, QPen, QBrush, QColor, QFont, QCursor, QPainterPath, QFontMetricsF
 from PySide6.QtWidgets import QMenu
 from PySide6.QtCore import Qt, QRectF, QPointF
+
+from logic_studio.ui.canvas import style, shapes
+
+GATE_SHAPES = ("AND", "OR", "NOT", "XOR", "NAND", "NOR", "XNOR", "BUFFER", "GATE_GENERIC")
+
 
 class BlockItem(QGraphicsItem):
     def __init__(self, logic_block, parent=None):
@@ -13,14 +18,14 @@ class BlockItem(QGraphicsItem):
         self.setFlag(QGraphicsItem.ItemSendsGeometryChanges, True)
 
         # Industrial look colors
-        self.bg_color = QColor(255, 255, 255) # Clean white for most blocks
+        self.bg_color = style.COLOR_BACKGROUND
         self.header_color = QColor(100, 100, 100)
         if logic_block.color.startswith("#"):
             self.header_color = QColor(logic_block.color)
 
-        self.border_color = QColor(0, 0, 0)
-        self.selected_color = QColor(0, 120, 215) # Standard selection blue
-        self.live_color = QColor(0, 170, 0) # Green for logic 1
+        self.border_color = style.COLOR_OUTLINE
+        self.selected_color = style.COLOR_SELECTION
+        self.live_color = style.COLOR_LOGIC_HIGH
 
         self.width = logic_block.width
         self.height = logic_block.height
@@ -35,7 +40,9 @@ class BlockItem(QGraphicsItem):
     def _determine_shape_style(self):
         """Determines the visual rendering style based on category and type_id."""
         if self.category == "Bramki logiczne":
-            if self.type_id.startswith("logic.and"):
+            if self.type_id.startswith("logic.buffer"):
+                self.shape_style = "BUFFER"
+            elif self.type_id.startswith("logic.and"):
                 self.shape_style = "AND"
             elif self.type_id.startswith("logic.or"):
                 self.shape_style = "OR"
@@ -54,8 +61,9 @@ class BlockItem(QGraphicsItem):
 
             # Gate sizes are relatively fixed but ports scale
             self.width = 40
-            self.gate_body_height = 40
-            # Height depends on input count
+            # The body always spans the block's full height now (§2.3) — no
+            # separate, possibly-shorter "gate_body_height" to keep in sync
+            # with where multi-input ports are actually placed.
             inputs_count = len(self.logic_block.inputs)
             self.height = max(40, inputs_count * 20)
 
@@ -72,7 +80,7 @@ class BlockItem(QGraphicsItem):
     def _create_ports(self):
         from logic_studio.ui.canvas.port_item import PortItem
 
-        if self.shape_style in ["AND", "OR", "NOT", "XOR", "NAND", "NOR", "XNOR", "GATE_GENERIC"]:
+        if self.shape_style in GATE_SHAPES:
             # Inputs distributed evenly on a vertical line (bus bar)
             inputs_count = len(self.logic_block.inputs)
             if inputs_count > 0:
@@ -81,10 +89,13 @@ class BlockItem(QGraphicsItem):
                     port = PortItem(pin, parent=self)
                     port.setPos(0, (i + 1) * spacing)
 
-            # Single output in the middle right
+            # Output port sits past the negation bubble for NOT/NAND/NOR/XNOR
+            # (§1) — never on top of it, so the bubble stays visible instead
+            # of being fully occluded by the port square drawn on top of it.
+            output_x = self.width + shapes.gate_output_offset(self.shape_style)
             for pin in self.logic_block.outputs:
                 port = PortItem(pin, parent=self)
-                port.setPos(self.width, self.height / 2)
+                port.setPos(output_x, self.height / 2)
 
         elif self.shape_style == "IO":
             if "input" in self.type_id:
@@ -113,18 +124,45 @@ class BlockItem(QGraphicsItem):
                 y_offset += 20
 
     def boundingRect(self):
-        margin = 15
-        return QRectF(-margin, -margin, self.width + margin*2, self.height + margin*2)
+        margin = style.BOUNDING_RECT_MARGIN
+        block = self.logic_block
+
+        extra_right = 0.0
+        if self.shape_style in shapes.NEGATED_GATES:
+            extra_right = shapes.gate_output_offset(self.shape_style) + style.PORT_CLICK_MARGIN
+
+        top_margin = margin
+        if block.properties.get("Tag") or block.properties.get("Comment"):
+            # Room for the Tag line plus up to two Comment lines above the body.
+            top_margin = margin + 40
+
+        bottom_margin = margin
+        if self.shape_style in GATE_SHAPES:
+            # Room for the type-name label drawn below a gate's body (§3.2).
+            bottom_margin = margin + 14
+
+        right_margin = margin + extra_right
+        if block.properties.get("Comment"):
+            # Comment wraps up to 3x the block width (§3.2).
+            right_margin = max(right_margin, self.width * 2 + margin)
+
+        return QRectF(
+            -margin, -top_margin,
+            self.width + margin + right_margin,
+            self.height + top_margin + bottom_margin
+        )
 
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget=None):
         painter.setRenderHint(QPainter.Antialiasing)
 
-        if self.shape_style in ["AND", "OR", "NOT", "XOR", "NAND", "NOR", "XNOR"]:
+        if self.shape_style in GATE_SHAPES:
             self._paint_logic_gate(painter)
         elif self.shape_style == "IO":
             self._paint_io_tag(painter)
         else:
             self._paint_complex_block(painter)
+
+        self._paint_tag_and_comment(painter)
 
         # Draw Unconnected Warning (???)
         self._paint_unconnected_warning(painter)
@@ -135,84 +173,27 @@ class BlockItem(QGraphicsItem):
             pen = QPen(self.selected_color, 1, Qt.DashLine)
             painter.setPen(pen)
             painter.setBrush(Qt.NoBrush)
-            painter.drawRect(rect.adjusted(-4, -4, 4, 4))
+            m = style.BLOCK_SELECTION_MARGIN
+            painter.drawRect(rect.adjusted(-m, -m, m, m))
 
     def _paint_logic_gate(self, painter):
-        painter.setPen(QPen(Qt.black, 1))
-        painter.setBrush(Qt.NoBrush)
+        body_rect = QRectF(0, 0, self.width, self.height)
+        shapes.draw_gate_shape(painter, body_rect, self.shape_style, len(self.logic_block.inputs))
 
-        path = QPainterPath()
-
-        # Center the gate body vertically if the block is tall (many inputs)
-        body_y = (self.height - self.gate_body_height) / 2
-
-        # Draw vertical input bus bar if needed
-        if self.height > self.gate_body_height:
-             painter.drawLine(0, 0, 0, self.height)
-
-        if self.shape_style in ["AND", "NAND"]:
-            # D-shape
-            path.moveTo(0, body_y)
-            path.lineTo(self.width / 2, body_y)
-            path.arcTo(0, body_y, self.width, self.gate_body_height, 90, -180)
-            path.lineTo(0, body_y + self.gate_body_height)
-            path.closeSubpath()
-        elif self.shape_style in ["OR", "NOR", "XOR", "XNOR"]:
-            # Shield-shape
-            path.moveTo(0, body_y)
-            path.quadTo(self.width * 0.75, body_y, self.width, body_y + self.gate_body_height / 2)
-            path.quadTo(self.width * 0.75, body_y + self.gate_body_height, 0, body_y + self.gate_body_height)
-            path.quadTo(self.width * 0.25, body_y + self.gate_body_height / 2, 0, body_y)
-
-            if self.shape_style in ["XOR", "XNOR"]:
-                # Draw extra arc
-                extra_path = QPainterPath()
-                extra_path.moveTo(-4, body_y)
-                extra_path.quadTo(self.width * 0.25 - 4, body_y + self.gate_body_height / 2, -4, body_y + self.gate_body_height)
-                painter.drawPath(extra_path)
-
-        elif self.shape_style == "NOT":
-            # Triangle
-            path.moveTo(0, body_y)
-            path.lineTo(self.width - 6, body_y + self.gate_body_height / 2)
-            path.lineTo(0, body_y + self.gate_body_height)
-            path.closeSubpath()
-
-        painter.drawPath(path)
-
-        # Draw inversion circles
-        if self.shape_style in ["NOT", "NAND", "NOR", "XNOR"]:
-            painter.setBrush(Qt.white)
-            painter.drawEllipse(QPointF(self.width, self.height / 2), 3, 3)
+        # Type-name label below the gate body, centered (§3.2).
+        painter.setPen(QPen(style.COLOR_TYPE_LABEL_TEXT))
+        font = QFont(style.FONT_FAMILY, style.FONT_SIZE_PIN_LABEL)
+        painter.setFont(font)
+        label_rect = QRectF(-10, self.height + 1, self.width + 20, 13)
+        painter.drawText(label_rect, Qt.AlignHCenter | Qt.AlignTop, self.logic_block.display_name)
 
     def _paint_io_tag(self, painter):
-        painter.setPen(QPen(Qt.black, 1))
-        painter.setBrush(Qt.white)
-
-        path = QPainterPath()
-
-        if "input" in self.type_id:
-            # Chevron pointing right
-            path.moveTo(0, 0)
-            path.lineTo(self.width - 10, 0)
-            path.lineTo(self.width, self.height / 2)
-            path.lineTo(self.width - 10, self.height)
-            path.lineTo(0, self.height)
-            path.closeSubpath()
-        else:
-            # Chevron with indentation on left
-            path.moveTo(0, 0)
-            path.lineTo(self.width, 0)
-            path.lineTo(self.width, self.height)
-            path.lineTo(0, self.height)
-            path.lineTo(10, self.height / 2)
-            path.closeSubpath()
-
-        painter.drawPath(path)
+        direction = "input" if "input" in self.type_id else "output"
+        shapes.draw_io_shape(painter, QRectF(0, 0, self.width, self.height), direction)
 
         # Draw text
-        painter.setPen(QPen(QColor(0, 100, 0))) # Dark green text
-        font = QFont("Arial", 7)
+        painter.setPen(QPen(style.COLOR_TYPE_LABEL_TEXT))
+        font = QFont(style.FONT_FAMILY, style.FONT_SIZE_PIN_LABEL)
         painter.setFont(font)
 
         display_text = self.logic_block.display_name
@@ -230,10 +211,9 @@ class BlockItem(QGraphicsItem):
                     display_text += f"\n{float(sim_value):.2f}"
                 except (TypeError, ValueError):
                     pass
-        else:
-            tag = self.logic_block.properties.get("Tag", "")
-            if tag:
-                 display_text += f"\n{tag}"
+        # Tag is no longer shown here as an ad-hoc second line — every block
+        # type (IO included) gets it drawn uniformly above the block by
+        # _paint_tag_and_comment(), so it isn't duplicated on this one.
 
         rect = QRectF(10, 2, self.width - 20, self.height - 4)
         painter.drawText(rect, Qt.AlignLeft | Qt.AlignVCenter | Qt.TextWordWrap, display_text)
@@ -242,7 +222,7 @@ class BlockItem(QGraphicsItem):
         # not trustworthy (AUDIT_REPORT.md §2.5/§2.1).
         if self.type_id == "input.ai" and self.logic_block.simulation_state.get("quality") is False:
             painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor(220, 0, 0))
+            painter.setBrush(style.COLOR_ERROR)
             painter.drawEllipse(QPointF(self.width - 6, 6), 4, 4)
 
     def _lookup_analog_unit(self, address: str) -> str:
@@ -266,18 +246,14 @@ class BlockItem(QGraphicsItem):
 
     def _paint_complex_block(self, painter):
         rect = QRectF(0, 0, self.width, self.height)
-
-        # Simple crisp rectangle
-        painter.setPen(QPen(Qt.black, 1))
-        painter.setBrush(Qt.white)
-        painter.drawRect(rect)
+        shapes.draw_complex_shape(painter, rect)
 
         # Inner text
-        painter.setPen(Qt.black)
-        font = QFont("Arial", 7)
+        painter.setPen(style.COLOR_OUTLINE)
+        font = QFont(style.FONT_FAMILY, style.FONT_SIZE_PIN_LABEL)
         painter.setFont(font)
 
-        # Title
+        # Type name, centered inside the body (§3.2).
         painter.drawText(rect.adjusted(2, 2, -2, -2), Qt.AlignTop | Qt.AlignHCenter, self.logic_block.display_name)
 
         # Parameters (e.g. T=1.00[s])
@@ -305,7 +281,7 @@ class BlockItem(QGraphicsItem):
 
         # Draw Parameters
         if param_text:
-            painter.setPen(QPen(QColor(0, 100, 0)))
+            painter.setPen(QPen(style.COLOR_TYPE_LABEL_TEXT))
             painter.drawText(rect.adjusted(2, 15, -2, -2), Qt.AlignTop | Qt.AlignLeft, param_text)
 
         # Draw Live Values
@@ -313,14 +289,81 @@ class BlockItem(QGraphicsItem):
             painter.setPen(QPen(Qt.red))
             painter.drawText(rect.adjusted(2, 28, -2, -2), Qt.AlignTop | Qt.AlignLeft, sim_text)
 
+    def _paint_tag_and_comment(self, painter):
+        """Tag (bold, above the block) and Comment (italic, below the Tag,
+        wrapped to at most 2 lines) — every block type, drawn from one place
+        so no shape-specific paint method duplicates it (§3.2)."""
+        block = self.logic_block
+        tag = block.properties.get("Tag", "")
+        comment = block.properties.get("Comment", "")
+        if not tag and not comment:
+            return
+
+        y_cursor = -2.0  # just above the block's top edge (y=0)
+
+        if comment:
+            comment_font = QFont(style.FONT_FAMILY, style.FONT_SIZE_COMMENT)
+            comment_font.setItalic(True)
+            max_width = self.width * 3
+            lines = self._wrap_lines(comment, comment_font, max_width, max_lines=2)
+
+            painter.setFont(comment_font)
+            painter.setPen(QPen(style.COLOR_COMMENT_TEXT))
+            line_height = QFontMetricsF(comment_font).height()
+            for line in reversed(lines):
+                y_cursor -= line_height
+                painter.drawText(QRectF(0, y_cursor, max_width, line_height), Qt.AlignLeft | Qt.AlignTop, line)
+            y_cursor -= 2
+
+        if tag:
+            tag_font = QFont(style.FONT_FAMILY, style.FONT_SIZE_TAG, QFont.Bold)
+            painter.setFont(tag_font)
+            painter.setPen(QPen(style.COLOR_TAG_TEXT))
+            line_height = QFontMetricsF(tag_font).height()
+            y_cursor -= line_height
+            painter.drawText(QRectF(0, y_cursor, max(self.width, 60), line_height), Qt.AlignLeft | Qt.AlignTop, tag)
+
+    @staticmethod
+    def _wrap_lines(text, font, max_width, max_lines):
+        """Greedy word-wrap into at most `max_lines` lines that fit
+        `max_width`; if text is left over, the last line is elided with an
+        ellipsis instead of silently dropping it."""
+        fm = QFontMetricsF(font)
+        words = text.split()
+        lines = []
+        current = ""
+        i = 0
+        while i < len(words):
+            word = words[i]
+            trial = (current + " " + word).strip()
+            if not current or fm.horizontalAdvance(trial) <= max_width:
+                current = trial
+                i += 1
+            else:
+                lines.append(current)
+                current = ""
+                if len(lines) == max_lines:
+                    break
+        if current and len(lines) < max_lines:
+            lines.append(current)
+            i = len(words)
+
+        if i < len(words) and lines:
+            leftover = " ".join(words[i:])
+            lines[-1] = fm.elidedText(f"{lines[-1]} {leftover}", Qt.ElideRight, int(max_width))
+
+        return lines
+
     def _paint_unconnected_warning(self, painter):
         # Draw red '???' near unassigned tags or completely unconnected critical blocks
         # Simplified logic: If it's an IO tag and has no Tag property, show ???
+        # (unchanged pre-existing check — see AUDIT_REPORT.md for the Tag/Address
+        # naming overlap this predates; not in scope for this PR).
         if self.shape_style == "IO":
             tag = self.logic_block.properties.get("Tag", "")
             if not tag:
                 painter.setPen(QPen(Qt.red))
-                font = QFont("Arial", 8, QFont.Bold)
+                font = QFont(style.FONT_FAMILY, 8, QFont.Bold)
                 painter.setFont(font)
                 painter.drawText(QRectF(0, self.height, self.width, 15), Qt.AlignHCenter | Qt.AlignTop, "???")
 

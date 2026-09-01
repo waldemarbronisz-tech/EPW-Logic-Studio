@@ -38,9 +38,21 @@ class BaseLogicBlock:
         # scan, so their output is available to every downstream block in that scan.
         self.is_source: bool = False
 
-        # Extensible properties mapped by string key
+        # Search metadata only — never serialized, never edited by the user.
+        # Polish synonyms so the library search (ui/panels/library.py) finds a
+        # block by what an engineer actually types, not just its type_id/name.
+        self.aliases: list = []
+
+        # Extensible properties mapped by string key. Every block gets "Tag"
+        # (its schematic designation, e.g. "C1", "Q_I>1") and "Comment" (a
+        # short description of what it does) — the first two fields an
+        # engineer fills in after placing a block (see feat/block-rendering-
+        # library §3.1). Some IO blocks (Virtual IN/OUT, system signals) also
+        # use "Tag" for their own HMI/network identifier — that predates this
+        # field and is left as-is; for every other block "Tag" starts empty.
         self.properties: dict = {
             "Address": "",
+            "Tag": "",
             "Comment": ""
         }
 

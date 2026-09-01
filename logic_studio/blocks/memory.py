@@ -21,6 +21,7 @@ class MemoryBase(BaseLogicBlock):
 class SR(MemoryBase):
     def __init__(self, type_id="memory.sr", default_name="SR", category="Przerzutniki", description="Set Dominant Latch"):
         super().__init__(type_id, default_name, category, description)
+        self.aliases = ["przerzutnik", "zatrzask", "pamięć"]
         self.inputs.append(Pin("S1", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
         self.inputs.append(Pin("R", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
 
@@ -39,6 +40,7 @@ class SR(MemoryBase):
 class RS(MemoryBase):
     def __init__(self, type_id="memory.rs", default_name="RS", category="Przerzutniki", description="Reset Dominant Latch"):
         super().__init__(type_id, default_name, category, description)
+        self.aliases = ["przerzutnik", "zatrzask", "pamięć"]
         self.inputs.append(Pin("R1", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
         self.inputs.append(Pin("S", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
 

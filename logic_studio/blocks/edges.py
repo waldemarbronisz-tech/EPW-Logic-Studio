@@ -22,6 +22,7 @@ class EdgeBase(BaseLogicBlock):
 class RTrigBlock(EdgeBase):
     def __init__(self, type_id="edge.rtrig", default_name="R_TRIG", category="Detekcja zboczy", description="Rising Edge Trigger"):
         super().__init__(type_id, default_name, category, description)
+        self.aliases = ["zbocze narastające"]
 
     def evaluate(self, engine=None):
         current = bool(self.inputs[0].value)
@@ -32,6 +33,7 @@ class RTrigBlock(EdgeBase):
 class FTrigBlock(EdgeBase):
     def __init__(self, type_id="edge.ftrig", default_name="F_TRIG", category="Detekcja zboczy", description="Falling Edge Trigger"):
         super().__init__(type_id, default_name, category, description)
+        self.aliases = ["zbocze opadające"]
         self._last_in = True # Assume stable high if evaluating
 
     def reset_runtime_state(self):
