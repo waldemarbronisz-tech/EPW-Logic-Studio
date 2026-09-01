@@ -62,7 +62,9 @@ class BlockItem(QGraphicsItem):
         elif self.category == "Wejścia / Wyjścia":
             self.shape_style = "IO"
             self.width = 80
-            self.height = 30
+            # Analog IO shows address+unit and a live value on top of the name,
+            # so it needs a bit more room than the single-line DI/DO/VI/VO tags.
+            self.height = 45 if self.type_id in ("input.ai", "output.ao") else 30
         else:
             self.shape_style = "COMPLEX"
             # Complex blocks use the win98 style or clean rectangle with properties inside
@@ -214,12 +216,53 @@ class BlockItem(QGraphicsItem):
         painter.setFont(font)
 
         display_text = self.logic_block.display_name
-        tag = self.logic_block.properties.get("Tag", "")
-        if tag:
-             display_text += f"\n{tag}"
+
+        if self.type_id in ("input.ai", "output.ao"):
+            addr = self.logic_block.properties.get("Address", "")
+            unit = self._lookup_analog_unit(addr)
+            label = f"{addr} [{unit}]" if (addr and unit) else addr
+            if label:
+                display_text += f"\n{label}"
+
+            sim_value = self.logic_block.simulation_state.get("sim_value")
+            if sim_value is not None:
+                try:
+                    display_text += f"\n{float(sim_value):.2f}"
+                except (TypeError, ValueError):
+                    pass
+        else:
+            tag = self.logic_block.properties.get("Tag", "")
+            if tag:
+                 display_text += f"\n{tag}"
 
         rect = QRectF(10, 2, self.width - 20, self.height - 4)
         painter.drawText(rect, Qt.AlignLeft | Qt.AlignVCenter | Qt.TextWordWrap, display_text)
+
+        # Quality indicator: a red dot when the AI block's last reading was
+        # not trustworthy (AUDIT_REPORT.md §2.5/§2.1).
+        if self.type_id == "input.ai" and self.logic_block.simulation_state.get("quality") is False:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(220, 0, 0))
+            painter.drawEllipse(QPointF(self.width - 6, 6), 4, 4)
+
+    def _lookup_analog_unit(self, address: str) -> str:
+        """Best-effort lookup of an analog point's unit for on-canvas display.
+        This is a UI-only concern — BlockItem may reach into the live Project
+        via its scene's view, unlike the runtime engine which never holds a
+        Project reference. Returns "" if unavailable for any reason (no
+        scene/view yet, no project, unknown address)."""
+        if not address:
+            return ""
+        try:
+            window = self.scene().views()[0].window()
+            project = getattr(window, 'project', None)
+            if project is None:
+                return ""
+            from logic_studio.core.device_model import DeviceModel
+            point = DeviceModel.get_analog_point(project, address)
+            return point.get("unit", "") if point else ""
+        except Exception:
+            return ""
 
     def _paint_complex_block(self, painter):
         rect = QRectF(0, 0, self.width, self.height)

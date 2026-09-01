@@ -210,6 +210,7 @@ class MainWindow(QMainWindow):
         right_splitter = QSplitter(Qt.Vertical)
         self.property_panel = PropertyGridPanel()
         self.simulation_panel = SimulationPanel()
+        self.simulation_panel.step_requested.connect(self._on_step_requested)
         right_splitter.addWidget(self.property_panel)
         right_splitter.addWidget(self.simulation_panel)
 
@@ -239,6 +240,8 @@ class MainWindow(QMainWindow):
         self.is_dirty = False
 
         self.update_title()
+        self._refresh_project_dependent_panels()
+        self._update_step_buttons()
 
         # Connect Selection
         self.scene.selectionChanged.connect(self._on_selection_changed)
@@ -272,6 +275,24 @@ class MainWindow(QMainWindow):
             self.is_dirty = True
             self.update_title()
 
+    def _refresh_project_dependent_panels(self):
+        """Rebuild every panel whose content is derived from the current
+        project's analog_points (AUDIT_REPORT.md §6/§7) — call whenever the
+        project is swapped, or its analog point list changes."""
+        self.device_panel.set_project(self.project)
+        self.simulation_panel.set_project(self.project)
+
+    def _update_step_buttons(self):
+        """Manual step (§6.3) is only meaningful when the engine is not
+        actively free-running: PAUSED, or STOPPED with a program loaded."""
+        from logic_studio.engine.execution import ExecutionState
+        can_step = (
+            self.engine.state in (ExecutionState.PAUSED, ExecutionState.STOPPED)
+            and self.engine.program is not None
+            and bool(self.engine.program.execution_order)
+        )
+        self.simulation_panel.set_step_buttons_enabled(can_step)
+
     # ---- View: zoom / cursor / grid / snap ----------------------------------
 
     def _on_cursor_moved(self, x, y):
@@ -304,34 +325,14 @@ class MainWindow(QMainWindow):
     # ---- Project Settings / About --------------------------------------------
 
     def _open_project_settings(self):
-        from PySide6.QtWidgets import QDialog, QFormLayout, QLineEdit, QSpinBox, QDialogButtonBox
+        from PySide6.QtWidgets import QDialog
+        from logic_studio.ui.dialogs import ProjectSettingsDialog
 
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Project Settings")
-        form = QFormLayout(dialog)
-
-        name_edit = QLineEdit(str(self.project.settings.get("name", "New Project")))
-        version_edit = QLineEdit(str(self.project.settings.get("version", "1.0")))
-        cycle_spin = QSpinBox()
-        cycle_spin.setRange(1, 60000)
-        cycle_spin.setSuffix(" ms")
-        cycle_spin.setValue(int(self.project.settings.get("cycle_time_ms", 100)))
-
-        form.addRow("Name", name_edit)
-        form.addRow("Version", version_edit)
-        form.addRow("Cycle Time", cycle_spin)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        form.addRow(buttons)
-
+        dialog = ProjectSettingsDialog(self.project, self)
         if dialog.exec() == QDialog.Accepted:
-            self.project.push_state()
-            self.project.settings["name"] = name_edit.text()
-            self.project.settings["version"] = version_edit.text()
-            self.project.settings["cycle_time_ms"] = cycle_spin.value()
+            dialog.apply_to_project()
             self.set_dirty()
+            self._refresh_project_dependent_panels()
 
     def _show_about(self):
         from PySide6.QtWidgets import QMessageBox
@@ -410,6 +411,8 @@ class MainWindow(QMainWindow):
                     f"execution_order={len(res['program'].execution_order)}."
                 )
 
+        self._update_step_buttons()
+
     def start_simulation(self):
         # Force a fresh compile before every run to ensure safety
         self.compile_project()
@@ -425,6 +428,7 @@ class MainWindow(QMainWindow):
         if self.engine.state == ExecutionState.FAULT:
             self.output_panel.log_runtime("Engine transitioned to FAULT on start.")
             self.lbl_ready.setText("Symulacja: błąd silnika")
+            self._update_step_buttons()
             return
 
         cycle_time_ms = self.project.settings.get("cycle_time_ms", 100)
@@ -433,11 +437,13 @@ class MainWindow(QMainWindow):
         self.lbl_sim.setText("Simulation: Running")
         self.lbl_ready.setText("Symulacja uruchomiona")
         self.output_panel.log_runtime("Simulation started.")
+        self._update_step_buttons()
 
     def _pause_simulation(self):
         self.engine.pause()
         self.lbl_sim.setText("Simulation: Paused")
         self.output_panel.log_runtime("Simulation paused.")
+        self._update_step_buttons()
 
     def stop_simulation(self):
         self.engine.stop()
@@ -450,6 +456,7 @@ class MainWindow(QMainWindow):
             for p in block.inputs + block.outputs:
                 p.value = None
         self.scene.refresh_live_states()
+        self._update_step_buttons()
 
     def check_dirty_prompt(self):
         """Returns False if user cancels, True to proceed."""
@@ -493,6 +500,7 @@ class MainWindow(QMainWindow):
         self.project.undo_stack = undo_s
         self.project.redo_stack = redo_s
         self.engine.project = self.project
+        self._refresh_project_dependent_panels()
 
         # Reconstruct Scene
         self._reconstruct_scene()
@@ -544,6 +552,7 @@ class MainWindow(QMainWindow):
         self.current_file = None
         self.is_dirty = False
         self.update_title()
+        self._refresh_project_dependent_panels()
 
     def _save_project(self):
         if self.current_file:
@@ -581,6 +590,7 @@ class MainWindow(QMainWindow):
             self.current_file = path
             self.is_dirty = False
             self.update_title()
+            self._refresh_project_dependent_panels()
             self._reconstruct_scene()
 
     def _open_project(self):
@@ -591,33 +601,62 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "EPW Logic Files (*.epwlogic)")
         self._open_project_headless(path)
 
+    def _push_inputs_to_io(self):
+        """UI (DI checkboxes + analog input sliders/spinboxes) -> IOProvider."""
+        from logic_studio.core.device_model import DeviceModel
+
+        for idx, addr in enumerate(DeviceModel.get_ela_addresses()):
+            self.io_provider.set_digital_input(addr, self.simulation_panel.get_ela_state(idx))
+
+        for point in DeviceModel.get_analog_points(self.project):
+            if point.get("direction") == "input":
+                addr = point.get("address", "")
+                self.io_provider.set_analog_input(addr, self.simulation_panel.get_analog_input_value(addr))
+
+    def _pull_outputs_from_io(self):
+        """IOProvider -> UI (DO LEDs + analog output readouts)."""
+        from logic_studio.core.device_model import DeviceModel
+
+        for idx, addr in enumerate(DeviceModel.get_ada_addresses()):
+            self.simulation_panel.set_ada_state(idx, self.io_provider.read_digital_output(addr))
+
+        for point in DeviceModel.get_analog_points(self.project):
+            if point.get("direction") == "output":
+                addr = point.get("address", "")
+                self.simulation_panel.set_analog_output_value(addr, self.io_provider.read_analog_output(addr))
+
+    def _run_scan(self):
+        """One full scan: push inputs, step the engine, pull outputs, refresh
+        canvas/status bar. Shared by the automatic sim timer (§2.1) and the
+        manual step buttons (§6.3), so both behave identically."""
+        self._push_inputs_to_io()
+        self.engine.step()
+        self._pull_outputs_from_io()
+        self.scene.refresh_live_states()
+        self.lbl_scan.setText(
+            f"Scan: {self.engine.last_scan_duration_ms:.2f} ms "
+            f"(max {self.engine.max_scan_duration_ms:.2f})"
+        )
+
     def _on_sim_tick(self):
         from logic_studio.engine.execution import ExecutionState
         if self.engine.state == ExecutionState.RUNNING:
-            # 1. Sync UI -> IO Provider
-            from logic_studio.core.device_model import DeviceModel
-            ela_addrs = DeviceModel.get_ela_addresses()
-            for idx, addr in enumerate(ela_addrs):
-                val = self.simulation_panel.get_ela_state(idx)
-                self.io_provider.set_digital_input(addr, val)
+            self._run_scan()
 
-            # 2. Step Engine
-            self.engine.step()
+    def _on_step_requested(self, count: int):
+        """Manual "Krok"/"Krok ×10" from SimulationPanel (§6.3). Only legal
+        while the engine is not free-running: PAUSED, or STOPPED with a
+        program loaded (the compile step already establishes that)."""
+        from logic_studio.engine.execution import ExecutionState
+        if self.engine.state not in (ExecutionState.PAUSED, ExecutionState.STOPPED):
+            return
+        if not self.engine.program or not self.engine.program.execution_order:
+            return
 
-            # 3. Sync IO Provider -> UI
-            ada_addrs = DeviceModel.get_ada_addresses()
-            for idx, addr in enumerate(ada_addrs):
-                val = self.io_provider.read_digital_output(addr)
-                self.simulation_panel.set_ada_state(idx, val)
+        for _ in range(count):
+            self._run_scan()
 
-            # 4. Refresh Canvas
-            self.scene.refresh_live_states()
-
-            # 5. Scan diagnostics (AUDIT_REPORT.md §2.1)
-            self.lbl_scan.setText(
-                f"Scan: {self.engine.last_scan_duration_ms:.2f} ms "
-                f"(max {self.engine.max_scan_duration_ms:.2f})"
-            )
+        self.output_panel.log_runtime(f"Manual step x{count} executed.")
 
     def _update_simulation_panel(self):
         # Sync ELA/ADA block states to the UI
@@ -643,7 +682,7 @@ class MainWindow(QMainWindow):
         selected = self.scene.selectedItems()
         from logic_studio.ui.canvas.block_item import BlockItem
         if selected and isinstance(selected[0], BlockItem):
-            self.property_panel.load_block_properties(selected[0].logic_block)
+            self.property_panel.load_block_properties(selected[0].logic_block, self.project)
             self.lbl_selected.setText(f"Selected: {selected[0].logic_block.display_name}")
         else:
             self.property_panel._set_empty_state()

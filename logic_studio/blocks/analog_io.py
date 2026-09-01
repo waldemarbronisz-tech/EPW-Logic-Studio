@@ -14,7 +14,7 @@ class AnalogInputBlock(BaseLogicBlock):
 
     def __init__(self, type_id="input.ai", default_name="AI", category="Wejścia / Wyjścia", description="Analog Input"):
         super().__init__(type_id, default_name, category, description)
-        self.color = "#006400"  # Same family as DI, distinguishable on canvas
+        self.color = "#CC8400"  # Amber — visually distinct from DI/VI green
         self.width = 100
         self.height = 60
         self.properties["Address"] = ""
@@ -88,7 +88,7 @@ class AnalogOutputBlock(BaseLogicBlock):
 
     def __init__(self, type_id="output.ao", default_name="AO", category="Wejścia / Wyjścia", description="Analog Output"):
         super().__init__(type_id, default_name, category, description)
-        self.color = "#8B0000"
+        self.color = "#4682B4"  # Steel blue — visually distinct from DO/VO red
         self.width = 100
         self.height = 60
         self.properties["Address"] = ""
