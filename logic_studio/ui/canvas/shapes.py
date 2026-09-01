@@ -24,21 +24,24 @@ def draw_gate_shape(painter, rect: QRectF, shape_style: str, inputs_count: int =
     for NOT/NAND/NOR/XNOR.
 
     The rect's right edge (x0 + w) is always the gate's output connection
-    point, negated or not — a negated gate's BODY is drawn pulled back by a
-    full bubble diameter so the bubble has room to sit right at the tip
-    without its outline needing to poke out past the rect at all. Earlier
-    this PR instead grew the whole block narrower for negated gates to make
-    room for the bubble outside the body — same output position, but AND
-    and NAND ended up visibly different sizes for no reason ("bramki się
-    rozjechały"). Now every gate of the same input count is drawn in an
-    identically-sized rect; only what happens in the last few pixels near
-    the tip differs.
+    point, negated or not — a negated gate's BODY is drawn pulled back to
+    leave room for the bubble AND a clear gap (BUBBLE_PORT_GAP) before the
+    output port square at the tip, so the port never paints over the bubble
+    (it used to sit flush against it, hiding half the bubble under the
+    opaque port square — the negation was barely visible). Earlier this PR
+    instead grew the whole block narrower for negated gates to make room for
+    the bubble outside the body — same output position, but AND and NAND
+    ended up visibly different sizes for no reason ("bramki się rozjechały").
+    Now every gate of the same input count is drawn in an identically-sized
+    rect; only what happens in the last few pixels near the tip differs.
     """
     painter.setPen(QPen(style.COLOR_OUTLINE, 1))
     painter.setBrush(Qt.NoBrush)
 
     x0, y0, w, h = rect.left(), rect.top(), rect.width(), rect.height()
-    pullback = 2 * style.BUBBLE_RADIUS if shape_style in NEGATED_GATES else 0.0
+    bubble_inset = style.PORT_RADIUS + style.BUBBLE_PORT_GAP + style.BUBBLE_RADIUS
+    pullback = 2 * style.BUBBLE_RADIUS + style.PORT_RADIUS + style.BUBBLE_PORT_GAP \
+        if shape_style in NEGATED_GATES else 0.0
     body_w = w - pullback
 
     path = QPainterPath()
@@ -87,10 +90,10 @@ def draw_gate_shape(painter, rect: QRectF, shape_style: str, inputs_count: int =
 
     if shape_style in NEGATED_GATES:
         painter.setBrush(style.COLOR_BACKGROUND)
-        # Spans exactly [x0+body_w, x0+w] — touching the pulled-back body's
-        # tip on one side, reaching the rect's (== the port's) edge on the
-        # other.
-        bubble_center = QPointF(x0 + w - style.BUBBLE_RADIUS, y0 + h / 2)
+        # Left edge touches the pulled-back body's tip; right edge stops
+        # BUBBLE_PORT_GAP short of where the output port square starts
+        # (x0 + w - PORT_RADIUS), so the two never touch, let alone overlap.
+        bubble_center = QPointF(x0 + w - bubble_inset, y0 + h / 2)
         painter.drawEllipse(bubble_center, style.BUBBLE_RADIUS, style.BUBBLE_RADIUS)
 
 

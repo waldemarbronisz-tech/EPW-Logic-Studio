@@ -40,7 +40,12 @@ FONT_SIZE_DOC_TEXT = 9
 FONT_SIZE_DOC_NOTE = 8
 
 # ---- Metrics ---------------------------------------------------------------
-BUBBLE_RADIUS = 4            # negation bubble on NOT/NAND/NOR/XNOR outputs
+BUBBLE_RADIUS = 5            # negation bubble on NOT/NAND/NOR/XNOR outputs
+BUBBLE_PORT_GAP = 3          # clear space between the bubble's right edge and
+                              # the output port square — previously 0, so the
+                              # (opaque) port square painted right over half
+                              # the bubble, making NAND/NOR/XNOR/NOT's
+                              # negation hard to see at all
 PORT_RADIUS = 3
 PORT_CLICK_MARGIN = 4        # extra hit-test margin around a port square
 BLOCK_SELECTION_MARGIN = 4   # dashed selection rect padding beyond the body

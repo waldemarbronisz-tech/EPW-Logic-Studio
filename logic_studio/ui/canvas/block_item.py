@@ -9,10 +9,34 @@ from logic_studio.ui.canvas import style, shapes
 
 GATE_SHAPES = ("AND", "OR", "NOT", "XOR", "NAND", "NOR", "XNOR", "BUFFER", "GATE_GENERIC")
 
+# shape_styles whose ports must never draw PortItem's generic pin-name label.
+# Gates already omit it (§ label under the body says enough). IO blocks
+# (DI/DO/AI/AO/Virtual IN/OUT) join them here: every IO block has exactly one
+# pin, whose generic name ("State"/"Cmd") only repeats what the block's own
+# Address/Tag + display-name text already say on its face — and for an
+# output-direction IO block (DO/AO), that single port sits on the SAME left
+# edge as that text, so the redundant label used to render right on top of
+# it (e.g. ADA01.DO14's "Cmd" overlapping its green "DO" display-name line).
+NO_PIN_LABEL_SHAPES = GATE_SHAPES + ("IO",)
+
 
 def _round_up_to_grid(value, grid=None):
     grid = grid or style.GRID_SIZE
     return math.ceil(value / grid) * grid
+
+
+def _complex_readout_y(pins_count):
+    """Top y (local, below the type-name label) for a COMPLEX block's
+    param_text/sim_text readout (TON/TOF/TP's "T=...[s]", counters'
+    "PV=.../CV=..."). Must clear every pin row's own label — a pin's label
+    is vertically centered on its row at PORT_MARGIN + i*PORT_PITCH and
+    reserves roughly [-10, +10] around that — so this starts 5px below the
+    bottom of the LAST row's reserved band, regardless of how many pins the
+    block has or how long the readout string is (§ "bramki się rozjechały"
+    follow-up: a fixed offset that happened to work for short strings on
+    few-pin blocks silently collided for longer strings / more pins)."""
+    last_pin_y = style.PORT_MARGIN + max(0, pins_count - 1) * style.PORT_PITCH
+    return last_pin_y + style.PORT_PITCH / 2 + 5
 
 
 def _round_half_up_to_pitch(value, pitch):
@@ -377,13 +401,30 @@ class BlockItem(QGraphicsItem):
             if "count" in state:
                 sim_text = f"CV={state['count']}"
 
-        if param_text:
-            painter.setPen(QPen(style.COLOR_TYPE_LABEL_TEXT))
-            painter.drawText(rect.adjusted(2, 15, -2, -2), Qt.AlignTop | Qt.AlignLeft, param_text)
+        # These used to sit at a fixed (2, 15)/(2, 28) offset — exactly
+        # where the first/second pin ROW's own label lands (PORT_MARGIN,
+        # PORT_MARGIN + PORT_PITCH), so a counter/timer's "CU"/"CD"/"IN"
+        # label rendered right on top of "PV=.../T=...[s]". Centering
+        # helped but wasn't enough on its own — TON/TOF's longer
+        # "T=1.00[s]" still reached both the left input-label column and
+        # the right output-label column on a 100px-wide block. Placed below
+        # every pin row instead (however many a given block has), which the
+        # already-generous per-category block heights always leave room
+        # for — this can never land on a pin's own row again, regardless of
+        # pin count or how long the readout string is.
+        if param_text or sim_text:
+            pins_count = max(len(self.logic_block.inputs), len(self.logic_block.outputs))
+            y = _complex_readout_y(pins_count)
+            line_rect = QRectF(2, y, self.width - 4, 13)
 
-        if sim_text:
-            painter.setPen(QPen(style.COLOR_ERROR))
-            painter.drawText(rect.adjusted(2, 28, -2, -2), Qt.AlignTop | Qt.AlignLeft, sim_text)
+            if param_text:
+                painter.setPen(QPen(style.COLOR_TYPE_LABEL_TEXT))
+                painter.drawText(line_rect, Qt.AlignTop | Qt.AlignHCenter, param_text)
+                line_rect.translate(0, 13)
+
+            if sim_text:
+                painter.setPen(QPen(style.COLOR_ERROR))
+                painter.drawText(line_rect, Qt.AlignTop | Qt.AlignHCenter, sim_text)
 
     # ---- Documentation blocks (§6) ---------------------------------------------
 

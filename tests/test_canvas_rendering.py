@@ -40,20 +40,27 @@ def test_negated_gate_bubble_and_port_do_not_overlap(type_id):
     """§1: previously both the negation bubble and the output port were
     drawn at exactly (width, height/2) — the port (painted on top as a
     child item) fully occluded the bubble, making NAND indistinguishable
-    from AND, NOR from OR, XNOR from XOR. The bubble is now drawn inset,
-    centered at width - BUBBLE_RADIUS (never past `width`, where the port
-    sits) — the port must sit clear of the bubble's center, not merely at a
-    numerically different point."""
+    from AND, NOR from OR, XNOR from XOR. A later fix inset the bubble but
+    left it flush against the port square (no gap), which still hid half
+    the bubble under the opaque port — the negation was barely visible
+    ("zrob wyraźniejszą negację... żeby się nie nakładała z kwadratem
+    przyłączeniowym"). The bubble's right edge must now clear the port
+    square's left edge (port center - PORT_RADIUS) by BUBBLE_PORT_GAP."""
     _app()
     block = BlockRegistry.create_block(type_id)
     item = BlockItem(block)
 
     port_pos = _output_port(item).pos()
-    bubble_center = QPointF(item.width - style.BUBBLE_RADIUS, item.height / 2)
+    bubble_inset = style.PORT_RADIUS + style.BUBBLE_PORT_GAP + style.BUBBLE_RADIUS
+    bubble_center = QPointF(item.width - bubble_inset, item.height / 2)
+    bubble_right_edge = bubble_center.x() + style.BUBBLE_RADIUS
+    port_left_edge = port_pos.x() - style.PORT_RADIUS
 
     assert port_pos != bubble_center, f"{type_id}: output port sits exactly on the negation bubble"
     assert port_pos.x() > bubble_center.x(), f"{type_id}: output port must sit past the bubble's center, not on/before it"
     assert port_pos.x() == item.width, f"{type_id}: output port must sit at exactly `width`, same as a non-negated gate"
+    assert port_left_edge - bubble_right_edge >= style.BUBBLE_PORT_GAP - 1e-9, \
+        f"{type_id}: negation bubble must clear the output port square by at least BUBBLE_PORT_GAP"
 
 @pytest.mark.parametrize("type_id", NON_NEGATED_TYPE_IDS)
 def test_non_negated_gate_output_port_flush_with_body(type_id):
@@ -83,6 +90,24 @@ def test_buffer_has_its_own_shape_and_no_pin_labels():
     item = BlockItem(block)
     assert item.shape_style == "BUFFER"
     assert "BUFFER" in GATE_SHAPES
+
+IO_TYPE_IDS = ["input.di", "output.do", "input.ai", "output.ao", "virtual.input", "virtual.output"]
+
+@pytest.mark.parametrize("type_id", IO_TYPE_IDS)
+def test_io_block_ports_have_no_pin_label(type_id):
+    """A DO/AO block's single input port sits on the SAME left edge as the
+    block's own Address/display-name text (_draw_io_text_lines) — drawing
+    the pin's generic name ("Cmd"/"State") there used to render right on
+    top of that text (e.g. ADA01.DO14's "Cmd" over its green "DO" label).
+    Every IO block has exactly one pin whose name never adds information
+    the block's own face doesn't already show, so PortItem must suppress it
+    for shape_style "IO", exactly like it already does for gates."""
+    _app()
+    from logic_studio.ui.canvas.block_item import NO_PIN_LABEL_SHAPES
+    block = BlockRegistry.create_block(type_id)
+    item = BlockItem(block)
+    assert item.shape_style == "IO"
+    assert "IO" in NO_PIN_LABEL_SHAPES
 
 def test_gate_body_has_no_separate_shorter_height():
     """§2.3: the body always spans the block's full height now — there is
@@ -148,3 +173,51 @@ def test_tag_comment_not_persisted_in_properties_only_when_empty_is_fine():
     data = a.serialize()
     assert data["properties"]["Tag"] == "C1"
     assert data["properties"]["Comment"] == "Emergency stop interlock"
+
+# ---- Text-overlap audit follow-up ("bramki się rozjechały" thread) --------
+# User-reported: ADA01.DO14's "Cmd" pin label rendered right on top of its
+# own green "DO" display-name line (both start at the block's left edge,
+# same row) — plus a general ask to check every block type for the same
+# class of collision, and to make the negation bubble unmistakably clear of
+# the output port square.
+
+COMPLEX_READOUT_TYPE_IDS = ["timer.ton", "timer.tof", "timer.tp",
+                            "counter.ctu", "counter.ctd", "counter.ctud"]
+
+@pytest.mark.parametrize("type_id", COMPLEX_READOUT_TYPE_IDS)
+def test_complex_readout_clears_every_pin_row(type_id):
+    """TON/TOF/TP's "T=...[s]" and the counters' "PV=.../CV=..." used to be
+    drawn at a fixed (2, 15)/(2, 28) offset — exactly where the first/second
+    pin row's own label lands — so e.g. TON's "IN" pin label rendered right
+    on top of "T=1.00[s]". The readout's top must now sit at or below the
+    bottom of the LAST pin row's reserved label band, for every pin count
+    this category actually uses (2 for timers, 3-5 for counters) — not just
+    coincidentally clear for whichever pin count happened to be tested."""
+    _app()
+    from logic_studio.ui.canvas.block_item import _complex_readout_y
+
+    block = BlockRegistry.create_block(type_id)
+    pins_count = max(len(block.inputs), len(block.outputs))
+    last_pin_label_bottom = style.PORT_MARGIN + max(0, pins_count - 1) * style.PORT_PITCH + 10
+
+    readout_y = _complex_readout_y(pins_count)
+    assert readout_y >= last_pin_label_bottom, \
+        f"{type_id}: readout top ({readout_y}) must clear the last pin row's label ({last_pin_label_bottom})"
+
+    # And it must still fit inside the block's own body.
+    item = BlockItem(block)
+    assert readout_y + 13 <= item.height, f"{type_id}: readout must not spill past the block's bottom edge"
+
+def test_io_block_output_do_address_text_no_longer_shares_a_row_with_a_pin_label():
+    """Reproduces the exact reported case: an output.do block's Address
+    ("ADA01.DO14") and display-name ("DO") text both start flush against
+    the left edge — the same edge its single input pin (port at x=0) sits
+    on. Confirms the fix's precondition (shape_style "IO" join
+    NO_PIN_LABEL_SHAPES) rather than re-deriving pixel positions."""
+    _app()
+    from logic_studio.ui.canvas.block_item import NO_PIN_LABEL_SHAPES
+
+    block = BlockRegistry.create_block("output.do")
+    block.properties["Address"] = "ADA01.DO14"
+    item = BlockItem(block)
+    assert item.shape_style in NO_PIN_LABEL_SHAPES

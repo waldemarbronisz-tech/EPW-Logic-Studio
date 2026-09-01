@@ -36,11 +36,14 @@ class PortItem(QGraphicsItem):
         painter.setBrush(QBrush(fill_color))
         painter.drawRect(rect_pin)
 
-        # Draw label if needed (disabled for gates to match reference)
+        # Draw label if needed — suppressed for gates (label under the body
+        # says enough) and for IO blocks (their single pin's generic name
+        # would repeat, and for output-direction IO blocks collide with, the
+        # Address/display-name text already drawn on the block's own face).
         parent_block = self.parentItem()
-        from logic_studio.ui.canvas.block_item import GATE_SHAPES
-        if parent_block and getattr(parent_block, 'shape_style', '') in GATE_SHAPES:
-             return # Standard gates don't have pin labels in reference
+        from logic_studio.ui.canvas.block_item import NO_PIN_LABEL_SHAPES
+        if parent_block and getattr(parent_block, 'shape_style', '') in NO_PIN_LABEL_SHAPES:
+             return
 
         painter.setPen(QPen(style.COLOR_OUTLINE))
         font = QFont(style.FONT_FAMILY, style.FONT_SIZE_PIN_LABEL)
