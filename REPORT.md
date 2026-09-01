@@ -61,3 +61,51 @@ The visual overhaul has been successfully implemented, pivoting the software fro
 - [X] Removed hardcoded stubs. `SystemSignal`, `SignalGenerator`, `Button`, `LED`, and `UserMessage` map correctly to either dynamic engine execution loops or deterministic logic bindings.
 - [X] Added specific integration tests validating strict single-scan ELA->LOGIC->ADA latency pipelines without GUI injection side effects.
 - [X] Verified complete headless runtime evaluation using explicit `engine.step()` calls rather than relying on automated `QTimer` propagation.
+
+## PHASE 3 — RENDERING LIBRARY & INTERNAL SIGNALS
+
+Branches `fix/audit-stage-a-b` → `feat/analog-chain` → `fix/export-contract`
+→ `feat/block-rendering-library` → `feat/internal-bits`. Full detail in
+`AUDIT_REPORT.md` §11-§15; this entry is the milestone-log summary this file
+has kept since Phase 1/2.
+
+### AUDIT-DRIVEN HARDENING (`fix/audit-stage-a-b`, `feat/analog-chain`, `fix/export-contract`)
+- [X] Functional bug fixes (TP timer state, TOF reading its own output, ButtonBlock never driving its output), fake UI elements removed (status bar, dead menu items, Device Explorer placeholder branches).
+- [X] Full analog chain: project-defined analog points, `input.ai`/`output.ao` with quality/holdover, `analog.deadband`/`analog.quality`, hysteresis/on-off delay on every comparator.
+- [X] `EPW_RUNTIME_LOGIC` made self-sufficient (`analog_points`, `_resolved_*` block properties) — `EPWLOGIC_SCHEMA_VERSION`/`RUNTIME_SCHEMA_VERSION` bumped to 2 with an explicit migration chain.
+
+### BLOCK RENDERING LIBRARY (`feat/block-rendering-library`)
+- [X] Procedural gate/IO/DOC shapes (`ui/canvas/shapes.py`), centralized visual constants (`ui/canvas/style.py`), procedural icons (`ui/icons.py`) — zero image files.
+- [X] Grid-alignment invariant: every port on every of the 67 registered block types lands on a deterministic grid intersection (`tests/test_grid_alignment.py`).
+- [X] Library panel rebuilt as a searchable tree with recently-used and procedural icons; new `ElementPreviewPanel`.
+- [X] Documentation blocks (`doc.text`/`doc.note`/`doc.section`) actually render their `Text` property instead of an empty placeholder rectangle.
+- [X] Device Explorer: every address leaf (ELA/ADA/analog) draggable straight onto the canvas as an already-configured block.
+
+### INTERNAL SIGNALS (`feat/internal-bits`)
+- [X] Closed six rendering-layer bugs found auditing the block library above (§0 of the PR — most notably `input.ai`'s Value/Quality outputs sharing one port position, and clipped pin labels on `analog.quality`).
+- [X] Internal signal registry (`project.settings["internal_bits"]`) replacing free-text tags on `virtual.input`/`virtual.output`, plus new `internal.reg_in`/`internal.reg_out` (REAL registers) — a typo is now a compile error (§4 validator rules), not a silently-created new signal.
+- [X] Fixed system-signal catalog (`core/system_signals_catalog.json`) — `system.signal` no longer reads through `read_digital_input()`, so a system signal can no longer collide with a physical DI address.
+- [X] Cycle-delay detection: the compiler flags an internal-signal read scheduled ahead of its writer in `execution_order` — a diagnostic no reference tool offers, surfaced as a canvas marker and a compiler "info" message.
+- [X] `SignalPickerDialog` ("Wybór sygnału", modeled on eTango Studio's "Wybór bitu dla logiki") and a registry-editor tab in Project Settings.
+- [X] `EPWLOGIC_SCHEMA_VERSION`/`RUNTIME_SCHEMA_VERSION` bumped to 3; `internal_bits`/`system_catalog_version` added to the runtime export and its checksum.
+
+### PASS/FAIL CHECKLIST (Phase 3)
+| Item | Status | Notes |
+|------|--------|-------|
+| Every port grid-aligned (67 block types) | PASS | `test_grid_alignment.py`, "the most important test in the PR" |
+| No two ports share a position | PASS | `test_no_two_ports_share_a_position` — added after `input.ai` shipped with exactly this bug |
+| All `examples/*.epwlogic` load, migrate, compile, export | PASS | `test_every_example_loads_compiles_and_exports`, one fixture fixed (two `virtual.output` blocks sharing a default tag — a real pre-existing ambiguity the new validator correctly caught) |
+| Internal-signal registry validation (5 rules) | PASS | `compiler/validator.py` §4 |
+| Cycle-delay detection (positive + negative case) | PASS | `compiler/core.py::_compute_cycle_delayed_reads` |
+| Export contract (internal_bits/system_catalog_version reconstructable without a live Project) | PASS | `tests/test_export_contract.py` |
+
+## CONCLUSION (Phase 3)
+276 → 500 tests. The rendering library closed the visual gap between the
+canvas and reference industrial FBD tools; internal signals closed a real
+correctness gap (silent signal-name collisions, both internal-to-internal
+via free text and system-to-physical via a shared read path) with a
+validated registry and a first-of-its-kind stale-read diagnostic. Two real
+bugs were caught and fixed during this work rather than shipped: a
+pre-existing fixture ambiguity the new "one writer" rule correctly exposed,
+and a rename-vs-delete confusion in the registry editor that hung the test
+suite in isolation before being diagnosed and fixed.

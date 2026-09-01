@@ -31,7 +31,7 @@ migration chain. Never conflate them, and never bump one to fix a problem in
 the other.
 
 ### 3.1 `.epwlogic` (engineering project) — `EPWLOGIC_SCHEMA_VERSION`
-Currently **2** (`core/project.py`). Bumping it requires adding a
+Currently **3** (`core/project.py`). Bumping it requires adding a
 `_migrate_vN_to_v(N+1)(data)` function and registering it in `_MIGRATIONS`,
 keyed by the version it upgrades *from*. `Project.deserialize()` applies the
 chain sequentially —
@@ -41,18 +41,33 @@ while schema_version in _MIGRATIONS:
     schema_version = data["schema_version"]
 ```
 — so a file several versions behind today's still loads correctly by walking
-every intermediate step; a future v2 → v3 migration slots in exactly the way
-v1 → v2 did, with no change to `deserialize()` itself.
+every intermediate step; a future v3 → v4 migration slots in exactly the way
+v1 → v2 and v2 → v3 did, with no change to `deserialize()` itself.
 
-`_migrate_v1_to_v2` is the only migration so far. It defaults a missing
-`settings.analog_points` to `[]`, and absorbs what used to be a separate
-`_migrate_legacy_force_state` helper: it strips a legacy per-block `"Force
-State"` property out of `properties`, and carries an ACTIVE value forward via
-a transient `"_legacy_force_state"` key on that block's own dict — consumed
-exactly once, right after `Project.deserialize()` constructs that block, and
-folded into its `simulation_state` (never re-serialized). Every v1
-back-compat decision lives in this one function instead of being split
-across `deserialize()` and a separate helper.
+`_migrate_v1_to_v2` defaults a missing `settings.analog_points` to `[]`, and
+absorbs what used to be a separate `_migrate_legacy_force_state` helper: it
+strips a legacy per-block `"Force State"` property out of `properties`, and
+carries an ACTIVE value forward via a transient `"_legacy_force_state"` key
+on that block's own dict — consumed exactly once, right after
+`Project.deserialize()` constructs that block, and folded into its
+`simulation_state` (never re-serialized). Every v1 back-compat decision lives
+in this one function instead of being split across `deserialize()` and a
+separate helper.
+
+`_migrate_v2_to_v3` (feat/internal-bits) defaults a missing
+`settings.internal_bits` to `[]`, and migrates two free-text properties that
+used to name a signal directly, with no registry behind them (see §10):
+`virtual.input`/`virtual.output`'s old `"Tag"` becomes a registry entry
+(`type: "BOOL"`, `retentive: false`) plus a `"Bit"` property pointing at it —
+two blocks that happened to share the same Tag (case-insensitively) merge
+into ONE entry, never duplicated; and `system.signal`'s old `"Tag"` (which
+used to be read through `IOProvider.read_digital_input()`, sharing an address
+space with physical DI — see §10) becomes `"Sygnał"`, carried forward
+verbatim with no registry entry created (the system-signal catalog is a
+fixed platform contract, not project-defined) and NOT validated against the
+current catalog here — an old value that predates the catalog format is
+exactly the "sygnał spoza katalogu" case the validator (§4 of the PR) flags
+live as a warning, not something a migration should silently paper over.
 
 Loading a `schema_version` newer than `EPWLOGIC_SCHEMA_VERSION` raises a
 `ValueError` naming both the file's version and the version this build
@@ -64,12 +79,13 @@ every load, so the test suite (and every engineer opening them) exercises
 the migration path instead of a pre-migrated file.
 
 ### 3.2 `EPW_RUNTIME_LOGIC` (compiled export) — `RUNTIME_SCHEMA_VERSION`
-Currently **2**, a constant in `compiler/exporter.py` — never an inline
+Currently **3**, a constant in `compiler/exporter.py` — never an inline
 literal. Carries export provenance and integrity metadata: `generated_at`
 (UTC ISO 8601), `generated_by` (`EPW Logic Studio <version>`),
 `project_name`, `block_count` (executable blocks, i.e.
-`len(execution_order)`), `contains_forced_io`, `analog_points` (see §9), and
-a `checksum` — SHA-256 of the canonical JSON (`sort_keys=True,
+`len(execution_order)`), `contains_forced_io`, `analog_points` (see §9),
+`internal_bits` and `system_catalog_version` (see §10, feat/internal-bits
+§8), and a `checksum` — SHA-256 of the canonical JSON (`sort_keys=True,
 separators=(',', ':')`) of exactly the fields listed in `CHECKSUM_FIELDS`,
 computed before `checksum` itself is added. `verify_checksum()` recomputes
 over that same closed field set; anything outside it — a `Compiler.compile()`
@@ -187,3 +203,103 @@ block type reads data that isn't in the export. `test_runtime_reconstructable_
 without_project` builds an `input.ai` block, discards every Python reference
 to the `Project`, and reconstructs its range and unit from the exported dict
 alone — literally what EPW-OS does with the file.
+
+## 10. Przestrzenie nazw sygnałów (feat/internal-bits)
+
+Cztery rozłączne przestrzenie nazw — coś, co w jednej z nich identyfikuje
+sygnał, nigdy nie znaczy nic w innej, i mieszanie ich (odczyt jednej przez
+API właściwe dla innej) jest dokładnie tym błędem ten PR zamyka:
+
+1. **Fizyczna** — `ELA01.DI01`..`DI32`, `ADA01.DO01`..`DO32`. Stały,
+   sprzętowy zestaw kanałów (`DeviceModel.ELA_CHANNELS`/`ADA_CHANNELS`, §8),
+   czytany/pisany przez `IOProvider.read_digital_input()` /
+   `write_digital_output()`.
+2. **Analogowa** — adresy punktów analogowych, w pełni zdefiniowane przez
+   projekt (`project.settings["analog_points"]`, §8), czytane/pisane przez
+   `IOProvider.read_analog_input()` / `write_analog_output()`.
+3. **Wewnętrzna** — nazwy z rejestru `project.settings["internal_bits"]`
+   (`core/internal_bits.py`), czytane/pisane przez
+   `IOProvider.read_internal()` / `write_internal()` — **osobna metoda,
+   osobny słownik** (`SimulationIOProvider.internal_image`) od fizycznej i
+   analogowej powyżej, celowo: sygnał wewnętrzny nigdy nie może przypadkiem
+   skolidować z adresem fizycznym tylko dlatego, że oba są łańcuchami
+   znaków w tej samej przestrzeni. Blok nie przechowuje pełnego
+   identyfikatora — tylko gołą nazwę (właściwość `"Bit"`), z której
+   pełny identyfikator jest wyprowadzany (`internal_bit_id()`, patrz niżej)
+   dopiero w momencie kompilacji (`Compiler.compile()`, tak samo jak
+   `AnalogInputBlock.set_range()` w §8) albo wyświetlania na kanwie.
+
+   **Prefiksy identyfikatora** (`internal_bits.internal_bit_id()`) —
+   wyprowadzone z `type` i `retentive` wpisu w rejestrze, nigdy nie
+   przechowywane wprost:
+
+   | Typ    | Nie-retentive | Retentive |
+   |--------|----------------|-----------|
+   | BOOL   | `M.<name>`     | `MR.<name>` |
+   | REAL   | `MW.<name>`    | `MWR.<name>` |
+
+   **Zasada jednego zapisującego**: dokładnie jak dla `output.do`, więcej
+   niż jeden blok zapisujący ten sam sygnał wewnętrzny to błąd kompilacji
+   (walidator §4.1 tego PR), nie ostrzeżenie.
+
+   **Trwałość (`retentive`)**: Logic Studio wyłącznie PRZECHOWUJE i
+   EKSPORTUJE tę flagę. Gdzie wartość jest zapisywana, jak często, i co się
+   dzieje przy zaniku zasilania, należy WYŁĄCZNIE do EPW-OS — nic w tym
+   repozytorium (silnik symulacji włącznie) nie odwzorowuje przetrwania
+   restartu sterownika. Bit oznaczony jako retentive w Logic Studio
+   zachowuje się w symulacji identycznie jak nie-retentive; jedyna różnica
+   to inny prefiks identyfikatora i to, że flaga jedzie w eksporcie.
+
+4. **Systemowa** — stałe identyfikatory z katalogu platformowego
+   (`core/system_signals_catalog.json`, §11), czytane przez
+   `IOProvider.read_system_signal(signal_id, now_ms)` — trzecia, znowu
+   osobna metoda/przestrzeń. `system.signal`'s `evaluate()` to jedyne
+   miejsce, które ją wywołuje; wcześniej ten blok czytał przez
+   `read_digital_input()`, więc sygnał systemowy taki jak `"SYS_READY"`
+   mógł przypadkiem skolidować z fizycznym adresem DI o tej samej nazwie —
+   to jest PROBLEM, od którego zaczyna się ten PR.
+
+**Semantyka opóźnienia o cykl**: zapis do sygnału wewnętrznego idzie przez
+ten sam atomowy bufor końca skanu co `queue_digital_output()`/
+`queue_analog_output()` (`ExecutionEngine.queue_internal_write()`,
+flushowany w `step()` razem z resztą) — więc odczyt w tym samym skanie
+zawsze widzi wartość z KOŃCA poprzedniego skanu, niezależnie od kolejności.
+`Compiler._compute_cycle_delayed_reads()` to czysto strukturalna,
+kompilacyjna diagnostyka (porównanie pozycji zapisującego i czytającego w
+`execution_order`) informująca inżyniera, kiedy diagram "sugeruje" świeży
+odczyt (zapis wcześniej w kolejności) mimo że architektonicznie odczyt i
+tak jest o cykl opóźniony — wynik trafia do `CompiledProgram.
+cycle_delayed_reads` (lista uuid czytających bloków, NIE objęta checksumą —
+dane wtórne, wyprowadzone z pól już przez nią chronionych) i do
+`Compiler.infos` jako komunikat "info" (`CompilerOutputPanel`'s zakładka
+"Messages"), a na kanwie jako mały znacznik "z⁻¹" na czytającym bloku
+(`BlockItem._is_cycle_delayed_read()`, czytany na żywo z aktualnie
+skompilowanego programu — czyszczony automatycznie przy każdej
+rekompilacji, bez osobnego kroku).
+
+## 11. Katalog sygnałów systemowych jako kontrakt platformowy
+
+`core/system_signals_catalog.json` — **stały**, identyczny w każdym
+projekcie, wersjonowany niezależnie od `EPWLOGIC_SCHEMA_VERSION`/
+`RUNTIME_SCHEMA_VERSION` własnym polem `catalog_version` (obecnie
+`"1.0.0"`). Ładowany raz, cache'owany w `core/system_signals.py`.
+
+**Format**: `{"format": "EPW_SIGNAL_CATALOG", "schema_version": 1,
+"catalog_version": "1.0.0", "categories": [{"id", "name", "signals":
+[{"id", "description", "label", "type", "source", "safety_relevant"}]}]}`.
+
+**Zasady wersjonowania**: dodanie nowego sygnału to podniesienie
+`catalog_version` w wersji MINOR (nie łamie istniejących projektów — nowy
+sygnał po prostu staje się dostępny w `SignalPickerDialog`). Usunięcie lub
+zmiana znaczenia istniejącego sygnału to MAJOR — projekt skompilowany
+przeciw starszemu katalogowi eksportuje `system_catalog_version` z
+momentu kompilacji (§3.2/§8), więc EPW-OS może odmówić uruchomienia logiki
+skompilowanej na katalogu nowszym niż ten, który sam obsługuje, zamiast
+cicho źle interpretować sygnał o zmienionym znaczeniu.
+
+Katalog w wersji 1.0.0 celowo **nie zawiera jeszcze** sygnałów rejestratora
+EPM, zabezpieczeń (Zabezpieczenia Analogowe/Dwustanowe/Technologiczne — patrz
+REPORT.md, wciąż tylko zadeklarowane kategorie biblioteki bloków) ani
+telemechaniki — czekają na zamrożenie odpowiedniej części kontraktu
+platformowego z EPW-OS/Synoptic Editor. Dodanie ich będzie kolejnym MINOR
+bumpem `catalog_version`, tym samym mechanizmem opisanym powyżej.
