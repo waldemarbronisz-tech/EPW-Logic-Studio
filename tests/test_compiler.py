@@ -69,6 +69,31 @@ def test_export_checksum_roundtrip():
     del missing_checksum["checksum"]
     assert verify_checksum(missing_checksum) is False
 
+def test_verify_checksum_ignores_non_schema_keys():
+    """AUDIT_REPORT.md §0.2: Compiler.compile() attaches a non-serializable
+    "program" (CompiledProgram) key on top of the exported payload.
+    verify_checksum() must ignore it (and any other key outside
+    CHECKSUM_FIELDS) instead of raising TypeError."""
+    from logic_studio.compiler.exporter import verify_checksum
+
+    p = Project()
+    a = AndGate()
+    p.add_block(a)
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is not None
+    assert "program" in res  # non-serializable CompiledProgram instance
+
+    # Handing verify_checksum() the compile() result directly (not export())
+    # must not raise, and must still validate correctly.
+    assert verify_checksum(res) is True
+
+    # Tampering with a field that IS part of the schema must still be caught.
+    tampered = dict(res)
+    tampered["block_count"] = tampered["block_count"] + 1
+    assert verify_checksum(tampered) is False
+
 def test_compiler_deterministic_execution_order():
     """AUDIT_REPORT.md §6: recompiling the same graph (same blocks, same UUIDs)
     must give the same execution_order regardless of the order blocks were

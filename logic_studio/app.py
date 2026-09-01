@@ -41,7 +41,7 @@ class LogicStudioApp(QApplication):
             QWidget {
                 background-color: #C0C0C0;
                 color: #000000;
-                font-family: "MS Sans Serif", "Tahoma", "Arial";
+                font-family: "Tahoma", "Segoe UI", sans-serif;
                 font-size: 9pt;
             }
 

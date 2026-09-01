@@ -141,6 +141,118 @@ def test_headless_fat():
 
     assert io.output_image["digital"].get("ADA01.DO01") is True
 
+def test_stop_drives_outputs_to_safe_state():
+    """AUDIT_REPORT.md §0.1: stop() must NOT latch outputs at their last
+    value — every output ever written this session goes to its safe state
+    (digital False) in the IOProvider itself, not just in block memory."""
+    from logic_studio.core.project import Project
+    from logic_studio.compiler.core import Compiler
+    from logic_studio.engine.execution import ExecutionEngine
+    from logic_studio.engine.io_provider import SimulationIOProvider
+    from logic_studio.engine.time_provider import SimulationTimeProvider
+    from logic_studio.blocks.io_blocks import DigitalInputBlock, DigitalOutputBlock
+    from logic_studio.blocks import register_builtin_blocks
+
+    register_builtin_blocks()
+    project = Project()
+
+    di = DigitalInputBlock()
+    di.properties["Address"] = "ELA01.DI01"
+    do = DigitalOutputBlock()
+    do.properties["Address"] = "ADA01.DO01"
+    di.outputs[0].connect(do.inputs[0])
+
+    project.add_block(di)
+    project.add_block(do)
+
+    compiler = Compiler(project)
+    res = compiler.compile()
+    assert res is not None
+
+    io = SimulationIOProvider()
+    engine = ExecutionEngine(res.get("program"), io, SimulationTimeProvider())
+    engine.start()
+
+    io.set_digital_input("ELA01.DI01", True)
+    engine.step()
+    assert io.output_image["digital"].get("ADA01.DO01") is True
+
+    engine.stop()
+    assert io.output_image["digital"].get("ADA01.DO01") is False
+
+def test_fault_transition_drives_outputs_to_safe_state():
+    """AUDIT_REPORT.md §0.1: a transition to FAULT (start() with no valid
+    compiled program) must fail-safe outputs the same way stop() does."""
+    from logic_studio.core.project import Project
+    from logic_studio.compiler.core import Compiler
+    from logic_studio.engine.execution import ExecutionEngine, ExecutionState
+    from logic_studio.engine.io_provider import SimulationIOProvider
+    from logic_studio.engine.time_provider import SimulationTimeProvider
+    from logic_studio.blocks.io_blocks import DigitalInputBlock, DigitalOutputBlock
+    from logic_studio.blocks import register_builtin_blocks
+
+    register_builtin_blocks()
+    project = Project()
+
+    di = DigitalInputBlock()
+    di.properties["Address"] = "ELA01.DI01"
+    do = DigitalOutputBlock()
+    do.properties["Address"] = "ADA01.DO01"
+    di.outputs[0].connect(do.inputs[0])
+    project.add_block(di)
+    project.add_block(do)
+
+    compiler = Compiler(project)
+    res = compiler.compile()
+
+    io = SimulationIOProvider()
+    engine = ExecutionEngine(res.get("program"), io, SimulationTimeProvider())
+    engine.start()
+    io.set_digital_input("ELA01.DI01", True)
+    engine.step()
+    assert io.output_image["digital"].get("ADA01.DO01") is True
+
+    # Force an invalid program, then attempt to (re)start -> FAULT.
+    engine.program = None
+    engine.start()
+    assert engine.state == ExecutionState.FAULT
+    assert io.output_image["digital"].get("ADA01.DO01") is False
+
+def test_pause_does_not_touch_outputs():
+    """AUDIT_REPORT.md §0.1: pause() freezes the scan, it must not fail-safe
+    outputs the way stop()/FAULT do."""
+    from logic_studio.core.project import Project
+    from logic_studio.compiler.core import Compiler
+    from logic_studio.engine.execution import ExecutionEngine
+    from logic_studio.engine.io_provider import SimulationIOProvider
+    from logic_studio.engine.time_provider import SimulationTimeProvider
+    from logic_studio.blocks.io_blocks import DigitalInputBlock, DigitalOutputBlock
+    from logic_studio.blocks import register_builtin_blocks
+
+    register_builtin_blocks()
+    project = Project()
+
+    di = DigitalInputBlock()
+    di.properties["Address"] = "ELA01.DI01"
+    do = DigitalOutputBlock()
+    do.properties["Address"] = "ADA01.DO01"
+    di.outputs[0].connect(do.inputs[0])
+    project.add_block(di)
+    project.add_block(do)
+
+    compiler = Compiler(project)
+    res = compiler.compile()
+
+    io = SimulationIOProvider()
+    engine = ExecutionEngine(res.get("program"), io, SimulationTimeProvider())
+    engine.start()
+    io.set_digital_input("ELA01.DI01", True)
+    engine.step()
+    assert io.output_image["digital"].get("ADA01.DO01") is True
+
+    engine.pause()
+    assert io.output_image["digital"].get("ADA01.DO01") is True
+
 def test_same_scan_input_fat():
     from logic_studio.core.project import Project
     from logic_studio.compiler.core import Compiler
