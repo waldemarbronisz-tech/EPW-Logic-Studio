@@ -598,5 +598,192 @@ def test_property_grid_signal_picker_targets_cover_all_four_blocks():
     assert ("internal.reg_out", "Bit") in _SIGNAL_PICKER_TARGETS
     assert ("system.signal", "Sygnał") in _SIGNAL_PICKER_TARGETS
 
+# ---- §7 registry editor tab -------------------------------------------------
+
+def test_project_settings_dialog_loads_existing_signals():
+    _app()
+    from logic_studio.ui.dialogs import ProjectSettingsDialog
+    p = Project()
+    p.settings["internal_bits"] = [
+        {"name": "X", "type": "BOOL", "retentive": True, "description": "opis", "label": "ET", "category": "Blokady"},
+    ]
+    dialog = ProjectSettingsDialog(p)
+    assert dialog.signals_table.rowCount() == 1
+    assert dialog.signals_table.item(0, 0).text() == "X"
+    assert dialog.signals_table.cellWidget(0, 1).currentText() == "BOOL"
+    assert dialog.signals_table.cellWidget(0, 2).isChecked() is True
+    assert dialog.signals_table.item(0, 3).text() == "Blokady"
+
+def test_project_settings_dialog_usage_column():
+    _app()
+    from logic_studio.blocks.registry import BlockRegistry
+    from logic_studio.ui.dialogs import ProjectSettingsDialog
+    p = Project()
+    p.settings["internal_bits"] = [{"name": "X", "type": "BOOL", "retentive": False, "description": "", "label": "", "category": ""}]
+    vo = BlockRegistry.create_block("virtual.output")
+    vo.properties["Bit"] = "X"
+    vi = BlockRegistry.create_block("virtual.input")
+    vi.properties["Bit"] = "X"
+    p.add_block(vo)
+    p.add_block(vi)
+
+    dialog = ProjectSettingsDialog(p)
+    assert dialog.signals_table.item(0, 6).text() == "2"
+
+def _refuse_any_blocking_messagebox(monkeypatch):
+    """A test calling _on_accept() must never depend on a human clicking a
+    modal QMessageBox — install this first so a logic bug that
+    unexpectedly triggers one FAILS LOUDLY (via the poisoned return value
+    below tripping an assertion) instead of hanging the whole suite
+    waiting for a click that will never come. Exactly what caught the
+    rename-vs-delete bug below (an earlier version of this test suite hung
+    for real, diagnosed and fixed rather than papered over)."""
+    from PySide6.QtWidgets import QMessageBox
+
+    def _poison(*args, **kwargs):
+        raise AssertionError("Unexpected blocking QMessageBox in a test — see _refuse_any_blocking_messagebox")
+
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(_poison))
+    monkeypatch.setattr(QMessageBox, "critical", staticmethod(_poison))
+
+def test_project_settings_dialog_add_signal_and_apply(monkeypatch):
+    _app()
+    _refuse_any_blocking_messagebox(monkeypatch)
+    from logic_studio.ui.dialogs import ProjectSettingsDialog
+    p = Project()
+    dialog = ProjectSettingsDialog(p)
+    dialog._add_signal_row({"name": "NOWY", "type": "REAL", "retentive": False, "category": "", "label": "", "description": ""})
+    dialog._on_accept()
+    dialog.apply_to_project()
+
+    assert p.settings["internal_bits"] == [
+        {"name": "NOWY", "type": "REAL", "retentive": False, "category": "", "label": "", "description": ""}
+    ]
+
+def test_project_settings_dialog_rename_propagates_to_blocks(monkeypatch):
+    """§7.3: renaming a registry entry updates every block's "Bit". Also
+    the regression case for the bug _refuse_any_blocking_messagebox is
+    named after: a rename makes the old name vanish from the collected
+    signal list exactly like a real delete would, so the "was this
+    deleted?" check must special-case renames or it wrongly prompts
+    (and, pre-fix, hung the suite) for every rename of a used signal."""
+    _app()
+    _refuse_any_blocking_messagebox(monkeypatch)
+    from logic_studio.blocks.registry import BlockRegistry
+    from logic_studio.ui.dialogs import ProjectSettingsDialog
+    p = Project()
+    p.settings["internal_bits"] = [{"name": "STARA_NAZWA", "type": "BOOL", "retentive": False, "description": "", "label": "", "category": ""}]
+    vo = BlockRegistry.create_block("virtual.output")
+    vo.properties["Bit"] = "STARA_NAZWA"
+    p.add_block(vo)
+
+    dialog = ProjectSettingsDialog(p)
+    dialog.signals_table.item(0, 0).setText("NOWA_NAZWA")
+    dialog._on_accept()
+    dialog.apply_to_project()
+
+    assert vo.properties["Bit"] == "NOWA_NAZWA"
+    assert p.settings["internal_bits"][0]["name"] == "NOWA_NAZWA"
+
+def test_project_settings_dialog_deleting_used_signal_prompts_confirmation(monkeypatch):
+    """The actual §7.2 confirmation path, exercised deliberately (unlike
+    the rename test above, which must NOT trigger it) — patched to answer
+    Yes, confirming the prompt fires with the right block name and that
+    accept() proceeds once confirmed."""
+    _app()
+    from PySide6.QtWidgets import QMessageBox
+    from logic_studio.blocks.registry import BlockRegistry
+    from logic_studio.ui.dialogs import ProjectSettingsDialog
+
+    p = Project()
+    p.settings["internal_bits"] = [{"name": "USUWANY", "type": "BOOL", "retentive": False, "description": "", "label": "", "category": ""}]
+    vo = BlockRegistry.create_block("virtual.output")
+    vo.properties["Bit"] = "USUWANY"
+    vo.display_name = "VO1"
+    p.add_block(vo)
+
+    dialog = ProjectSettingsDialog(p)
+    dialog.signals_table.removeRow(0)  # delete the only row -> real deletion, not a rename
+
+    prompts = []
+    def _fake_question(self, title, text, *a, **k):
+        prompts.append(text)
+        return QMessageBox.Yes
+    monkeypatch.setattr(QMessageBox, "question", _fake_question)
+
+    dialog._on_accept()
+    assert len(prompts) == 1
+    assert "USUWANY" in prompts[0] and "VO1" in prompts[0]
+    dialog.apply_to_project()
+    assert p.settings["internal_bits"] == []
+
+def test_project_settings_dialog_rejects_incompatible_type_change():
+    """§7.3: changing REAL used by internal.reg_out to BOOL must be
+    refused with a message, not silently applied."""
+    _app()
+    from logic_studio.blocks.registry import BlockRegistry
+    from logic_studio.ui.dialogs import ProjectSettingsDialog
+    p = Project()
+    p.settings["internal_bits"] = [{"name": "USTAWKA", "type": "REAL", "retentive": False, "description": "", "label": "", "category": ""}]
+    ro = BlockRegistry.create_block("internal.reg_out")
+    ro.properties["Bit"] = "USTAWKA"
+    p.add_block(ro)
+
+    dialog = ProjectSettingsDialog(p)
+    dialog.signals_table.cellWidget(0, 1).setCurrentText("BOOL")
+
+    entries, error, renames = dialog._collect_signals()
+    assert entries is None
+    assert "USTAWKA" in error
+    assert "BOOL" in error
+
+def test_project_settings_dialog_type_change_without_usage_is_allowed():
+    _app()
+    from logic_studio.ui.dialogs import ProjectSettingsDialog
+    p = Project()
+    p.settings["internal_bits"] = [{"name": "NIEUZYWANY", "type": "REAL", "retentive": False, "description": "", "label": "", "category": ""}]
+    dialog = ProjectSettingsDialog(p)
+    dialog.signals_table.cellWidget(0, 1).setCurrentText("BOOL")
+
+    entries, error, renames = dialog._collect_signals()
+    assert error is None
+    assert entries[0]["type"] == "BOOL"
+
+def test_project_settings_dialog_invalid_name_format_rejected():
+    _app()
+    from logic_studio.ui.dialogs import ProjectSettingsDialog
+    p = Project()
+    dialog = ProjectSettingsDialog(p)
+    dialog._add_signal_row({"name": "ZŁA NAZWA", "type": "BOOL", "retentive": False, "category": "", "label": "", "description": ""})
+
+    entries, error, renames = dialog._collect_signals()
+    assert entries is None
+    assert error is not None
+
+def test_project_settings_dialog_export_and_import_signals_roundtrip(tmp_path, monkeypatch):
+    """§7.4."""
+    _app()
+    from logic_studio.ui.dialogs import ProjectSettingsDialog
+    from PySide6.QtWidgets import QFileDialog
+
+    p = Project()
+    dialog = ProjectSettingsDialog(p)
+    dialog._add_signal_row({"name": "EKSPORTOWANY", "type": "BOOL", "retentive": True, "category": "Cat", "label": "L", "description": "D"})
+
+    out_path = str(tmp_path / "signals.json")
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (out_path, "")))
+    dialog._export_signals()
+
+    import json
+    with open(out_path, encoding="utf-8") as f:
+        data = json.load(f)
+    assert data["internal_bits"][0]["name"] == "EKSPORTOWANY"
+
+    dialog2 = ProjectSettingsDialog(Project())
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (out_path, "")))
+    dialog2._import_signals()
+    assert dialog2.signals_table.rowCount() == 1
+    assert dialog2.signals_table.item(0, 0).text() == "EKSPORTOWANY"
+
 
 
