@@ -102,8 +102,13 @@ class LogicScene(QGraphicsScene):
             elif isinstance(item, PortItem):
                 item.update_live_state()
 
-    def add_block_from_library(self, type_id: str, x: float, y: float):
-        """Called by the view upon drop event. Instantiates and adds to scene."""
+    def add_block_from_library(self, type_id: str, x: float, y: float, address: str = None):
+        """Called by the view upon drop event (also by the library panel's
+        double-click insert). Instantiates and adds to scene. `address`, if
+        given, is written straight into the new block's "Address" property
+        — used when dragging a DI/DO/AI/AO leaf from DeviceExplorerPanel, so
+        the block lands already configured instead of needing a property-
+        grid detour to set its Address."""
         from logic_studio.blocks.registry import BlockRegistry
         from logic_studio.ui.canvas.block_item import BlockItem
 
@@ -111,6 +116,9 @@ class LogicScene(QGraphicsScene):
 
         if not block:
             return # Invalid drop
+
+        if address and "Address" in block.properties:
+            block.properties["Address"] = address
 
         block.set_position(x, y)
 
