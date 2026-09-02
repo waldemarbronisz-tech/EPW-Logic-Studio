@@ -126,6 +126,30 @@ def test_disabled_field_survives_roundtrip_explicit_regression():
 
 # ---- BaseLogicBlock gets the same treatment (§0.1: "to samo dla bloku") --
 
+def test_every_serializable_block_attribute_is_accounted_for():
+    """feat/signal-crossref §0: this class of bug (a field silently never
+    restored on load) has now bitten three times — Pin.connections,
+    Pin.disabled, and BaseLogicBlock.visibility/execution_state — but the
+    field-audit test only ever covered Pin. This is that same audit,
+    extended to BaseLogicBlock: every plain attribute a fresh block
+    carries must be classified into exactly one of SERIALIZED_FIELDS
+    (round-tripped generically), _STRUCTURED_FIELDS (also persisted, via
+    its own explicit code — nested structures, or class-determined values
+    never overwritten from a file), or _TRANSIENT_FIELDS (never
+    serialized, deliberately). An attribute added to __init__ without
+    being classified into one of the three fails HERE now, instead of
+    silently losing its persistence the way visibility/execution_state
+    did."""
+    from logic_studio.blocks.base import BaseLogicBlock
+    block = AndGate()
+    actual = set(vars(block).keys())
+    accounted_for = (
+        set(BaseLogicBlock.SERIALIZED_FIELDS)
+        | set(BaseLogicBlock._STRUCTURED_FIELDS)
+        | set(BaseLogicBlock._TRANSIENT_FIELDS)
+    )
+    assert actual == accounted_for
+
 def test_block_enabled_survives_roundtrip():
     """§0.1 found this exact same bug, latent, on BaseLogicBlock:
     serialize() wrote `visibility`/`enabled`, deserialize() never read them

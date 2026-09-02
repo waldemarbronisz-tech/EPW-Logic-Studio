@@ -34,6 +34,33 @@ class BaseLogicBlock:
     # fresh one instead of colliding with its source (core/short_id.py).
     SERIALIZED_FIELDS = ("uuid", "short_id", "display_name", "execution_priority", "color", "enabled")
 
+    # feat/signal-crossref §0: the field-round-trip AUDIT test
+    # (test_pin_serialization.py) only ever checked `Pin` — the exact class
+    # of bug it exists to prevent (a field silently never restored on load)
+    # has now bitten three times: Pin.connections (aliased, not copied),
+    # Pin.disabled (dropped outright), and BaseLogicBlock.visibility/
+    # execution_state (serialized but never read back — found and removed
+    # in feat/io-labels-and-ids §5.6, the same PR that introduced this
+    # class's own SERIALIZED_FIELDS). The audit test itself never followed
+    # it here. These two tuples are what closes that gap: every plain
+    # attribute a fresh block carries must appear in exactly one of
+    # SERIALIZED_FIELDS (round-tripped generically), _STRUCTURED_FIELDS
+    # (also persisted, but via its own explicit code in serialize()/
+    # deserialize() below — type_id/category/description are class-
+    # determined and never restored from a file, position/size/inputs/
+    # outputs/properties are nested structures, not flat scalars), or
+    # _TRANSIENT_FIELDS (never serialized at all, deliberately). A field
+    # added to __init__ without being classified into one of these three
+    # fails test_every_serializable_block_attribute_is_accounted_for()
+    # (tests/test_pin_serialization.py) immediately, instead of silently
+    # losing its persistence the way visibility/execution_state did.
+    _STRUCTURED_FIELDS = (
+        "type_id", "category", "description",
+        "x", "y", "width", "height",
+        "inputs", "outputs", "properties",
+    )
+    _TRANSIENT_FIELDS = ("simulation_state", "is_source", "aliases", "allows_disabled_inputs")
+
     def __init__(self, type_id: str, default_name: str, category: str, description: str = ""):
         self.uuid: str = str(uuid.uuid4())
         # feat/io-labels-and-ids §4: human-readable id ("g12", "i3", ...),
