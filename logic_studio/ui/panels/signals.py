@@ -467,3 +467,22 @@ class SignalsPanel(QWidget):
             brush = highlight if matches else clear
             for col in range(self.table.columnCount()):
                 self.table.item(row, col).setBackground(brush)
+
+    # ---- §4: entry point from the block context menu -----------------------
+
+    def focus_signal(self, signal_id: str):
+        """Called from the canvas block context menu's "Pokaż użycia
+        sygnału" (block_item.py) — resets the kind/only-issues filters
+        (whatever the target signal's kind or issue state, it must end up
+        VISIBLE — a stale "Fizyczne"/"Tylko problemy" filter from earlier
+        browsing could otherwise hide the very row this is supposed to
+        reveal), sets the search filter to this signal's id, and selects
+        + scrolls to its row, if found."""
+        self._on_kind_filter_changed("Wszystkie")
+        self.only_issues_check.setChecked(False)
+        self.search_edit.setText(signal_id)
+        for row in range(self.table.rowCount()):
+            if self.table.item(row, COL_SIGNAL).data(SIGNAL_ID_ROLE) == signal_id:
+                self.table.selectRow(row)
+                self.table.scrollToItem(self.table.item(row, COL_SIGNAL))
+                break
