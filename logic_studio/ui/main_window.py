@@ -120,9 +120,15 @@ class MainWindow(QMainWindow):
         # left as a dead menu item (AUDIT_REPORT.md §2.3) — a real MRU list is a
         # separate feature, not part of this fix pass.
         self.act_project_settings = self._make_action("Project Settings", self._open_project_settings)
+        # feat/signal-crossref §5.1: exports exactly what's currently
+        # visible in the Sygnały panel's table (filters included) to CSV.
+        self.act_export_signals = self._make_action(
+            "Eksportuj listę sygnałów...", lambda: self.signals_panel.prompt_export_csv()
+        )
 
         project_menu = menubar.addMenu("Project")
         project_menu.addAction(self.act_project_settings)
+        project_menu.addAction(self.act_export_signals)
 
         # --- Logic ---
         self.act_compile = self._make_action("Compile", self.compile_project, "F5", icon_name="compile")

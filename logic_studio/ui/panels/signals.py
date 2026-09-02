@@ -2,10 +2,13 @@
 sortable/filterable cross-reference table backed by core/crossref.py.
 Never modifies the project, never touches the compiler/engine.
 """
+import csv
+from datetime import datetime
+
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QLabel,
     QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView, QMenu,
-    QGraphicsRectItem
+    QGraphicsRectItem, QFileDialog
 )
 from PySide6.QtCore import Qt, QSettings, QTimer, Signal
 from PySide6.QtGui import QFont, QColor, QBrush, QPen, QPixmap, QPainter, QIcon
@@ -469,6 +472,60 @@ class SignalsPanel(QWidget):
                 self.table.item(row, col).setBackground(brush)
 
     # ---- §4: entry point from the block context menu -----------------------
+
+    # ---- §5: CSV export -------------------------------------------------------
+
+    def _is_filter_applied(self) -> bool:
+        return (
+            bool(self.search_edit.text().strip())
+            or self._active_kind_filter != "Wszystkie"
+            or self.only_issues_check.isChecked()
+        )
+
+    def export_csv(self, path: str):
+        """§5.1/§5.2: writes exactly the rows CURRENTLY VISIBLE in the
+        table (i.e. after every active filter), in the table's own column
+        order plus a trailing "Problemy" column — reads straight off the
+        rendered cell text rather than re-deriving anything from
+        core/crossref.py, so the export can never disagree with what's
+        actually on screen. UTF-8 with a BOM ("utf-8-sig") and a ";"
+        delimiter, so the file opens correctly in Excel with Polish
+        characters with no manual import-wizard step. First line is a "#"
+        comment (project name, ISO date, whether a filter was applied) —
+        not a csv.writer row, so spreadsheet tools that treat a leading
+        "#" as a comment skip it automatically."""
+        project_name = self.project.settings.get("name", "") if self.project else ""
+        timestamp = datetime.now().isoformat(timespec="seconds")
+        filter_applied = "tak" if self._is_filter_applied() else "nie"
+
+        with open(path, "w", encoding="utf-8-sig", newline="") as f:
+            f.write(f"# Projekt: {project_name} | Data: {timestamp} | Filtr zastosowany: {filter_applied}\n")
+            writer = csv.writer(f, delimiter=";")
+            writer.writerow(list(COLUMN_HEADERS) + ["Problemy"])
+
+            for row in range(self.table.rowCount()):
+                if self.table.isRowHidden(row):
+                    continue
+                signal_id = self.table.item(row, COL_SIGNAL).data(SIGNAL_ID_ROLE)
+                issue = self._issues_by_signal.get(signal_id)
+                state_text = _SEVERITY_LABEL_PL[issue.severity] if issue else ""
+                writer.writerow([
+                    state_text,
+                    self.table.item(row, COL_SIGNAL).text(),
+                    self.table.item(row, COL_TYPE).text(),
+                    self.table.item(row, COL_LABEL).text(),
+                    self.table.item(row, COL_WRITES).text(),
+                    self.table.item(row, COL_READS).text(),
+                    issue.text if issue else "",
+                ])
+
+    def prompt_export_csv(self):
+        """§5.1: "Project -> Eksportuj listę sygnałów..." — wired from
+        main_window.py."""
+        path, _ = QFileDialog.getSaveFileName(self, "Eksportuj listę sygnałów", "sygnaly.csv", "CSV (*.csv)")
+        if not path:
+            return
+        self.export_csv(path)
 
     def focus_signal(self, signal_id: str):
         """Called from the canvas block context menu's "Pokaż użycia
