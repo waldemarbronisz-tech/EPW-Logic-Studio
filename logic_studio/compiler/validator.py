@@ -21,9 +21,43 @@ class Validator:
                 errors.append(f"[{block.display_name}] {err}")
 
             # 2. Pin Level Validation
+            # feat/editor-modes-and-geometry §2.4: a disabled ("zaślepione")
+            # input is excluded from validation the same way it's excluded
+            # from evaluate() (base.py's _active_inputs()) — no "unconnected"
+            # warning for it. Instead: an active-input-count check runs once
+            # per block below (only for block types that opt in at all —
+            # multi-input logic gates), covering the "too few active inputs"
+            # and "every input disabled" cases §2.4 requires.
+            has_inputs = False
+            active_input_count = 0
             for pin in block.inputs:
+                has_inputs = True
+                if pin.disabled:
+                    if not getattr(block, 'allows_disabled_inputs', False):
+                        # Defensive: this state should be unreachable through
+                        # the UI (PortItem only offers the toggle when the
+                        # block opted in) but a hand-edited/older file could
+                        # still carry it — never silently accept it.
+                        errors.append(
+                            f"[{block.display_name}] Wejście '{pin.name}' jest zaślepione, "
+                            "ale ten typ bloku nie zezwala na zaślepianie wejść."
+                        )
+                    continue
+                active_input_count += 1
                 if not pin.connections:
                     warnings.append(f"[{block.display_name}] Input '{pin.name}' is unconnected.")
+
+            if has_inputs and getattr(block, 'allows_disabled_inputs', False):
+                if active_input_count == 0:
+                    errors.append(
+                        f"[{block.display_name}] Wszystkie wejścia bloku są zaślepione — "
+                        "blok nie ma żadnego aktywnego wejścia."
+                    )
+                elif active_input_count == 1:
+                    warnings.append(
+                        f"Bramka {block.display_name} ma tylko 1 aktywne wejście — "
+                        "działa jak przekaźnik powtarzający."
+                    )
 
             # 3. Explicit IO Address Validation
             if block.type_id == "input.di":

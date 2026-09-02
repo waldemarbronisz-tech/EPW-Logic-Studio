@@ -287,6 +287,11 @@ class Project:
                 if i < len(block.inputs):
                     block.inputs[i].uuid = pin_data.get("uuid")
                     block.inputs[i].connections = list(pin_data.get("connections", []))
+                    # feat/editor-modes-and-geometry §2.1/§2.6: back-compat —
+                    # absent (older save, or an output-pin-shaped dict with
+                    # no such key) means False, same default as a brand new
+                    # Pin.
+                    block.inputs[i].disabled = bool(pin_data.get("disabled", False))
 
             for i, pin_data in enumerate(b_data.get("outputs", [])):
                 if i < len(block.outputs):

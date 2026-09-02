@@ -109,3 +109,10 @@ COLOR_GRID = QColor(160, 160, 160)         # GRID_MAJOR dots — stronger
 COLOR_GRID_MINOR = QColor(220, 220, 220)   # GRID_MINOR dots — fainter, drawn
                                             # between the major ones
 COLOR_WIRE_SELECTED = QColor(0, 255, 255)
+
+# feat/editor-modes-and-geometry §2.3: a disabled ("zaślepione") input draws
+# as a short capped stub instead of the normal port square — this is its
+# dedicated color, clearly distinct from COLOR_LOGIC_LOW (an ordinary
+# unconnected/off pin, still plain black) and from COLOR_GRID (the
+# background dots) so it can't be mistaken for either at a glance.
+COLOR_DISABLED_INPUT = QColor(140, 140, 140)

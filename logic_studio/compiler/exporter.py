@@ -42,7 +42,14 @@ class Exporter:
         forced_block_names = []
 
         for block in self.project.blocks:
-            inputs = [{"pin_uuid": pin.uuid, "name": pin.name, "type": pin.data_type, "connections": pin.connections} for pin in block.inputs]
+            # "disabled" (feat/editor-modes-and-geometry §2.5): EPW-OS must
+            # know an input was explicitly excluded from this block's own
+            # logic, or it will evaluate the gate differently than the
+            # simulation did (default-value semantics instead of exclusion —
+            # see Pin.disabled's docstring). Already covered by CHECKSUM_
+            # FIELDS: "blocks" (below) carries this whole per-pin dict, so no
+            # separate entry is needed in that tuple.
+            inputs = [{"pin_uuid": pin.uuid, "name": pin.name, "type": pin.data_type, "connections": pin.connections, "disabled": pin.disabled} for pin in block.inputs]
             outputs = [{"pin_uuid": pin.uuid, "name": pin.name, "type": pin.data_type, "connections": pin.connections} for pin in block.outputs]
 
             # A block's exported properties may carry compiler-resolved,

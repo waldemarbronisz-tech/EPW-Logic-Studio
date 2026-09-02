@@ -10,6 +10,15 @@ class LogicGateBase(BaseLogicBlock):
         self.width = 60
         self.height = max(60, 20 + default_inputs * 20)
 
+        # feat/editor-modes-and-geometry §2.4: "zaślepianie" (disabling) an
+        # unconnected input is only meaningful — and only permitted — on a
+        # multi-input gate (AND/OR/NAND/NOR/XOR/XNOR, 2+ inputs). A 1-input
+        # gate (NOT, BUFFER) has nothing to exclude a wire FROM without
+        # removing the block's only input entirely, so this stays False for
+        # those by construction (default_inputs < 2). Every LogicGateBase
+        # subclass gets this set correctly without listing classes by name.
+        self.allows_disabled_inputs = default_inputs >= 2
+
         for i in range(default_inputs):
             self.inputs.append(Pin(f"In{i+1}", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
 
@@ -22,7 +31,7 @@ class AndGate(LogicGateBase):
 
     def evaluate(self, engine=None):
         result = True
-        for p in self.inputs:
+        for p in self._active_inputs():
             v = p.value if p.value is not None else False
             result = result and bool(v)
         self.outputs[0].value = result
@@ -34,7 +43,7 @@ class And3Gate(LogicGateBase):
 
     def evaluate(self, engine=None):
         result = True
-        for p in self.inputs:
+        for p in self._active_inputs():
             v = p.value if p.value is not None else False
             result = result and bool(v)
         self.outputs[0].value = result
@@ -46,7 +55,7 @@ class And4Gate(LogicGateBase):
 
     def evaluate(self, engine=None):
         result = True
-        for p in self.inputs:
+        for p in self._active_inputs():
             v = p.value if p.value is not None else False
             result = result and bool(v)
         self.outputs[0].value = result
@@ -58,7 +67,7 @@ class OrGate(LogicGateBase):
 
     def evaluate(self, engine=None):
         result = False
-        for p in self.inputs:
+        for p in self._active_inputs():
             v = p.value if p.value is not None else False
             result = result or bool(v)
         self.outputs[0].value = result
@@ -70,7 +79,7 @@ class Or3Gate(LogicGateBase):
 
     def evaluate(self, engine=None):
         result = False
-        for p in self.inputs:
+        for p in self._active_inputs():
             v = p.value if p.value is not None else False
             result = result or bool(v)
         self.outputs[0].value = result
@@ -82,7 +91,7 @@ class Or4Gate(LogicGateBase):
 
     def evaluate(self, engine=None):
         result = False
-        for p in self.inputs:
+        for p in self._active_inputs():
             v = p.value if p.value is not None else False
             result = result or bool(v)
         self.outputs[0].value = result
@@ -105,8 +114,9 @@ class XorGate(LogicGateBase):
         super().__init__(type_id, default_name, category, description, default_inputs=2)
 
     def evaluate(self, engine=None):
-        # XOR is true if odd number of true inputs
-        trues = sum([1 for p in self.inputs if p.value])
+        # XOR is true if odd number of true inputs (a disabled input is
+        # excluded entirely, same as every other multi-input gate — §2)
+        trues = sum([1 for p in self._active_inputs() if p.value])
         self.outputs[0].value = (trues % 2 != 0)
 
 @BlockRegistry.register
@@ -116,7 +126,7 @@ class NandGate(LogicGateBase):
 
     def evaluate(self, engine=None):
         result = True
-        for p in self.inputs:
+        for p in self._active_inputs():
             v = p.value if p.value is not None else False
             result = result and bool(v)
         self.outputs[0].value = not result
@@ -128,7 +138,7 @@ class Nand3Gate(LogicGateBase):
 
     def evaluate(self, engine=None):
         result = True
-        for p in self.inputs:
+        for p in self._active_inputs():
             v = p.value if p.value is not None else False
             result = result and bool(v)
         self.outputs[0].value = not result
@@ -140,7 +150,7 @@ class Nand4Gate(LogicGateBase):
 
     def evaluate(self, engine=None):
         result = True
-        for p in self.inputs:
+        for p in self._active_inputs():
             v = p.value if p.value is not None else False
             result = result and bool(v)
         self.outputs[0].value = not result
@@ -152,7 +162,7 @@ class NorGate(LogicGateBase):
 
     def evaluate(self, engine=None):
         result = False
-        for p in self.inputs:
+        for p in self._active_inputs():
             v = p.value if p.value is not None else False
             result = result or bool(v)
         self.outputs[0].value = not result
@@ -164,7 +174,7 @@ class Nor3Gate(LogicGateBase):
 
     def evaluate(self, engine=None):
         result = False
-        for p in self.inputs:
+        for p in self._active_inputs():
             v = p.value if p.value is not None else False
             result = result or bool(v)
         self.outputs[0].value = not result
@@ -176,7 +186,7 @@ class Nor4Gate(LogicGateBase):
 
     def evaluate(self, engine=None):
         result = False
-        for p in self.inputs:
+        for p in self._active_inputs():
             v = p.value if p.value is not None else False
             result = result or bool(v)
         self.outputs[0].value = not result
@@ -187,7 +197,7 @@ class XnorGate(LogicGateBase):
         super().__init__(type_id, default_name, category, description, default_inputs=2)
 
     def evaluate(self, engine=None):
-        trues = sum([1 for p in self.inputs if p.value])
+        trues = sum([1 for p in self._active_inputs() if p.value])
         self.outputs[0].value = (trues % 2 == 0)
 
 @BlockRegistry.register
