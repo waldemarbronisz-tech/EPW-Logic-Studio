@@ -56,12 +56,19 @@ class ExecutionEngine:
 
         # Output image written by blocks during a scan, pushed to the IOProvider
         # atomically at the end of that scan (see step()). Split by kind since
-        # IOProvider has separate digital/analog write methods.
-        self._output_buffer = {"digital": {}, "analog": {}}
+        # IOProvider has separate digital/analog write methods. "internal"
+        # (feat/internal-bits §2.3) joins them here — same atomic-flush
+        # mechanism, its own key since IOProvider.write_internal() is its
+        # own method too.
+        self._output_buffer = {"digital": {}, "analog": {}, "internal": {}}
 
         # Every output address ever queued during this engine's lifetime, so
         # stop()/FAULT can drive all of them to a safe state even ones that
-        # were not touched during the final scan (see stop()).
+        # were not touched during the final scan (see stop()). Internal
+        # signals are deliberately NOT included — unlike physical outputs,
+        # an internal signal has no "safe state" the engine can decide on
+        # its own (BOOL's False isn't obviously safer than True for an
+        # arbitrary M-bit), so stopping the engine leaves them as they were.
         self._touched_outputs = {"digital": set(), "analog": set()}
 
     def queue_digital_output(self, address: str, value: bool):
@@ -79,6 +86,12 @@ class ExecutionEngine:
         self._output_buffer["analog"][address] = value
         self._touched_outputs["analog"].add(address)
 
+    def queue_internal_write(self, name: str, value):
+        """Internal-signal counterpart of queue_digital_output() (feat/
+        internal-bits §2.3) — same atomic-flush buffering (flushed via
+        IOProvider.write_internal() at the end of step(), see step())."""
+        self._output_buffer["internal"][name] = value
+
     def _fail_safe_outputs(self):
         """Drive every output address ever queued during this engine's
         lifetime to its safe state (digital False, analog 0.0) and drop
@@ -86,7 +99,7 @@ class ExecutionEngine:
         stop() and from the FAULT transition in start() — see 'fail-safe on
         stop' in ARCHITECTURE.md. Outputs are never left latched on their
         last value when the process is not actively being scanned."""
-        self._output_buffer = {"digital": {}, "analog": {}}
+        self._output_buffer = {"digital": {}, "analog": {}, "internal": {}}
         if self.io is None:
             return
         for address in self._touched_outputs["digital"]:
@@ -157,7 +170,7 @@ class ExecutionEngine:
             return
 
         start_time = time.monotonic_ns()
-        self._output_buffer = {"digital": {}, "analog": {}}
+        self._output_buffer = {"digital": {}, "analog": {}, "internal": {}}
 
         block_map = self.program.block_map
         pin_map = self.program.pin_map
@@ -195,6 +208,8 @@ class ExecutionEngine:
             self.io.write_digital_output(address, value)
         for address, value in self._output_buffer["analog"].items():
             self.io.write_analog_output(address, value)
+        for name, value in self._output_buffer["internal"].items():
+            self.io.write_internal(name, value)
 
         # 4. Diagnostics
         end_time = time.monotonic_ns()
@@ -203,6 +218,16 @@ class ExecutionEngine:
         if duration_ms > self.max_scan_duration_ms:
             self.max_scan_duration_ms = duration_ms
         self.cycle_counter += 1
+
+        # SYS.SCAN_TIME/SYS.CYCLE_COUNT (§3.2) — kept current on the
+        # IOProvider itself so system.signal blocks reading them next scan
+        # see this scan's numbers; only meaningful for SimulationIOProvider
+        # (a real IOProvider implementation is free to compute these its
+        # own way, or not support them at all).
+        if hasattr(self.io, 'scan_time_ms'):
+            self.io.scan_time_ms = duration_ms
+        if hasattr(self.io, 'cycle_count'):
+            self.io.cycle_count = float(self.cycle_counter)
 
     def get_runtime_snapshot(self) -> RuntimeSnapshot:
         """Returns a stable, read-only snapshot of the current runtime execution."""

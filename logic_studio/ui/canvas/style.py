@@ -55,6 +55,14 @@ GATE_LEAD = 8                # visible connection "lead" between a gate's port
                               # port square directly (reference: distinct
                               # short lead wires on every pin, IEC/ANSI-style)
 PORT_CLICK_MARGIN = 4        # extra hit-test margin around a port square
+PIN_LABEL_GAP = 5            # space between a port square and its pin-name
+                              # label (§0.2 audit follow-up — was a bare `2`
+                              # inline in port_item.py)
+PIN_LABEL_SIDE_FRACTION = 0.45  # max width of a pin label, as a fraction of
+                              # the block's own width — leaves a 10% no-
+                              # man's-land in the middle so a long input
+                              # label and a long output label can never grow
+                              # to meet (§0.2)
 BLOCK_SELECTION_MARGIN = 4   # dashed selection rect padding beyond the body
 BOUNDING_RECT_MARGIN = 15    # default margin for BlockItem.boundingRect()
 XOR_ACCENT_OFFSET = 6        # gap between the XOR/XNOR extra curve and the shield

@@ -64,10 +64,23 @@ def test_priority_a_audit(qsettings):
     vo_b = get_block(10)
 
     # 3. PROPERTIES
-    vi_a.update_property("Tag", "VI.PULSE_REQUEST")
-    assert vi_a.properties["Tag"] == "VI.PULSE_REQUEST"
+    # feat/internal-bits §2.1: virtual.input's free-text "Tag" was replaced
+    # by "Bit" (a registry entry name, normally picked via
+    # SignalPickerDialog — set directly here since this test predates that
+    # UI). §4.4 requires the name to actually exist in the project's
+    # registry, or compilation fails.
+    m.project.settings["internal_bits"].append({
+        "name": "VI_PULSE_REQUEST", "type": "BOOL", "retentive": False,
+        "description": "", "label": "", "category": "",
+    })
+    vi_a.update_property("Bit", "VI_PULSE_REQUEST")
+    assert vi_a.properties["Bit"] == "VI_PULSE_REQUEST"
 
-    sys_sig.update_property("Tag", "SYSTEM.CORE_ONLINE")
+    # feat/internal-bits §3.4: system.signal's free-text "Tag" (which read
+    # through read_digital_input(), sharing an address space with physical
+    # DI) was replaced by "Sygnał", a fixed catalog signal id read via
+    # IOProvider.read_system_signal().
+    sys_sig.update_property("Sygnał", "SYS.COMMS_OK")
 
     analog_src.update_property("Value", "5.0")
     assert float(analog_src.properties["Value"]) == 5.0
@@ -107,7 +120,7 @@ def test_priority_a_audit(qsettings):
     # Tick 1: Pulse input high
     # Force is runtime-only (AUDIT_REPORT.md §5.1): lives in simulation_state, not properties.
     m.engine.program.block_map[vi_a.uuid].simulation_state["force_state"] = "FORCE TRUE"
-    m.engine.io.set_digital_input("SYSTEM.CORE_ONLINE", True)
+    m.engine.io.system_signal_overrides["SYS.COMMS_OK"] = True
     m.engine.step()
 
     # Network A Checks

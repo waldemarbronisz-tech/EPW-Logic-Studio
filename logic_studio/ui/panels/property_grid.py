@@ -1,6 +1,16 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QPushButton
 from PySide6.QtCore import Qt
 from logic_studio.core.device_model import DeviceModel
+
+# feat/internal-bits §6.1: SignalPickerDialog opens for these (type_id,
+# property key) pairs — value_type/sections tell the dialog what to show.
+_SIGNAL_PICKER_TARGETS = {
+    ("virtual.input", "Bit"): ("BOOL", ("internal",)),
+    ("virtual.output", "Bit"): ("BOOL", ("internal",)),
+    ("internal.reg_in", "Bit"): ("REAL", ("internal",)),
+    ("internal.reg_out", "Bit"): ("REAL", ("internal",)),
+    ("system.signal", "Sygnał"): (None, ("system",)),
+}
 
 class PropertyGridPanel(QWidget):
     def __init__(self, parent=None):
@@ -57,6 +67,44 @@ class PropertyGridPanel(QWidget):
             if hasattr(window, 'scene'):
                 window.scene.update()
 
+
+    def _open_signal_picker(self, key, button):
+        """feat/internal-bits §6.1/§6.7: opens SignalPickerDialog for the
+        given property; on accept, sets the property, pushes undo state,
+        marks dirty, repaints the canvas — exactly the same side effects
+        _on_item_changed()/_on_combo_changed() already have for every other
+        property, just triggered from a button instead of an edited cell."""
+        if not self.current_block:
+            return
+        target = _SIGNAL_PICKER_TARGETS.get((self.current_block.type_id, key))
+        if target is None:
+            return
+        value_type, sections = target
+
+        window = self.window()
+        project = getattr(window, 'project', None) or self.current_project
+        if project is None:
+            return
+
+        from logic_studio.ui.signal_picker import SignalPickerDialog
+        from PySide6.QtWidgets import QDialog
+
+        dialog = SignalPickerDialog(project, value_type=value_type, parent=self, sections=sections)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        chosen = dialog.selected_signal_id()
+        if not chosen:
+            return
+
+        if hasattr(window, 'project'):
+            window.project.push_state()
+            window.set_dirty()
+
+        self.current_block.update_property(key, chosen)
+        button.setText(chosen)
+
+        if hasattr(window, 'scene'):
+            window.scene.update()
 
     def _on_combo_changed(self, key, text):
         if not self.current_block:
@@ -171,6 +219,15 @@ class PropertyGridPanel(QWidget):
                 combo.setCurrentText(str(value))
                 combo.currentTextChanged.connect(lambda text, k=key: self._on_combo_changed(k, text))
                 self.table.setCellWidget(row, 1, combo)
+            elif (block.type_id, key) in _SIGNAL_PICKER_TARGETS:
+                # feat/internal-bits §6.1: SignalPickerDialog, not a plain
+                # text field — a "Bit"/"Sygnał" typo used to silently
+                # create a new signal (or, for system.signal, collide with
+                # a physical DI address); picking from a validated list
+                # makes that impossible.
+                btn = QPushButton(str(value) or "(nie wybrano)")
+                btn.clicked.connect(lambda checked=False, k=key, b=btn: self._open_signal_picker(k, b))
+                self.table.setCellWidget(row, 1, btn)
             else:
                 self.table.setItem(row, 1, val_item)
 

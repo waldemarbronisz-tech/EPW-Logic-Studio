@@ -24,6 +24,9 @@ class AnalogInputBlock(BaseLogicBlock):
             Pin("Value", Pin.DIR_OUTPUT, Pin.TYPE_FLOAT),
             Pin("Quality", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN),
         ]
+        # A stale/bad reading masquerading as good data is exactly the kind
+        # of failure a safety interlock needs to see — mark it accordingly.
+        self.outputs[1].safety_relevant = True
 
         # Last value judged trustworthy — held across bad-quality scans
         # (fail-safe: downstream logic runs on stale-but-good data, never on

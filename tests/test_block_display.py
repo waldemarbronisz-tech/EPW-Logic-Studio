@@ -40,14 +40,19 @@ def test_di_with_address_reports_it_and_clears_warning():
     getter = item._REQUIRED_IDENTIFIER_GETTERS[item.shape_style]
     assert getter(item) == "ELA01.DI06"
 
-def test_virtual_input_identifier_comes_from_tag():
-    """Virtual IN/OUT have no "Address" property — their own "Tag" IS their
-    identifier, predating the generic Tag/Comment feature (§1/§7.1)."""
+def test_virtual_input_identifier_comes_from_bit():
+    """feat/internal-bits §2.1: Virtual IN/OUT no longer have a free-text
+    "Tag" — their identifier is resolved from the "Bit" property (an
+    internal-signal registry entry name) via
+    BlockItem._resolved_internal_signal_id(). With no scene/Project wired
+    up (as here), resolution falls back to the bare "Bit" name."""
     _app()
     vi = BlockRegistry.create_block("virtual.input")
+    vi.properties["Bit"] = "BLOKADA_ZS"
     item = BlockItem(vi)
     assert "Address" not in vi.properties or not vi.properties.get("Address")
-    assert item._io_identifier() == vi.properties["Tag"]
+    assert "Tag" not in vi.properties
+    assert item._io_identifier() == "BLOKADA_ZS"
 
 def test_generic_tag_not_duplicated_above_virtual_input():
     """A Virtual IN's own Tag is already shown inside the block by

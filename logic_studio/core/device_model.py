@@ -47,3 +47,21 @@ class DeviceModel:
             if p.get("address") == address:
                 return p
         return None
+
+    # ---- Internal signal registry (feat/internal-bits §1.4) ------------------
+    # Also entirely project-defined (project.settings["internal_bits"]) —
+    # see core/internal_bits.py for the entry shape and internal_bit_id().
+
+    @classmethod
+    def get_internal_bits(cls, project, type_filter: str = None) -> list:
+        entries = list(project.settings.get("internal_bits", []))
+        if type_filter is not None:
+            entries = [e for e in entries if e.get("type") == type_filter]
+        return entries
+
+    @classmethod
+    def get_internal_bit(cls, project, name: str):
+        for e in cls.get_internal_bits(project):
+            if e.get("name", "").lower() == (name or "").lower():
+                return e
+        return None

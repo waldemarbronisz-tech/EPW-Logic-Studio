@@ -144,6 +144,19 @@ def draw_gate_shape(painter, rect: QRectF, shape_style: str, inputs_count: int =
         painter.drawLine(QPointF(lead_start, y_out), QPointF(x0 + w, y_out))
 
 
+IO_NOTCH_MAX = 10  # cap on the output-direction chevron's notch depth
+
+
+def io_notch_width(w: float) -> float:
+    """The output-direction chevron's notch depth for a block of width `w`
+    — shared by draw_io_shape() and BlockItem's IO text layout (§0.4 audit
+    follow-up) so the two can never disagree about how much of the left
+    edge is actually cut away. A block narrower than IO_NOTCH_MAX*5 gets a
+    proportionally shallower notch; every real IO block is wide enough
+    (>=80px) that this is always exactly IO_NOTCH_MAX in practice."""
+    return min(IO_NOTCH_MAX, w * 0.2)
+
+
 def draw_io_shape(painter, rect: QRectF, direction: str):
     """Chevron "tag" shape used by DI/DO/AI/AO/Virtual IN/OUT. `direction` is
     "input" or "output" — an input block's chevron points right (signal
@@ -153,7 +166,7 @@ def draw_io_shape(painter, rect: QRectF, direction: str):
     painter.setBrush(style.COLOR_BACKGROUND)
 
     x0, y0, w, h = rect.left(), rect.top(), rect.width(), rect.height()
-    notch = min(10, w * 0.2)
+    notch = io_notch_width(w)
     path = QPainterPath()
 
     if direction == "input":

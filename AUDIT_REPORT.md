@@ -1,6 +1,9 @@
 # EPW Logic Studio — Pełny raport audytowy (dla Claude.ai)
 
-**Data:** 2026-08-31
+**Data:** 2026-09-01 (zaktualizowano do stanu po `feat/block-rendering-library` i
+`feat/internal-bits` — patrz §14/§15; §1-§13 poniżej odzwierciedlają stan
+sprzed tych dwóch gałęzi i pozostają jako historyczny zapis, nie bieżący stan
+repo — bieżące liczby: 500 testów, patrz §15)
 **Zakres:** wyłącznie warstwa logiki — `EPW-Logic-Studio/` (moduł `logic_studio`, testy, przykłady `.epwlogic`). Pozostałe moduły platformy (`EPW-OS`, `EPW-Synoptic-Editor`) celowo pominięte.
 **Cel dokumentu:** dać modelowi bez dostępu do repo pełny, samodzielny obraz architektury, stanu i znanych problemów, żeby mógł doradzać / kontynuować pracę bez dodatkowych pytań.
 
@@ -329,3 +332,93 @@ bloku AI trafiały wyłącznie do `CompiledProgram` w pamięci, nigdy do pliku
 ### Świadomie pominięte / poza zakresem tego PR
 - Migracja `EPW_RUNTIME_LOGIC` (`RUNTIME_SCHEMA_VERSION`) nie ma własnego łańcucha migracji jak `.epwlogic` — eksport jest zawsze generowany od nowa z aktualnego projektu, nigdy wczytywany z powrotem do Logic Studio, więc nie ma czego migrować po tej stronie; wersja służy wyłącznie konsumentowi (EPW-OS).
 - Nie dodano walidacji w `ProjectSettingsDialog` ostrzegającej przed usunięciem punktu analogowego wciąż referencjonowanego przez blok — zgłoszone jako pominięte już w poprzednim PR (§12), nie w zakresie tego zlecenia.
+
+## 14. Status napraw (branch `feat/block-rendering-library`)
+
+Przebudowa warstwy prezentacji kanwy — nigdy wcześniej nie ujęta w tym
+dokumencie (ten PR trafił na `main` bez odpowiadającego wpisu tutaj; §1-§13
+powyżej odzwierciedlają stan SPRZED niego). Wszystkie punkty pokryte testami
+w `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` (88 → 276 testów,
+PASS przed mergem).
+
+| # | Punkt | Status |
+|---|---|---|
+| — | Dymek negacji (NAND/NOR/XNOR/NOT) nierozróżnialny od wersji bez negacji | Naprawione — dymek rysowany z jawnym odstępem (`BUBBLE_PORT_GAP`) od kwadracika portu, dodatkowo odseparowany krótkim odcinkiem przyłączeniowym. |
+| — | Kształty bramek (D-shape AND/NAND, akcent XOR/XNOR, korpus na pełną wysokość) | Naprawione — `ui/canvas/shapes.py`, D-shape oparty o elipsę (nie okrąg o promieniu = połowa wysokości — przelewał się poza obrys dla bramek wielowejściowych). |
+| — | DI/DO nie pokazywały skonfigurowanego adresu | Naprawione — `_io_identifier()` jako jedno źródło prawdy dla etykiety i ostrzeżenia "???". |
+| — | Porty nie leżały na przecięciach siatki | Naprawione — `PORT_PITCH`/`PORT_MARGIN`, `tests/test_grid_alignment.py` (parametryzowany po wszystkich zarejestrowanych typach bloków — "najważniejszy test w PR"). |
+| — | Zachodzący tekst na blokach IO | Naprawione — renderowanie linia-po-linii z własnym `QRectF` i elidowaniem zamiast jednego zawijanego stringu. |
+| — | Bloki dokumentacyjne (`doc.text/note/section`) renderowały się jako pusty prostokąt | Naprawione — nowy `shape_style="DOC"`, `doc.note` ręcznie skalowalny. |
+| — | Panel biblioteki: płaska lista zamiast drzewa, brak wyszukiwania/ikon | Naprawione — `QTreeWidget`, wyszukiwarka, "ostatnio używane", ikony proceduralne (`ui/icons.py`, zero plików graficznych). |
+| — | Brak panelu podglądu elementu | Naprawione — `ElementPreviewPanel`, podświetlenie pinów `safety_relevant`. |
+| — | Bramki wielowejściowe wizualnie spłaszczone | Naprawione — zagęszczenie siatki pinów (`PORT_PITCH=10` przy `GRID_SIZE=20` dla rozmieszczenia bloków), wysokość bramki `2*PORT_MARGIN + (n-1)*PORT_PITCH`. |
+| — | Brak możliwości przeciągania adresów z Device Explorera na kanwę | Naprawione — `DeviceTree`, payload `"type_id|address"` w `LogicView.dropEvent()`. |
+
+### Świadomie pominięte / poza zakresem tego PR
+- Wiring "Address" (input.di/output.do/input.ai/output.ao) przez ten sam
+  mechanizm co Device Explorer drag&drop — combobox w property_grid już
+  działał, zmiana nie była zgłoszona jako błąd.
+
+## 15. Status napraw (branch `feat/internal-bits`)
+
+Rejestr sygnałów wewnętrznych, katalog sygnałów systemowych, walidacja
+jednego zapisującego, wykrywanie opóźnienia o cykl, dialog wyboru sygnału —
+oraz domknięcie sześciu usterek z audytu warstwy renderowania odkrytych przy
+okazji (leżące w tych samych plikach, więc naprawione na tej samej gałęzi
+zamiast tworzyć konflikty na osobnej). Wszystkie punkty pokryte testami w
+`QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` (276 → 500 testów,
+PASS).
+
+| # | Punkt | Status |
+|---|---|---|
+| 0.1 | `input.ai`: Value i Quality na identycznej pozycji portu | Naprawione — gałąź IO rozmieszcza porty co `PORT_PITCH` jak COMPLEX; etykiety pinów pokazywane, gdy blok IO ma więcej niż jeden pin (`pin_labels_suppressed()`). Test `test_no_two_ports_share_a_position` (parametryzowany po wszystkich typach) — dokładnie ten, którego brakowało. |
+| 0.2 | Etykiety pinów obcinane od lewej (`analog.quality` "Out Of Range" → "Of Range") | Naprawione — jawne elidowanie (`QFontMetrics.elidedText`, zawsze z wielokropkiem na końcu), szerokość liczona z rzeczywistej szerokości bloku (`PIN_LABEL_SIDE_FRACTION`), nowa stała `style.PIN_LABEL_GAP`. |
+| 0.3 | Wyjście bramek parzystych poza osią symetrii korpusu | Naprawione — wysokość bramki zaokrąglana w górę do `2*PORT_PITCH`, `gate_output_y(h) == h/2` dokładnie, zawsze. Kosztem pełnej symetrii marginesu wejść dla parzystej liczby wejść (świadomy kompromis, udokumentowany). |
+| 0.4 | Tekst bloków IO nachodzący na ukośną krawędź wcięcia (kierunek wyjściowy) | Naprawione — margines tekstu zależny od kierunku (`io_text_margin_x()`), dzielony z `shapes.draw_io_shape()` (`io_notch_width()`). |
+| 0.5 | Niespójne szerokości bloków IO input.di vs output.do | Zbadane: przy identycznej długości adresu szerokości były już równe w bieżącym kodzie (nie odtworzono opisanej rozbieżności 80 vs 100 px) — najpewniej nieaktualny opis względem stanu repo. Naprawa 0.4 (rezerwacja miejsca na wcięcie) świadomie wprowadza niewielką, uzasadnioną różnicę (blok kierunku wyjściowego może być szerszy o wielokrotność siatki) — udokumentowane jako świadomy kompromis, nie przeoczenie. |
+| 0.6 | Brak testu-artefaktu renderującego wszystkie typy bloków | Naprawione — `tests/test_render_artifact.py`, bez asercji na piksele. Obejrzany po każdej sekcji tego PR — bez dalszych nakładań. |
+| 0.7 | AUDIT_REPORT.md/REPORT.md nieaktualne | Naprawione — ten wpis (§14 domyka lukę po `feat/block-rendering-library`, §15 po tej gałęzi), REPORT.md poniżej. |
+| 1-2 | Rejestr sygnałów wewnętrznych + 4 bloki (`virtual.input/output`, `internal.reg_in/out`) | Naprawione — `project.settings["internal_bits"]`, `core/internal_bits.py` (`internal_bit_id()`, walidacja nazwy/unikalności), `IOProvider.read_internal()/write_internal()` jako trzecia, osobna przestrzeń adresowa. |
+| 3 | Katalog sygnałów systemowych (dotąd: `system.signal` czytał przez `read_digital_input()`, kolizja z adresami fizycznymi) | Naprawione — `core/system_signals_catalog.json` (24 sygnały, 4 kategorie), `IOProvider.read_system_signal()`, generatory impulsów/migania liczone z `engine.time`. |
+| 4 | Walidator: jeden zapisujący / odczyt bez zapisu / zdefiniowany-nieużywany / sygnał spoza rejestru / niezgodność typu | Naprawione — pięć nowych reguł w `compiler/validator.py`. Przy okazji naprawiony gap: pusty projekt (0 bloków) wcześniej pomijał walidację rejestru w całości. |
+| 5 | Wykrywanie opóźnienia o cykl | Naprawione — `Compiler._compute_cycle_delayed_reads()`, porównanie pozycji w `execution_order`; wynik w `CompiledProgram.cycle_delayed_reads`, komunikat "info", znacznik "z⁻¹" na kanwie. |
+| 6 | Dialog wyboru sygnału | Naprawione — `ui/signal_picker.py`, `SignalPickerDialog`, wzorowany na "Wybór bitu dla logiki" z eTango Studio. |
+| 7 | Edytor rejestru w Project Settings | Naprawione — zakładka "Sygnały wewnętrzne", propagacja zmiany nazwy do bloków, odrzucenie niekompatybilnej zmiany typu, import/eksport JSON. |
+| 8 | Eksport i wersjonowanie | Naprawione — `internal_bits`/`system_catalog_version` w `EPW_RUNTIME_LOGIC` i w `CHECKSUM_FIELDS`; `cycle_delayed_reads` świadomie POZA checksumą (dane wtórne). `EPWLOGIC_SCHEMA_VERSION` 2→3, `RUNTIME_SCHEMA_VERSION` 2→3. |
+
+**Rzeczywisty błąd znaleziony i naprawiony przy weryfikacji zgodności
+wstecznej** (nie hipotetyczny — realnie odtworzony): nowa reguła "jeden
+zapisujący" (§4) słusznie odrzuciła `EPW_LOGIC_PRIORITY_A_TEST.epwlogic` —
+plik miał dwa NIEZALEŻNE bloki `virtual.output` pozostawione na tym samym
+domyślnym Tagu `"VO.NEW_OUTPUT"`, nigdy wcześniej nie wykrywalne przy
+wolnym tekście. Naprawione w samym pliku przykładu (pierwszy blok →
+`"VO.NEW_OUTPUT_1"`), nie przez osłabienie reguły. Nowy stały test
+regresyjny (`test_every_example_loads_compiles_and_exports`, parametryzowany
+po wszystkich `examples/*.epwlogic`) pilnuje, żeby to zostało wykryte, gdyby
+się powtórzyło.
+
+**Drugi rzeczywisty błąd, złapany przed commitem**: pierwsza wersja
+edytora rejestru (§7) porównywała stare i nowe nazwy sygnałów jako zbiory,
+żeby wykryć usunięcie — zmiana nazwy usuwa starą nazwę ze zbioru dokładnie
+tak samo jak prawdziwe usunięcie, więc zmiana nazwy UŻYWANEGO sygnału
+błędnie odpalała blokujący `QMessageBox.question()` z §7.2. W headless
+testach nie ma kto kliknąć — zestaw testów faktycznie zawiesił się
+(zdiagnozowane przez limit czasu narzędzia w tle + zabicie procesu +
+bisekcję, które nowe testy to powodują). Naprawione wykluczeniem nazw już
+rozpoznanych jako zmiana nazwy z testu "czy usunięte"; dodano
+`_refuse_any_blocking_messagebox` do każdego istniejącego testu wołającego
+`_on_accept()`, żeby taki regres w przyszłości kończył się głośnym
+niepowodzeniem asercji, nie zawieszeniem CI.
+
+### Świadomie pominięte / poza zakresem tego PR
+- Wiring "Address" (input.di/output.do/input.ai/output.ao) przez
+  `SignalPickerDialog` — §6.1 wspomina "Address" obok "Bit"/"Sygnał", ale
+  istniejący combobox już działa i jest przetestowany; podmiana niosła
+  realne ryzyko regresji za zerową nową funkcjonalność, w przeciwieństwie
+  do Bit/Sygnał (brak istniejącego UI, zero ryzyka regresji). Zgłoszone
+  wprost, nie pominięte po cichu.
+- `Pin.safety_relevant` na sygnałach katalogu systemowego dziedziczy flagę
+  na pin (§3.4), ale nic w silniku/kompilatorze jeszcze jej faktycznie nie
+  egzekwuje (np. blokada force na pinach bezpieczeństwa) — to samo
+  ograniczenie odnotowane już w §14/`feat/block-rendering-library` dla
+  `Pin.safety_relevant` ogólnie, wciąż aktualne.

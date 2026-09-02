@@ -104,9 +104,10 @@ def test_universal_library_integration(qsettings):
     assert "format" in runtime_data
     assert len(runtime_data["blocks"]) == 5
 
-    # Verify generic string properties still round-trip via BaseLogicBlock property engine
-    vi.update_property("Tag", "VI.RENAMED")
-    assert vi.properties["Tag"] == "VI.RENAMED"
+    # Verify generic string properties still round-trip via BaseLogicBlock
+    # property engine — "Bit" since feat/internal-bits §2.1 (was "Tag").
+    vi.update_property("Bit", "VI_RENAMED")
+    assert vi.properties["Bit"] == "VI_RENAMED"
 
     # Force is no longer a persisted property (AUDIT_REPORT.md §5.1) — update_property()
     # must not silently create it, since anything landing in `properties` gets serialized.

@@ -9,20 +9,62 @@ from logic_studio.ui.canvas import style, shapes
 
 GATE_SHAPES = ("AND", "OR", "NOT", "XOR", "NAND", "NOR", "XNOR", "BUFFER", "GATE_GENERIC")
 
-# shape_styles whose ports must never draw PortItem's generic pin-name label.
-# Gates already omit it (§ label under the body says enough). IO blocks
-# (DI/DO/AI/AO/Virtual IN/OUT) join them here: every IO block has exactly one
-# pin, whose generic name ("State"/"Cmd") only repeats what the block's own
-# Address/Tag + display-name text already say on its face — and for an
-# output-direction IO block (DO/AO), that single port sits on the SAME left
-# edge as that text, so the redundant label used to render right on top of
-# it (e.g. ADA01.DO14's "Cmd" overlapping its green "DO" display-name line).
-NO_PIN_LABEL_SHAPES = GATE_SHAPES + ("IO",)
+# shape_styles whose ports must always suppress PortItem's generic pin-name
+# label — gates only; the type label under the body already says enough.
+# IO blocks are handled by pin_labels_suppressed() below instead, since
+# whether a label is needed there depends on the block's actual pin count,
+# not just its shape_style (§0.1 audit follow-up).
+NO_PIN_LABEL_SHAPES = GATE_SHAPES
+
+
+def pin_labels_suppressed(item) -> bool:
+    """Whether PortItem should skip drawing this block's generic pin-name
+    label. Gates always do (the type label under the body says enough). IO
+    blocks (DI/DO/AI/AO/Virtual IN/OUT/...) do only when the block has
+    exactly one pin in total — its own Address/Tag + display-name text
+    already say everything a single generic pin name would, and for an
+    output-direction single-pin IO block (DO/AO) that one port sits on the
+    SAME left edge as that text, so the redundant label used to render
+    right on top of it (e.g. ADA01.DO14's "Cmd" overlapping its green "DO"
+    display-name line).
+
+    This used to be a blanket "every IO block" rule (`shape_style == "IO"`)
+    — wrong since PR #4 added input.ai, a 2-output IO block (Value +
+    Quality): with no labels at all, the two identical-looking ports were
+    indistinguishable, and Quality (the one PR #4's whole quality-tracking
+    mechanism depends on) couldn't reliably be told apart from Value."""
+    if item.shape_style in GATE_SHAPES:
+        return True
+    if item.shape_style == "IO":
+        block = item.logic_block
+        return (len(block.inputs) + len(block.outputs)) <= 1
+    return False
 
 
 def _round_up_to_grid(value, grid=None):
     grid = grid or style.GRID_SIZE
     return math.ceil(value / grid) * grid
+
+
+def _round_up_to_pitch(value):
+    """Like _round_up_to_grid(), but against the finer PORT_PITCH sub-grid
+    rather than GRID_SIZE — used for sizes (IO block height, §0.1) that
+    only need to land on a pin-pitch multiple, not the coarser block-
+    placement grid."""
+    return math.ceil(value / style.PORT_PITCH) * style.PORT_PITCH
+
+
+def io_text_margin_x(width, direction):
+    """Left margin for an IO block's identifier/display-name text (§0.4/0.5
+    audit follow-up). A plain 6px for input-direction blocks (chevron
+    points right — the left edge is a straight vertical line); 6px plus
+    the chevron's own notch depth for output-direction blocks, whose left
+    edge has a notch carved into it (shapes.draw_io_shape()) that a bare
+    6px margin used to sit right on top of. Shared between
+    BlockItem._draw_io_text_lines() and the block-width calculation in
+    _determine_shape_style() so the two can never disagree about how much
+    room the notch actually needs."""
+    return 6 + (shapes.io_notch_width(width) if direction == "output" else 0)
 
 
 def _complex_readout_y(pins_count):
@@ -113,8 +155,23 @@ class BlockItem(QGraphicsItem):
             # ones — not the old `(inputs_count+1)*PORT_PITCH`, which only
             # produced that same symmetric result back when PORT_MARGIN and
             # PORT_PITCH were equal (§ grid-density redesign).
+            #
+            # §0.3 audit follow-up: rounded UP to a multiple of 2*PORT_PITCH
+            # on top of that, so height/2 always lands exactly on a
+            # PORT_PITCH multiple — for an even input count the raw formula
+            # above isn't one (e.g. 2 inputs: 50, center 25 — not a
+            # PORT_PITCH multiple), which used to force gate_output_y() to
+            # round the output port away from the body's true geometric
+            # center; the D-shape/shield curve's tip (drawn at the real
+            # center) and the output port (rounded to the nearest one) then
+            # visibly disagreed. This costs perfect top/bottom input-margin
+            # symmetry for even input counts (bottom ends up PORT_PITCH
+            # taller than top) in exchange for the output port always
+            # sitting exactly where the curve's tip actually is — the more
+            # visible of the two problems.
             inputs_count = len(self.logic_block.inputs)
-            self.height = 2 * style.PORT_MARGIN + max(0, inputs_count - 1) * style.PORT_PITCH
+            raw_height = 2 * style.PORT_MARGIN + max(0, inputs_count - 1) * style.PORT_PITCH
+            self.height = math.ceil(raw_height / (2 * style.PORT_PITCH)) * (2 * style.PORT_PITCH)
 
             # Every gate is the same width regardless of negation — only how
             # shapes.draw_gate_shape() fills the last few pixels near the tip
@@ -127,13 +184,41 @@ class BlockItem(QGraphicsItem):
 
         elif self.category == "Wejścia / Wyjścia":
             self.shape_style = "IO"
-            self.height = 60 if self.type_id in ("input.ai", "output.ao") else 40
+            base_height = 60 if self.type_id in ("input.ai", "output.ao") else 40
 
+            # §0.1 audit follow-up: height must fit however many pins this
+            # IO block actually has — input.ai's 2 outputs (Value, Quality)
+            # both landed at the same y before this, since nothing here
+            # accounted for more than one. max(existing, needed) so no
+            # current block shrinks; rounded up to a PORT_PITCH multiple so
+            # the last pin's own margin stays a clean grid value.
+            n_pins = len(self.logic_block.outputs) if self._io_direction() == "input" else len(self.logic_block.inputs)
+            needed_height = style.PORT_MARGIN + max(0, n_pins - 1) * style.PORT_PITCH + style.PORT_MARGIN
+            self.height = _round_up_to_pitch(max(base_height, needed_height))
+
+            # §0.4/§0.5 audit follow-up: the same formula for both
+            # directions (nothing here special-cases "input"/"output") —
+            # but an output-direction block's chevron has a notch carved
+            # into its left edge (shapes.draw_io_shape()) that a plain
+            # fixed 6px text margin used to sit right on top of. Budgeting
+            # IO_NOTCH_MAX here (rather than the exact, width-dependent
+            # notch — computing that would need the width this is
+            # computing) keeps both directions' sizing identical in shape,
+            # while still reserving enough room that the identifier text
+            # never starts before the notch's tip.
             base_width = 80
             identifier = self._io_identifier()
             if identifier:
                 font = QFont(style.FONT_FAMILY, style.FONT_SIZE_TAG, QFont.Bold)
-                needed = QFontMetricsF(font).horizontalAdvance(identifier) + 2 * 6
+                direction = self._io_direction()
+                # io_text_margin_x() wants the notch width, which itself
+                # depends on the block's width — but io_notch_width() caps
+                # at IO_NOTCH_MAX for any width >= 50 (every real IO block
+                # is at least 80), so budgeting with the (not yet known)
+                # base_width floor here always gives the same answer the
+                # final width will too.
+                left_margin = io_text_margin_x(base_width, direction)
+                needed = QFontMetricsF(font).horizontalAdvance(identifier) + left_margin + 6
                 base_width = max(base_width, _round_up_to_grid(needed))
             self.width = base_width
 
@@ -186,14 +271,19 @@ class BlockItem(QGraphicsItem):
                 port.setPos(self.width, output_y)
 
         elif self.shape_style == "IO":
-            if "input" in self.type_id:
-                for pin in self.logic_block.outputs:  # Input blocks have output pins
+            # §0.1 audit follow-up: spaced by PORT_PITCH like every other
+            # multi-pin block, not all pinned to the same y — input.ai's
+            # Value and Quality used to land exactly on top of each other,
+            # making Quality (the pin PR #4's whole quality-tracking
+            # mechanism depends on) unreachable by a wire.
+            if self._io_direction() == "input":
+                for i, pin in enumerate(self.logic_block.outputs):  # Input blocks have output pins
                     port = PortItem(pin, parent=self)
-                    port.setPos(self.width, style.PORT_MARGIN)
+                    port.setPos(self.width, style.PORT_MARGIN + i * style.PORT_PITCH)
             else:
-                for pin in self.logic_block.inputs:  # Output blocks have input pins
+                for i, pin in enumerate(self.logic_block.inputs):  # Output blocks have input pins
                     port = PortItem(pin, parent=self)
-                    port.setPos(0, style.PORT_MARGIN)
+                    port.setPos(0, style.PORT_MARGIN + i * style.PORT_PITCH)
 
         else:
             for i, pin in enumerate(self.logic_block.inputs):
@@ -280,16 +370,74 @@ class BlockItem(QGraphicsItem):
 
     # ---- IO blocks (§1, §5) --------------------------------------------------
 
+    def _io_direction(self) -> str:
+        """"input" if this IO-shape block SOURCES a value (has outputs, no
+        inputs — DI/AI/virtual.input/internal.reg_in), else "output"
+        (SINKS one — DO/AO/virtual.output/internal.reg_out). Derived from
+        the block's actual pins, not a `"input" in type_id` substring
+        check — that heuristic silently broke for "internal.reg_in" (which
+        contains "in" but not the substring "input")."""
+        return "input" if self.logic_block.outputs else "output"
+
+    # type_ids whose identifier comes from the internal-signal registry
+    # ("Bit" property, resolved to M./MR./MW./MWR.<name> — see
+    # _resolved_internal_signal_id()) rather than "Address"/"Tag".
+    INTERNAL_SIGNAL_TYPE_IDS = ("virtual.input", "virtual.output", "internal.reg_in", "internal.reg_out")
+
     def _io_identifier(self):
         """Whatever actually configures this IO block: "Address" for
-        physical/analog IO (DI/DO/AI/AO), else "Tag" — Virtual IN/OUT and
+        physical/analog IO (DI/DO/AI/AO), the resolved internal-signal id
+        for Virtual IN/OUT and register blocks (§2.4), else "Tag" —
         system-signal blocks use "Tag" as their own HMI/network identifier
-        (see BaseLogicBlock.properties). Empty string if neither is set.
-        One place, used by both the on-block label and the missing-config
+        (see BaseLogicBlock.properties). Empty string if none apply. One
+        place, used by both the on-block label and the missing-config
         warning, so they can never read two different properties and
         disagree with each other again (§1)."""
+        if self.type_id in self.INTERNAL_SIGNAL_TYPE_IDS:
+            return self._resolved_internal_signal_id()
         props = self.logic_block.properties
         return props.get("Address", "") or props.get("Tag", "")
+
+    def _resolved_internal_signal_id(self) -> str:
+        """Best-effort M./MR./MW./MWR.<name> id for on-canvas display
+        (§2.4) — UI-only, reaches into the live Project like
+        _lookup_analog_unit() (the runtime engine never holds one). Falls
+        back to the bare "Bit" name if the registry entry can't be found
+        (project not wired up yet, or the name no longer exists in the
+        registry — the latter is exactly what validator §4.4 flags)."""
+        name = self.logic_block.properties.get("Bit", "")
+        if not name:
+            return ""
+        try:
+            window = self.scene().views()[0].window()
+            project = getattr(window, 'project', None)
+            if project is None:
+                return name
+            from logic_studio.core.device_model import DeviceModel
+            from logic_studio.core.internal_bits import internal_bit_id
+            entry = DeviceModel.get_internal_bit(project, name)
+            return internal_bit_id(entry) if entry else name
+        except Exception:
+            return name
+
+    def _internal_signal_entry(self):
+        """The full registry entry (for its "label"/"retentive" fields) —
+        None if unavailable for any reason. Same best-effort UI-only Project
+        reach-in as _resolved_internal_signal_id()."""
+        if self.type_id not in self.INTERNAL_SIGNAL_TYPE_IDS:
+            return None
+        name = self.logic_block.properties.get("Bit", "")
+        if not name:
+            return None
+        try:
+            window = self.scene().views()[0].window()
+            project = getattr(window, 'project', None)
+            if project is None:
+                return None
+            from logic_studio.core.device_model import DeviceModel
+            return DeviceModel.get_internal_bit(project, name)
+        except Exception:
+            return None
 
     # Per shape_style, a callable (BlockItem) -> str returning the identifier
     # that must be non-empty for the block to count as "configured" — add an
@@ -299,12 +447,38 @@ class BlockItem(QGraphicsItem):
         "IO": lambda item: item._io_identifier(),
     }
 
+    def _is_cycle_delayed_read(self) -> bool:
+        """§5.3: best-effort check against the CURRENTLY COMPILED program's
+        cycle_delayed_reads (§5.2) — reads live off window.engine.program
+        each paint, like _lookup_analog_unit() reaches into the live
+        Project, so this is automatically correct after every recompile
+        with no separate "clear the marker" step needed."""
+        try:
+            window = self.scene().views()[0].window()
+            engine = getattr(window, 'engine', None)
+            program = getattr(engine, 'program', None) if engine else None
+            if program is None:
+                return False
+            return self.logic_block.uuid in getattr(program, 'cycle_delayed_reads', [])
+        except Exception:
+            return False
+
     def _paint_io_tag(self, painter):
-        direction = "input" if "input" in self.type_id else "output"
+        direction = self._io_direction()
         shapes.draw_io_shape(painter, QRectF(0, 0, self.width, self.height), direction)
 
         identifier = self._io_identifier()
-        lines = [(identifier, True), (self.logic_block.display_name, False)]
+
+        if self.type_id in self.INTERNAL_SIGNAL_TYPE_IDS:
+            # §2.4: identifier (M.BLOKADA_ZS-style), then the registry's
+            # own short "label" underneath if one is set — not the generic
+            # display_name ("Wejście bitowe (wewn.)"), which says nothing
+            # about THIS signal.
+            entry = self._internal_signal_entry()
+            second_line = entry.get("label", "") if entry else ""
+            lines = [(identifier, True), (second_line, False)]
+        else:
+            lines = [(identifier, True), (self.logic_block.display_name, False)]
 
         if self.type_id in ("input.ai", "output.ao"):
             unit = self._lookup_analog_unit(identifier) if identifier else ""
@@ -319,7 +493,7 @@ class BlockItem(QGraphicsItem):
             if unit_line:
                 lines.append((unit_line, False))
 
-        self._draw_io_text_lines(painter, lines)
+        self._draw_io_text_lines(painter, lines, direction)
 
         # Quality indicator: a red dot when the AI block's last reading was
         # not trustworthy.
@@ -328,15 +502,49 @@ class BlockItem(QGraphicsItem):
             painter.setBrush(style.COLOR_ERROR)
             painter.drawEllipse(QPointF(self.width - 6, 6), 4, 4)
 
-    def _draw_io_text_lines(self, painter, lines):
+        # Retentive marker (§2.4) — a small filled square in the corner,
+        # distinct from the quality dot above (different shape, opposite
+        # corner) so the two never get confused if a future block needs
+        # both.
+        if self.type_id in self.INTERNAL_SIGNAL_TYPE_IDS:
+            entry = self._internal_signal_entry()
+            if entry and entry.get("retentive"):
+                painter.setPen(QPen(style.COLOR_OUTLINE, 1))
+                painter.setBrush(style.COLOR_OUTLINE)
+                painter.drawRect(QRectF(self.width - 9, self.height - 9, 6, 6))
+
+        # Cycle-delay marker (§5.3) — only readers (virtual.input/
+        # internal.reg_in) can appear in cycle_delayed_reads; cleared
+        # automatically every recompile since this reads the CURRENT
+        # program's list live, never a value cached on this item.
+        if self.type_id in ("virtual.input", "internal.reg_in") and self._is_cycle_delayed_read():
+            painter.setPen(QPen(style.COLOR_WARNING, 1))
+            font = QFont(style.FONT_FAMILY, style.FONT_SIZE_PIN_LABEL, QFont.Bold)
+            painter.setFont(font)
+            painter.drawText(QRectF(2, self.height - 14, self.width - 4, 12), Qt.AlignLeft | Qt.AlignBottom, "z⁻¹")
+            self.setToolTip(
+                "Odczyt tego sygnału wewnętrznego wyprzedza jego zapis w bieżącej "
+                "kolejności wykonania — wartość pochodzi z poprzedniego cyklu skanu "
+                "(feat/internal-bits §5). Zobacz zakładkę \"Messages\" po kompilacji."
+            )
+        elif self.type_id in ("virtual.input", "internal.reg_in"):
+            self.setToolTip("")
+
+    def _draw_io_text_lines(self, painter, lines, direction="input"):
         """Each line gets its OWN QRectF, never one multi-line wrapped
         string — that's what let "VI.NEW_INPUT" float above the block and
         "State"/"Cmd" pin labels overlap the block name before (§5). Text
         that still doesn't fit is elided, never drawn past the block's own
         outline; a line that would land past the bottom edge is skipped
-        entirely rather than spilling over."""
-        margin_x = 6
-        available_width = max(1.0, self.width - 2 * margin_x)
+        entirely rather than spilling over.
+
+        §0.4 audit follow-up: the left margin depends on the block's shape,
+        not a bare constant — an output-direction chevron has a notch cut
+        into its left edge (shapes.draw_io_shape()), and a fixed 6px margin
+        used to sit right on top of its diagonal edge (e.g. "ADA01.DO01"'s
+        first letter landing on the notch line)."""
+        margin_x = io_text_margin_x(self.width, direction)
+        available_width = max(1.0, self.width - margin_x - 6)
         y = 3.0
 
         for text, bold in lines:
