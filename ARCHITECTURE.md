@@ -486,3 +486,171 @@ WYRENDEROWANYCH komórek tabeli dla wierszy aktualnie widocznych (po
 filtrach) — nigdy nie odtwarza wyniku z `crossref`/`find_issues()` od nowa
 — więc eksport z zasady nie może się rozjechać z tym, co inżynier widzi na
 ekranie w chwili eksportu.
+
+## 15. Schowek, wyrównywanie bloków i tymczasowe wyłączanie (feat/clipboard-and-align)
+
+### 15.1 Schowek wewnątrz aplikacji (§1)
+
+`LogicScene.clipboard_data` — celowo NIE `QClipboard`. Wymiana fragmentów
+schematu między osobnymi instancjami programu jest jawnie poza zakresem tego
+PR-a; schowek żyje w pamięci jednej instancji sceny. Kształt: `{"blocks":
+[...], "origin": (x, y)}`, gdzie każdy element `"blocks"` to `serialize()`
+skopiowanego bloku wraz z połączeniami osadzonymi w `connections` każdego
+pinu — dokładnie tak, jak sekcja `"blocks"` pliku projektu przechowuje je
+dziś. Zadanie opisywało to jako "kształt sekcji 'blocks' i 'wires' pliku
+projektu" — obecny format `.epwlogic` nie ma jednak osobnego klucza
+`"wires"` (połączenia są zawsze zagnieżdżone w pinach), więc to
+sformułowanie potraktowano jako odniesienie do samych DANYCH połączeń
+(już obecnych w `"blocks"`), nie do brakującego klucza najwyższego poziomu.
+
+**Kopiowanie** (`copy_selected_items()`) filtruje `connections` każdego pinu
+do samych UUID-ów pinów należących do INNYCH zaznaczonych bloków —
+połączenie wychodzące poza zaznaczenie jest po cichu pomijane (oczekiwane
+zachowanie). Zapamiętywana jest też pozycja lewego-górnego rogu prostokąta
+otaczającego zaznaczenie (`origin`), względem której liczona jest pozycja
+wklejenia.
+
+**Wklejanie** (`paste_clipboard()`) tworzy nowe UUID-y dla każdego bloku
+i pinu oraz nowy `short_id` (`Project.add_block()`'s istniejący licznik —
+nigdy nie zagęszczany ponownie, patrz §13) — nigdy nie kopiuje oryginałów.
+Dwuprzebiegowe przemapowanie UUID-ów pinów: przebieg 1 tworzy świeże bloki
+przez `block_class.deserialize()` (który sam mintuje nowe UUID-y pinów) i
+zasiewa `connections` każdego nowego pinu skopiowanymi (jeszcze
+nieaktualnymi) UUID-ami; przebieg 2, po przetworzeniu WSZYSTKICH bloków,
+przepisuje `connections` każdego nowego pinu przez zbudowaną w międzyczasie
+mapę stary-UUID→nowy-UUID. Pozycja wklejenia: jeśli kursor jest nad kanwą —
+lewy-górny róg zaznaczenia ląduje pod kursorem (przyciągnięty do siatki);
+w przeciwnym razie — jedno pole siatki od oryginału. Powtórne Ctrl+V bez
+ruchu myszy kaskaduje (`_paste_cascade`, resetowany przy każdym świeżym
+kopiowaniu/wycinaniu), żeby kopie się nie nakładały. Cała operacja to
+JEDEN wpis w historii cofania.
+
+### 15.2 Konflikt adresów przy wklejaniu bloków wyjściowych
+
+Wklejenie bloku wyjściowego (`output.do`/`output.ao`/`virtual.output`)
+tworzy DRUGIE źródło dla jego adresu/bitu — to błąd kompilacji
+(`Validator` już to wykrywa jako "wiele zapisujących"). `LogicScene`
+świadomie NIE czyści adresu przy wklejaniu i NIE blokuje wklejenia:
+wklejenie następuje tak jak jest, a pasek stanu pokazuje ostrzeżenie
+("Wklejono N bloków wyjściowych z powielonymi adresami — popraw je przed
+kompilacją.") bez limitu czasu wyświetlania. Uzasadnienie: automatyczne
+czyszczenie adresu byłoby zaskakującą, cichą modyfikacją danych inżyniera
+— wklejony blok wyglądałby na nieskonfigurowany bez wyraźnego powodu,
+zamiast na "skonfigurowany identycznie jak oryginał, do poprawienia".
+Blokowanie wklejenia byłoby z kolei niespójne z resztą edytora, który
+nigdy nie zabrania stanów przejściowo nieprawidłowych (kompilacja i tak
+je złapie) — a poprawienie adresu po wklejeniu to jedna zmiana we
+Property Grid, więc koszt zostawienia tego inżynierowi jest niski.
+`LogicScene._OUTPUT_ADDRESS_PROPERTY` mapuje `type_id` na właściwość
+niosącą adres (`"Address"` dla DO/AO, `"Bit"` dla virtual.output).
+
+### 15.3 Wyrównywanie i rozkładanie bloków (§2)
+
+Kolejność zaznaczania — potrzebna, bo wyrównanie odnosi się do PIERWSZEGO
+zaznaczonego bloku, nie do skrajnego bloku zaznaczenia — nie była
+przechowywana nigdzie w kodzie; dodano ją w `LogicScene.selection_order`,
+zasilaną przez nowy fragment `BlockItem.itemChange()` reagujący na
+`QGraphicsItem.ItemSelectedHasChanged` — jedyne miejsce, przez które
+przechodzi KAŻDA zmiana zaznaczenia (mysz, klawiatura, `setSelected()`
+programowe, np. z poziomu wklejania).
+
+8 operacji (`align_left/right/top/bottom/center_vertical/center_horizontal`,
+`distribute_horizontal/vertical`) są zaimplementowane w `LogicScene`, dzielą
+jeden generyczny `_apply_block_positions()`, który pcha DOKŁADNIE JEDEN
+wpis historii cofania i stosuje docelowe pozycje przez `item.setPos()` —
+celowo używając ISTNIEJĄCEGO mechanizmu przyciągania do siatki
+z `BlockItem.itemChange()` (używanego też przy zwykłym przeciąganiu
+myszą), zamiast implementować drugi, potencjalnie niespójny mechanizm
+przyciągania osobno dla wyrównywania.
+
+Rozkładanie równomierne używa RÓWNYCH ODSTĘPÓW MIĘDZY KRAWĘDZIAMI (nie
+równych odstępów między punktami odniesienia) — skrajne bloki (wg pozycji
+na danej osi) zostają na miejscu, pozostałe są rozstawiane tak, by odstęp
+między krawędziami sąsiednich bloków był identyczny. Wybrano tę wersję
+(zamiast prostszej "równe odstępy lewych krawędzi") jako bardziej
+standardowe zachowanie znane z innych narzędzi projektowych i jedyne
+poprawne, gdy bloki mają różne szerokości/wysokości (co w tym edytorze
+jest normą — blok IO ma inną szerokość niż bramka logiczna).
+
+Dostęp: menu Edit → podmenu "Wyrównaj" (przebudowywane przy każdym
+otwarciu, `aboutToShow`, bo dostępność zależy od BIEŻĄCEGO zaznaczenia) —
+oraz menu kontekstowe bloku na kanwie, gdy zaznaczone są 2+ bloki. Obie
+ścieżki dzielą jedną listę `ALIGN_OPERATIONS` i funkcję
+`populate_align_menu()` (`scene.py`), więc lista operacji i minimalna
+liczba bloków dla każdej z nich żyje w jednym miejscu.
+
+### 15.4 Zalewanie stosu cofania (§3)
+
+`scene.mouseReleaseEvent` wywoływał `project.push_state()` bezwarunkowo
+przy KAŻDYM zwolnieniu przycisku myszy nad zaznaczonym blokiem, nawet gdy
+blok się nie ruszył — zalewało to historię cofania wpisami bez żadnej
+realnej zmiany. Naprawa: `mousePressEvent` zapamiętuje pozycje zaznaczonych
+bloków (`_press_positions`), `mouseReleaseEvent` woła `push_state()` tylko
+gdy którakolwiek pozycja faktycznie się różni.
+
+Przegląd WSZYSTKICH miejsc wołających `push_state()` w repozytorium ujawnił
+głębszy, pokrewny problem w dwóch z nich (przeciąganie bloku i udane
+połączenie przewodem) — obie mutacje stosowane są NA ŻYWO w trakcie gestu
+myszy (`BlockItem.itemChange()` / `Pin.connect()`), a `push_state()` był
+wołany dopiero PO fakcie, czyli pchał stan JUŻ PO zmianie zamiast stanu
+SPRZED niej — cofnięcie po takim przeciągnięciu było więc operacją
+pozorną (przywracało dokładnie to, co już było). Naprawiono przez
+zrzucenie `project.serialize()` w `mousePressEvent`, PRZED gestem, i
+przekazanie tego zrzutu (nie świeżego `serialize()`) do `push_state()`
+w `mouseReleaseEvent` — `Project.push_state()` przyjmuje teraz opcjonalny
+parametr `state` właśnie w tym celu, ze 100% wsteczną kompatybilnością dla
+wszystkich pozostałych, bezargumentowych wywołań.
+
+Limit rozmiaru stosu cofania (50 wpisów, najstarszy odrzucany) już istniał
+w `Project.push_state()` — nie jest to nowość tego PR-a.
+
+### 15.5 Tymczasowe wyłączanie bloku (§4)
+
+`BaseLogicBlock.enabled` istniał od dawna i był czytany przez `validate()`,
+ale nic w programie nigdy nie ustawiało go na `False` — gotowa funkcja bez
+jednego elementu UI. Uzasadnienie potrzeby: tymczasowe wyłączenie bloku bez
+usuwania go ze schematu to realna potrzeba przy uruchamianiu instalacji —
+odpowiednik zakomentowania fragmentu kodu.
+
+**Semantyka wyłączonego bloku**:
+- NIE wchodzi do `execution_order` — `GraphBuilder.build_and_sort()`
+  wyklucza go z grafu dokładnie tak, jak blok Dokumentacji.
+- Jego piny wyjściowe MUSZĄ mieć zdefiniowaną, typowo-poprawną wartość —
+  NIGDY `None` — dla wszystkiego, co wciąż jest do nich podłączone
+  (połączenie sprzed wyłączenia). `ExecutionEngine.step()` wymusza to na
+  początku KAŻDEGO cyklu skanowania (nie tylko raz) przez
+  `Pin.safe_default_value()` (`False`/BOOL, `0.0`/REAL, `0`/INTEGER,
+  `""`/STRING) — konieczne, bo `stop()` czyści wartości wszystkich pinów
+  do `None`, a `start()` nigdy nie odtwarza ich z powrotem.
+- `validate()` już pomijał wyłączony blok całkowicie (bez zmian w tym PR).
+- NIE wchodzi do eksportu runtime w ogóle — `Exporter.export()` pomija
+  wpis wyłączonego bloku w `"blocks"` (a więc i w `execution_order`/
+  `block_count`) — to faktyczny odpowiednik zakomentowania, nie tylko
+  wykluczenia ze skanu.
+
+**Widoczność — najważniejszy punkt tej sekcji**: wyłączony blok w logice
+bezpieczeństwa to potencjalne zagrożenie (ktoś wyłącza blokadę podczas
+uruchamiania i zapomina włączyć z powrotem), więc musi być trudny do
+przeoczenia:
+- `BlockItem.paint()` rysuje ciało bloku z obniżoną nieprzezroczystością,
+  a NA WIERZCHU (pełna nieprzezroczystość) przerywaną czerwoną ramkę
+  i przekątną kreskę — marker "wyłączony" zostaje czytelny nawet gdy samo
+  ciało bloku jest przygaszone.
+- `WireItem.update_path()` przygasza przewód, którego pin ŹRÓDŁOWY należy
+  do wyłączonego bloku ("wychodzący z" niego) — przeliczane przy każdej
+  aktualizacji ścieżki.
+- `Exporter.export()` zgłasza OSTRZEŻENIE (nie informację) wymieniające
+  wszystkie wyłączone bloki po `short_id`, wzorowane dokładnie na
+  istniejącym `contains_forced_io`.
+- Pasek stanu pokazuje licznik "Wyłączone bloki: N" (ukryty przy N=0, ten
+  sam wzorzec co istniejący wskaźnik "*" niezapisanych zmian).
+- Eksport runtime zyskuje pole `"contains_disabled_blocks": true/false`,
+  wzorowane na `contains_forced_io`, dodane do `CHECKSUM_FIELDS`.
+
+**Przełączanie**: menu kontekstowe bloku ("Wyłącz blok"/"Włącz blok" —
+etykieta odzwierciedla bieżący stan TEGO bloku) i menu Edit
+("Wyłącz/Włącz zaznaczone bloki" dla całego zaznaczenia — wymuszenie
+kierunku, nie odwrócenie stanu każdego bloku z osobna, bo mieszane
+zaznaczenie nie ma jednoznacznego "przeciwieństwa"). Obie ścieżki wołają
+`LogicScene.set_blocks_enabled()` — JEDEN wpis historii cofania niezależnie
+od liczby bloków.

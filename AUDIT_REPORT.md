@@ -518,3 +518,48 @@ zweryfikowana wielokrotnym uruchomieniem całej suity.
   refaktoryzacją walidatora.
 - Mechanizm historii nawigacji (Alt+strzałka) — nie istniał w repo przed
   tym PR, nie dodany, zgodnie z jawnym poleceniem §3.4.
+
+## 18. Status napraw (branch `feat/clipboard-and-align`)
+
+Operacje edycyjne, których brakowało: kopiuj/wytnij/wklej, wyrównywanie
+i rozkładanie bloków, tymczasowe wyłączanie bloku bez usuwania go ze
+schematu — plus naprawa zalewania stosu cofania. Wszystkie punkty pokryte
+testami w `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` (720 na
+starcie gałęzi, PASS na 776 na koniec).
+
+| # | Punkt | Status |
+|---|---|---|
+| 1 | Schowek (Ctrl+C/X/V, Ctrl+D) | Naprawione — schowek wewnątrz aplikacji (`LogicScene.clipboard_data`, nie `QClipboard`), połączenia WEWNĄTRZ zaznaczenia zachowane, wychodzące poza nie — pominięte. Świeże UUID-y/`short_id` przy wklejaniu, dwuprzebiegowe przemapowanie połączeń. Konflikt adresu przy wklejaniu bloku wyjściowego: wklejane bez zmian + ostrzeżenie na pasku stanu (nigdy nie czyszczone po cichu, nigdy nie blokowane). Ctrl+D przerobiony na kopiuj+wklej — jedna implementacja. |
+| 2 | Wyrównywanie i rozkładanie bloków | Naprawione — 8 operacji względem PIERWSZEGO zaznaczonego bloku (kolejność zaznaczania dodana do `LogicScene.selection_order`, zasilana z `BlockItem.itemChange()`). Rozkładanie: równe odstępy między KRAWĘDZIAMI, skrajne bloki bez zmian. Jeden wpis historii cofania na operację. Menu Edit "Wyrównaj" + menu kontekstowe kanwy przy 2+ zaznaczonych. |
+| 3 | Zalewanie stosu cofania | Naprawione — `push_state()` przy zwolnieniu myszy tylko gdy pozycja faktycznie się zmieniła (było: bezwarunkowo). Audyt wszystkich miejsc wołających `push_state()` (11, lista w REPORT.md) ujawnił dodatkowo, że dwa z nich (przeciąganie bloku, połączenie przewodem) pchały stan PO mutacji zamiast PRZED nią, czyniąc cofnięcie operacją pozorną — naprawione przez zrzut stanu w `mousePressEvent`, PRZED gestem. Limit 50 wpisów już istniał. Zmierzony rozmiar pojedynczego zrzutu dla największego przykładu: 9398 B (~9,2 KiB, 11 bloków) — nie nieproporcjonalne; odnotowane w REPORT.md jako kandydat do przyszłego przeprojektowania na przechowywanie różnicowe, bez implementacji w tym PR. |
+| 4 | Tymczasowe wyłączanie bloku | Naprawione — `BaseLogicBlock.enabled` istniał i był czytany przez `validate()`, brakowało tylko przełącznika UI. Dodano: menu kontekstowe bloku + menu Edit dla całego zaznaczenia (jeden wpis cofania niezależnie od liczby bloków); wykluczenie z `execution_order` i eksportu runtime; wymuszone, zdefiniowane wartości pinów wyjściowych (nigdy `None`) co skan; przygaszony wygląd + przerywana ramka + przekątna kreska; ostrzeżenie kompilatora z listą `short_id`; licznik "Wyłączone bloki: N" na pasku stanu; `"contains_disabled_blocks"` w eksporcie, dodane do `CHECKSUM_FIELDS`. |
+| 5 | Dokumentacja | Naprawione — ARCHITECTURE.md §15 (cztery podsekcje: schowek, konflikt adresów, wyrównywanie, stos cofania, wyłączanie bloku), README.md (nowy punkt Features), REPORT.md (Phase 8, pomiar §3.3), ten wpis. |
+
+**Rzeczywisty błąd znaleziony i naprawiony podczas pisania testów §1**
+(nie hipotetyczny): pierwsza wersja `paste_clipboard()` zapominała
+zasiać `connections` nowego pinu skopiowanymi (jeszcze nieaktualnymi)
+UUID-ami w przebiegu 1 — przebieg 2 przemapowywał więc zawsze pustą
+listę, po cichu gubiąc KAŻDE wklejone połączenie. Złapane przez
+`test_copy_paste_two_connected_blocks`/`test_duplicate_preserves_connections`,
+naprawione, potwierdzone ponownym uruchomieniem całej suity.
+
+**Drugi rzeczywisty błąd, głębszy niż wynikało z §3.1 wprost** (opisany
+szerzej w REPORT.md Phase 8 §3): `push_state()` przy przeciąganiu bloku
+i przy udanym połączeniu przewodem wołany był PO fakcie, więc pchał stan
+JUŻ PO zmianie — cofnięcie takiej operacji było operacją pozorną.
+Zweryfikowane empirycznie przed naprawą (przeciągnięcie bloku + Ctrl+Z
+zostawiało go dokładnie tam, gdzie przeciągnięcie go zostawiło).
+Naprawione przez zrzut stanu PRZED gestem myszy, nie tylko warunek "czy
+faktycznie coś się zmieniło" z §3.1's dosłownego brzmienia.
+
+### Świadomie pominięte / poza zakresem tego PR
+- Przeprojektowanie stosu cofania na przechowywanie różnicowe (§3.3) —
+  zmierzone i odnotowane jako kandydat na przyszłość, nie zaimplementowane,
+  zgodnie z jawnym poleceniem zadania.
+- Menu Edit "Wyłącz/Włącz zaznaczone bloki" wymusza kierunek dla całego
+  zaznaczenia zamiast odwracać stan każdego bloku z osobna — świadoma
+  interpretacja niejednoznacznego "ta sama akcja... dla całego
+  zaznaczenia", udokumentowana w ARCHITECTURE.md §15.5 zamiast cicho
+  założona.
+- Żadna zmiana w `compiler/validator.py` poza tym, co już istniało —
+  pominięcie wyłączonego bloku w `validate()` jest sprzed tego PR.

@@ -402,3 +402,138 @@ tests actually failing)
   `main_window.py` (rejestracja zakładki/menu/hooków odświeżania) i
   `block_item.py` (wyłącznie §4's nowa pozycja menu kontekstowego +
   dwie małe metody pomocnicze) — potwierdzone `git diff --stat`.
+
+## PHASE 8 — CLIPBOARD, ALIGNMENT & TEMPORARY BLOCK DISABLE
+
+Branch `feat/clipboard-and-align`, all six sections closed. See
+ARCHITECTURE.md §15 for the full design/rationale write-up; this section
+covers the checklist, what was found/measured, and what's explicitly out
+of scope.
+
+### §1 — CLIPBOARD (COPY / CUT / PASTE)
+- [X] In-app clipboard (`LogicScene.clipboard_data`), not `QClipboard` —
+  cross-instance exchange explicitly out of scope per the task.
+- [X] Ctrl+C copies selected blocks + connections BETWEEN them; a
+  connection leaving the selection is silently dropped.
+- [X] Ctrl+X = copy + delete (all connections, including ones leaving the
+  selection), one undo entry.
+- [X] Ctrl+V: fresh UUIDs/`short_id`s, connections remapped, properties
+  copied unchanged. Duplicate-address output block: pasted as-is (never
+  silently cleared, never blocked) with an indefinite status-bar warning.
+  Cursor-anchored (grid-snapped) or offset+cascade placement — repeated
+  Ctrl+V without moving the mouse never stacks copies.
+- [X] Cut/Copy enabled only with a selection, Paste only with a non-empty
+  clipboard, tracked live.
+- [X] Ctrl+D (`duplicate_selected_items`) now reuses copy+paste — one
+  implementation, not two.
+- [X] Tests: `tests/test_clipboard.py`, 14 — every §1.7-required scenario
+  plus action-state and one-undo-entry coverage.
+
+### §2 — ALIGN & DISTRIBUTE
+- [X] 8 operations (left/right/top/bottom edges, center horizontal/
+  vertical, distribute horizontal/vertical), relative to the FIRST-
+  selected block — selection order wasn't tracked anywhere, added via
+  `BlockItem.itemChange()`'s `ItemSelectedHasChanged` → `LogicScene.
+  selection_order`.
+- [X] Distribute keeps the extreme blocks fixed, spaces the rest with
+  EQUAL GAPS between edges (not equal spacing between reference points) —
+  correct once blocks have different widths/heights, which is the norm
+  here (an IO block is wider than a gate).
+- [X] Snap-to-grid reused from the existing drag mechanism
+  (`BlockItem.itemChange()`'s `ItemPositionChange`) — no second
+  implementation.
+- [X] Exactly one undo entry per operation regardless of block count.
+- [X] Edit menu "Wyrównaj" submenu + canvas/block context menu (2+
+  selected) — one shared `ALIGN_OPERATIONS`/`populate_align_menu()`.
+- [X] Tests: `tests/test_align.py`, 20 — pixel-exact positions for all 8
+  operations (widths fetched from the actual `BlockItem` at test time,
+  since an IO block's width depends on rendered identifier text/font
+  metrics — not safe to hardcode across environments), one-undo-entry
+  checks, minimum-selection no-op guards, menu enablement.
+
+### §3 — UNDO STACK FLOODING
+- [X] `mouseReleaseEvent` pushed state unconditionally on every release
+  over a selected block, even with no movement — fixed by comparing
+  positions snapshotted in `mousePressEvent`.
+- [X] Audited every `push_state()` call site in the repository (full list
+  and per-site assessment below) — all but two already gated on a real
+  change. The audit surfaced a second, more fundamental bug in those two
+  (block drag, wire connect): both mutate state LIVE during the mouse
+  gesture, and `push_state()` was being called AFTER that mutation,
+  pushing the POST-change state instead of the pre-change one — undo was
+  verified (empirically, before the fix) to be a no-op for both. Fixed by
+  snapshotting `project.serialize()` in `mousePressEvent`, BEFORE the
+  gesture, and pushing that stored snapshot instead of a fresh one
+  (`Project.push_state()` now takes an optional pre-captured `state`).
+  This goes slightly beyond the section's literal "fix the flooding"
+  wording, but leaving it unfixed would have meant "drag a block, hit
+  undo" silently did nothing — judged not acceptable to ship knowingly.
+- [X] 50-entry cap, dropping the oldest — already present in
+  `Project.push_state()` before this PR; a test now locks it in.
+- [X] Measured the serialized-state size for the largest example,
+  `examples/EPW_LOGIC_PRIORITY_A_TEST.epwlogic` (11 blocks): **9398
+  bytes** (~9.2 KiB) per snapshot. A full 50-entry stack is therefore
+  ~459 KiB worst case for today's largest example — not disproportionate.
+  This scales roughly linearly with block count (~854 bytes/block here),
+  so a hypothetical several-hundred-block project would sit in the
+  low tens of MiB for a full stack — **noted here as a candidate for a
+  future diff-based undo storage redesign if/when real projects grow
+  that large, but no redesign was done in this PR** (out of scope per
+  the task).
+- [X] Tests: `tests/test_undo_stack.py`, 5 — no-growth on a no-move click
+  (including a 10x repeated-click burst), exactly +1 on a real one-grid-
+  cell move, undo-after-drag restores the exact pre-drag position (the
+  §3.2 finding), the 50-entry cap.
+
+**`push_state()` call sites found (§3.2 audit), all 11:**
+
+| Site | Gated on a real change? |
+|------|--------------------------|
+| `property_grid.py:401` (`_commit_property`) | Yes — `if str(old_value) == str(new_value): return` before it |
+| `property_grid.py:434` (`_commit_priority`) | Yes — `if ... == new_value: return` before it |
+| `property_grid.py:481` (signal picker) | Yes — only after dialog Accept + a signal was chosen |
+| `dialogs.py:547` (`apply_to_project`) | Yes in effect — once per dialog OK click, not per field edit |
+| `port_item.py:129` (`_toggle_disabled`) | Yes — every call is an explicit, real toggle |
+| `block_item.py:715` (`apply_doc_text`) | Yes — `if new_text == old: return` before it |
+| `scene.py` `delete_selected_items` | Yes — gated on a non-empty selection |
+| `scene.py` `paste_clipboard` | Yes — one paste = one real change |
+| `scene.py` `add_block_from_library` | Yes — one add = one real change |
+| `scene.py` `mouseReleaseEvent` (block drag) | **Fixed this PR** — was unconditional (flooding) AND pushed the post-move state (no-op undo); now gated on an actual position change and pushes the pre-drag snapshot |
+| `scene.py` `mouseReleaseEvent` (wire connect) | **Fixed this PR** (state-order only, no flooding existed here) — was pushing the post-connect state; now pushes the pre-connect snapshot |
+| `scene.py` `_apply_block_positions` (align/distribute, this PR) | Yes — pushed BEFORE `setPos()`, correct order from the start |
+
+### §4 — TEMPORARY BLOCK DISABLE
+- [X] `BaseLogicBlock.enabled` already existed, already read by
+  `validate()` — only the UI toggle was missing.
+- [X] Context menu ("Wyłącz blok"/"Włącz blok", label reflects that
+  block's state) + Edit menu ("Wyłącz/Włącz zaznaczone bloki" for the
+  whole selection, force-direction) — one undo entry regardless of count.
+- [X] Excluded from `execution_order` (`GraphBuilder`); outputs forced to
+  a safe, type-appropriate, never-`None` value every scan
+  (`ExecutionEngine.step()`, `Pin.safe_default_value()`); excluded from
+  `validate()` (pre-existing); excluded from runtime export entirely
+  (`Exporter.export()` skips it in `"blocks"`).
+- [X] Visibility: dimmed body + dashed red outline + diagonal
+  strikethrough (`BlockItem.paint()`); dimmed outgoing wires
+  (`WireItem.update_path()`); compiler WARNING naming every disabled
+  block by `short_id` (see below); status-bar "Wyłączone bloki: N"
+  counter; `"contains_disabled_blocks"` in the export, added to
+  `CHECKSUM_FIELDS`, modeled on `contains_forced_io`.
+- [X] Tests: `tests/test_block_disable.py`, 16.
+
+**Compiler warning format** (a project with two disabled blocks,
+`short_id`s `g1`/`g2`):
+```
+Projekt zawiera wyłączone bloki (pominięte w eksporcie): g1, g2
+```
+
+### Świadomie pominięte / poza zakresem tego PR
+- §3.3's diff-based undo storage redesign — measured and flagged as a
+  future candidate, not implemented, exactly as the task specified.
+- No change to `compiler/validator.py` beyond what already existed —
+  `validate()`'s disabled-block skip predates this PR.
+- The Edit-menu enable/disable actions force a direction for the whole
+  selection rather than flipping each block's own prior state
+  independently — a deliberate reading of "the same action ... for the
+  whole selection" (ARCHITECTURE.md §15.5); ambiguous in the task text,
+  documented rather than silently assumed.
