@@ -320,6 +320,12 @@ class MainWindow(QMainWindow):
 
         # Connect Selection
         self.scene.selectionChanged.connect(self._on_selection_changed)
+        # feat/signal-crossref §3.3: highlight (never scroll to) whatever
+        # row(s) in the signals panel correspond to the current canvas
+        # selection.
+        self.scene.selectionChanged.connect(
+            lambda: self.signals_panel.highlight_blocks(self.scene.selectedItems())
+        )
 
     def closeEvent(self, event):
         if not self.check_dirty_prompt():

@@ -4,10 +4,11 @@ Never modifies the project, never touches the compiler/engine.
 """
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QLabel,
-    QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView, QMenu
+    QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView, QMenu,
+    QGraphicsRectItem
 )
 from PySide6.QtCore import Qt, QSettings, QTimer, Signal
-from PySide6.QtGui import QFont, QColor, QBrush, QPixmap, QPainter, QIcon
+from PySide6.QtGui import QFont, QColor, QBrush, QPen, QPixmap, QPainter, QIcon
 
 from logic_studio.core.crossref import (
     build_crossref, find_issues,
@@ -41,9 +42,17 @@ _FILTER_GROUPS = [
     ("Systemowe", (KIND_SYSTEM,)),
 ]
 
-_SEVERITY_RANK = {"error": 0, "warning": 1, None: 2}
+_SEVERITY_RANK = {"error": 0, "warning": 1, "info": 2, None: 3}
+# §2.2's Stan column literally names 3 states — "czerwona przy błędzie,
+# pomarańczowa przy ostrzeżeniu, pusta gdy w porządku" — an "info" issue
+# (§1.4's "read by many blocks", not itself a problem) deliberately gets
+# no color/icon here, same as a clean row; §2.3's "tylko problemy" toggle
+# is explicit too ("wiersze ze statusem błędu albo ostrzeżenia") about
+# excluding it. It still gets a tooltip on its row (see _fill_row) since
+# that costs nothing and the fact is still worth surfacing on hover.
+_ICON_SEVERITIES = ("error", "warning")
 _SEVERITY_COLOR = {"error": QColor(220, 0, 0), "warning": QColor(200, 120, 0)}
-_SEVERITY_LABEL_PL = {"error": "Błąd", "warning": "Ostrzeżenie", None: ""}
+_SEVERITY_LABEL_PL = {"error": "Błąd", "warning": "Ostrzeżenie", "info": "Informacja", None: ""}
 
 REFRESH_DEBOUNCE_MS = 200  # §2.4
 
@@ -151,6 +160,10 @@ class SignalsPanel(QWidget):
             btn.clicked.connect(lambda checked, l=label: self._on_kind_filter_changed(l))
         self.only_issues_check.toggled.connect(self._on_only_issues_toggled)
 
+        # §3.1/§3.2: navigation.
+        self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
+        self.table.customContextMenuRequested.connect(self._on_table_context_menu)
+
         self._rebuild()
 
     # ---- QSettings (§2.3) --------------------------------------------------
@@ -219,18 +232,20 @@ class SignalsPanel(QWidget):
     def _fill_row(self, row, signal_id, usage):
         issue = self._issues_by_signal.get(signal_id)
         severity = issue.severity if issue else None
+        has_icon = severity in _ICON_SEVERITIES
 
         state_item = _SortableItem("", sort_key=_SEVERITY_RANK[severity])
-        if severity:
+        if has_icon:
             state_item.setIcon(_status_icon(_SEVERITY_COLOR[severity]))
-            state_item.setToolTip(issue.text)
+        if issue:
+            state_item.setToolTip(issue.text)  # info issues still get a tooltip, just no icon/color
         state_item.setData(SIGNAL_ID_ROLE, signal_id)
         self.table.setItem(row, COL_STATE, state_item)
 
         signal_item = _SortableItem(signal_id)
         signal_item.setFont(QFont("Consolas", 9))
         signal_item.setData(SIGNAL_ID_ROLE, signal_id)
-        if severity:
+        if has_icon:
             signal_item.setForeground(QBrush(_SEVERITY_COLOR[severity]))
         self.table.setItem(row, COL_SIGNAL, signal_item)
 
@@ -302,7 +317,11 @@ class SignalsPanel(QWidget):
             visible = True
             if kinds is not None and usage.kind not in kinds:
                 visible = False
-            if visible and only_issues and signal_id not in self._issues_by_signal:
+            # §2.3: "wiersze ze statusem błędu albo ostrzeżenia" —
+            # explicitly error/warning only, not "info" (matches the Stan
+            # column's own icon rule above).
+            issue = self._issues_by_signal.get(signal_id)
+            if visible and only_issues and (issue is None or issue.severity not in _ICON_SEVERITIES):
                 visible = False
             if visible and text:
                 haystack = signal_id.lower() + " " + usage.label.lower() + " " + " ".join(
@@ -312,3 +331,139 @@ class SignalsPanel(QWidget):
                     visible = False
 
             self.table.setRowHidden(row, not visible)
+
+    # ---- Navigation (§3) -----------------------------------------------------
+
+    def _on_cell_double_clicked(self, row, _column):
+        """§3.1: jumps to the WRITER of this signal, or its first reader
+        when there's no writer (either it's a physical/analog input or
+        system signal, whose writer is structurally always "urządzenie" —
+        never a project block — or an internal signal that's read but
+        never written, which §1.4 already flags as its own warning)."""
+        signal_id = self.table.item(row, COL_SIGNAL).data(SIGNAL_ID_ROLE)
+        usage = self._crossref.get(signal_id)
+        if usage is None:
+            return
+        target = usage.writers[0] if usage.writers else (usage.readers[0] if usage.readers else None)
+        if target is None:
+            return
+        block_uuid, _short_id, _pin = target
+        self._jump_to_block(block_uuid)
+
+    def _on_table_context_menu(self, pos):
+        """§3.2: right-click on a row with at least one reader opens a menu
+        listing every one of them — choosing one jumps to it. A row with
+        no readers (a DO/AO/write-only internal signal, or a physical
+        input read by nothing) offers nothing to jump to, so no menu is
+        shown at all."""
+        item = self.table.itemAt(pos)
+        if item is None:
+            return
+        row = item.row()
+        signal_id = self.table.item(row, COL_SIGNAL).data(SIGNAL_ID_ROLE)
+        menu = self._build_reader_menu(signal_id)
+        if menu is None:
+            return
+        menu.exec(self.table.viewport().mapToGlobal(pos))
+
+    def _build_reader_menu(self, signal_id):
+        """Split out from _on_table_context_menu() so it's testable without
+        ever calling QMenu.exec() (a modal call — invoking it in an
+        automated/headless test would block forever waiting for a click
+        that never comes)."""
+        usage = self._crossref.get(signal_id)
+        if usage is None or not usage.readers:
+            return None
+        menu = QMenu(self)
+        for (block_uuid, short_id, _pin) in usage.readers:
+            action = menu.addAction(self._block_menu_label(block_uuid, short_id))
+            action.triggered.connect(lambda checked=False, u=block_uuid: self._jump_to_block(u))
+        return menu
+
+    def _block_menu_label(self, block_uuid, short_id):
+        block = next((b for b in (self.project.blocks if self.project else []) if b.uuid == block_uuid), None)
+        if block is None:
+            return short_id
+        extra = block.properties.get("Tag", "") or block.properties.get("Comment", "")
+        return f"{short_id} — {extra}" if extra else short_id
+
+    def _jump_to_block(self, block_uuid):
+        window = self.window()
+        scene = getattr(window, "scene", None)
+        view = getattr(window, "view", None)
+        if scene is None or view is None:
+            return
+        item = self._find_block_item(scene, block_uuid)
+        if item is None:
+            return
+        scene.clearSelection()
+        item.setSelected(True)
+        view.centerOn(item)
+        self._pulse_highlight(scene, item)
+
+    @staticmethod
+    def _find_block_item(scene, block_uuid):
+        from logic_studio.ui.canvas.block_item import BlockItem
+        for it in scene.items():
+            if isinstance(it, BlockItem) and it.logic_block.uuid == block_uuid:
+                return it
+        return None
+
+    @staticmethod
+    def _pulse_highlight(scene, item, cycles: int = 8, interval_ms: int = 125):
+        """§3.1: "podświetla pulsowaniem przez około sekundę" — a temporary
+        overlay rectangle flashed on/off `cycles` times (~1s total at the
+        default interval), added directly to the scene and removed at the
+        end. Deliberately does NOT touch BlockItem/block_item.py at all —
+        this PR's scope keeps that file untouched outside its one new
+        context-menu action (§4)."""
+        rect = item.sceneBoundingRect().adjusted(-4, -4, 4, 4)
+        overlay = QGraphicsRectItem(rect)
+        overlay.setPen(QPen(QColor(255, 180, 0), 3))
+        overlay.setBrush(Qt.NoBrush)
+        overlay.setZValue(1000)
+        scene.addItem(overlay)
+
+        timer = QTimer()
+        state = {"ticks": 0}
+
+        def _toggle():
+            try:
+                state["ticks"] += 1
+                overlay.setVisible(not overlay.isVisible())
+                if state["ticks"] >= cycles:
+                    timer.stop()
+                    scene.removeItem(overlay)
+            except RuntimeError:
+                # The overlay (or its scene) was already destroyed out from
+                # under this pulse — e.g. the project/window was closed
+                # before the ~1s animation finished. Nothing left to clean
+                # up; just stop ticking.
+                timer.stop()
+
+        timer.timeout.connect(_toggle)
+        # Kept alive on the overlay item itself — nothing else holds a
+        # reference to `timer`, and the overlay stays alive (owned by the
+        # scene) for exactly as long as the timer needs to keep firing.
+        overlay._pulse_timer = timer
+        timer.start(interval_ms)
+
+    def highlight_blocks(self, block_items):
+        """§3.3: highlights (background color) — never scrolls to — every
+        row for a signal one of `block_items` reads or writes. Called from
+        main_window.py on scene.selectionChanged, not connected here
+        directly (this panel has no reference to the scene on its own)."""
+        from logic_studio.ui.canvas.block_item import BlockItem
+        short_ids = {item.logic_block.short_id for item in block_items if isinstance(item, BlockItem)}
+        highlight = QBrush(QColor(200, 220, 255))
+        clear = QBrush()
+
+        for row in range(self.table.rowCount()):
+            signal_id = self.table.item(row, COL_SIGNAL).data(SIGNAL_ID_ROLE)
+            usage = self._crossref.get(signal_id)
+            matches = bool(usage) and bool(short_ids) and any(
+                s in short_ids for (_u, s, _p) in usage.readers + usage.writers
+            )
+            brush = highlight if matches else clear
+            for col in range(self.table.columnCount()):
+                self.table.item(row, col).setBackground(brush)
