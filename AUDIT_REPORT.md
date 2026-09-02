@@ -422,3 +422,48 @@ niepowodzeniem asercji, nie zawieszeniem CI.
   egzekwuje (np. blokada force na pinach bezpieczeństwa) — to samo
   ograniczenie odnotowane już w §14/`feat/block-rendering-library` dla
   `Pin.safety_relevant` ogólnie, wciąż aktualne.
+
+## 16. Status napraw (branch `feat/io-labels-and-ids`)
+
+Rejestr etykiet opisowych dla adresów I/O, krótki identyfikator bloku
+zamiast UUID w komunikatach, uporządkowanie panelu właściwości w cztery
+zwijane sekcje z typowanymi edytorami. Wyłącznie model danych i warstwa
+prezentacji — `simulation.py` świadomie NIE dotknięty (panel symulacji był
+w tym czasie przebudowywany na równoległej gałęzi). Wszystkie punkty
+pokryte testami w `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`
+(537 na starcie gałęzi, w praktyce 563 — poprzednia gałąź
+`feat/wire-modes-and-labels` zmergowała się do main w międzyczasie → 652,
+PASS).
+
+| # | Punkt | Status |
+|---|---|---|
+| 1.1-1.5 | Rejestr `io_labels` — model, walidacja, migracja, API, eksport | Naprawione — `project.settings["io_labels"]`, `DeviceModel.get_io_label()`/`set_io_label()`/`get_labelled_addresses()`/`all_addresses()` jako jedyne sankcjonowane API, `EPWLOGIC_SCHEMA_VERSION` 3→4, `RUNTIME_SCHEMA_VERSION` 3→4, pole w `CHECKSUM_FIELDS`. |
+| 2 | Edytor etykiet w Project Settings | Naprawione — zakładka "Etykiety wejść/wyjść", filtr adres+etykieta, "pokaż tylko używane" domyślnie włączone, import/eksport JSON z potwierdzeniem liczby dodanych/zmienionych/pominiętych przed zapisem. |
+| 3.1-3.4 | Użycie etykiet: kanwa, dialog wyboru sygnału, komunikaty kompilatora, rozgraniczenie Comment/etykieta | Naprawione — drugi wiersz tekstu bloku IO (Comment > etykieta > display_name), kolumna Opis w `SignalPickerDialog`, `Validator._block_ref()` wzbogaca komunikat adresem+etykietą. Przy okazji znaleziony i naprawiony błąd: Comment był rysowany DWA razy na tym samym bloku (raz nad blokiem przez ogólną adnotację Tag/Comment, raz jako nowy drugi wiersz wewnątrz) — stłumiony nad blokiem dla bloków zaadresowanych przez `Address`. |
+| 4.1-4.4 | Krótki identyfikator bloku (`short_id`) | Naprawione — `core/short_id.py`, nadawany w `Project.add_block()` (jedyny punkt przejścia każdego bloku), licznik trwały i monotoniczny (nigdy nie zagęszczany po usunięciu), migracja starych projektów deterministyczna w kolejności pliku bez osobnego kroku schematu, wszystkie komunikaty kompilatora/walidatora przełączone z `display_name` na `short_id`. |
+| 5.1-5.5 | Panel właściwości: grupowanie, typowane edytory, jednostki jako suffix, dyscyplina cofania, sprzątanie widgetów | Naprawione — cztery zwijane sekcje (`QGroupBox`), `QSpinBox`/`QDoubleSpinBox`/`QComboBox`/`QLineEdit` zależnie od typu wartości, walidacja par min<max z komunikatem na pasku stanu (4 s), commit na `editingFinished` zamiast `itemChanged`, `QFormLayout.removeRow()` przed każdą przebudową. |
+| 5.6 | Obowiązkowe sprawdzenie martwych właściwości (`Enabled`/`Visible`/`Execution State`) | Wykonane — `Visible` i `Execution State` nigdzie faktycznie nieodczytywane → USUNIĘTE; `Enabled` ma realnego konsumenta (`validate()`) → ZOSTAJE, z jawną adnotacją że obecnie nieosiągalne (brak przełącznika w UI). Szczegóły w REPORT.md Phase 6. |
+
+**Rzeczywisty błąd znaleziony podczas audytu §5.6** (nie hipotetyczny):
+`BaseLogicBlock.visibility`/`execution_state` były zapisywane przez
+`serialize()` od samego początku tej klasy, ale nigdy nie odczytywane z
+powrotem przez `deserialize()` — dokładnie ten sam kształt błędu, który już
+raz ugryzł `Pin.connections` (aliasowanie zamiast kopiowania) i drugi raz
+`Pin.disabled` (całkowicie pominięte). Znaleziony przy okazji stosowania
+tego samego strukturalnego lekarstwa (`SERIALIZED_FIELDS`) do
+`BaseLogicBlock`, nie przez osobne śledztwo — `visibility` usunięto zamiast
+naprawiać round-trip, bo dodatkowo nigdy nie był odczytywany przez żadną
+inną część aplikacji.
+
+### Świadomie pominięte / poza zakresem tego PR
+- `simulation.py` — panel symulacji nie czyta jeszcze `io_labels`, mimo że
+  rejestr jest już gotowy do użycia; jawny zakaz edycji tego pliku w
+  poleceniu tej gałęzi (równoległa gałąź przebudowywała panel w tym samym
+  czasie). Odnotowane w REPORT.md Phase 6 jako otwarty punkt.
+- Wiersze "Name" (`display_name`) i "Description" — obecne w starym,
+  płaskim panelu właściwości, nieobecne w jawnie wyliczonej liście sekcji
+  z §5.1 zadania ("Identyfikacja — Identyfikator, Tag, Comment"). Usunięte
+  zgodnie z literą specyfikacji i jej duchem (panel referencyjny e²TANGO
+  pokazuje dwa wiersze, nie osiem) — zgłoszone wprost w raporcie końcowym,
+  nie pominięte po cichu, na wypadek gdyby edycja nazwy bloku miała
+  pozostać dostępna gdzie indziej.
