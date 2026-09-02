@@ -283,20 +283,23 @@ class Project:
             if legacy_force:
                 block.simulation_state["force_state"] = legacy_force
 
+            # feat/wire-modes-and-labels §0.1: restore every SERIALIZED_
+            # FIELDS value (uuid, connections, disabled, safety_relevant,
+            # ...) via the one shared Pin.restore_fields() implementation,
+            # instead of this loop hand-copying a chosen few attributes by
+            # name — that hand-copying is exactly what silently dropped
+            # `disabled` (and, before that, aliased `connections` instead of
+            # copying it) the last two times a field was added to Pin. A
+            # field newly added to Pin.SERIALIZED_FIELDS is picked up here
+            # automatically, with no separate edit needed in this loop.
+            from logic_studio.blocks.pin import Pin
             for i, pin_data in enumerate(b_data.get("inputs", [])):
                 if i < len(block.inputs):
-                    block.inputs[i].uuid = pin_data.get("uuid")
-                    block.inputs[i].connections = list(pin_data.get("connections", []))
-                    # feat/editor-modes-and-geometry §2.1/§2.6: back-compat —
-                    # absent (older save, or an output-pin-shaped dict with
-                    # no such key) means False, same default as a brand new
-                    # Pin.
-                    block.inputs[i].disabled = bool(pin_data.get("disabled", False))
+                    Pin.restore_fields(block.inputs[i], pin_data)
 
             for i, pin_data in enumerate(b_data.get("outputs", [])):
                 if i < len(block.outputs):
-                    block.outputs[i].uuid = pin_data.get("uuid")
-                    block.outputs[i].connections = list(pin_data.get("connections", []))
+                    Pin.restore_fields(block.outputs[i], pin_data)
 
             proj.add_block(block)
 
