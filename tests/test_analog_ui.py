@@ -368,11 +368,8 @@ def test_property_grid_analog_address_combobox():
     ai = AnalogInputBlock()
     panel.load_block_properties(ai, p)
 
-    address_row = None
-    for row in range(panel.table.rowCount()):
-        if panel.table.item(row, 0) and panel.table.item(row, 0).text() == "Address":
-            address_row = row
-    assert address_row is not None
-    combo = panel.table.cellWidget(address_row, 1)
+    # feat/io-labels-and-ids §5.1: no more flat table — Address lives in
+    # the "Adresacja" section now, found via field_widget().
+    combo = panel.field_widget("Address")
     assert isinstance(combo, QComboBox)
     assert [combo.itemText(i) for i in range(combo.count())] == ["AI.A", "AI.B"]

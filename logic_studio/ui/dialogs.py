@@ -1,4 +1,5 @@
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QLineEdit, QSpinBox, QDialogButtonBox,
     QTableWidget, QTableWidgetItem, QComboBox, QPushButton, QHBoxLayout,
@@ -25,6 +26,9 @@ class ProjectSettingsDialog(QDialog):
 
     # feat/internal-bits §7.1
     SIGNAL_COLUMNS = ["Nazwa", "Typ", "Trwały", "Kategoria", "Etykieta", "Opis", "Użycia"]
+
+    # feat/io-labels-and-ids §2.1
+    IO_LABEL_COLUMNS = ["Adres", "Etykieta", "Użycia"]
 
     def __init__(self, project, parent=None):
         super().__init__(parent)
@@ -106,6 +110,40 @@ class ProjectSettingsDialog(QDialog):
 
         self._load_signals(project.settings.get("internal_bits", []))
         tabs.addTab(signals_tab, "Sygnały wewnętrzne")
+
+        # feat/io-labels-and-ids §2.1: "Etykiety wejść/wyjść" tab.
+        io_labels_tab = QWidget()
+        io_labels_layout = QVBoxLayout(io_labels_tab)
+
+        filter_row = QHBoxLayout()
+        self.io_labels_filter_edit = QLineEdit()
+        self.io_labels_filter_edit.setPlaceholderText("Szukaj po adresie lub etykiecie...")
+        self.io_labels_filter_edit.textChanged.connect(self._apply_io_labels_filter)
+        filter_row.addWidget(self.io_labels_filter_edit)
+        self.io_labels_only_used_check = QCheckBox("Pokaż tylko używane")
+        self.io_labels_only_used_check.setChecked(True)  # §2.1: default ON
+        self.io_labels_only_used_check.toggled.connect(self._apply_io_labels_filter)
+        filter_row.addWidget(self.io_labels_only_used_check)
+        io_labels_layout.addLayout(filter_row)
+
+        self.io_labels_table = QTableWidget(0, len(self.IO_LABEL_COLUMNS))
+        self.io_labels_table.setHorizontalHeaderLabels(self.IO_LABEL_COLUMNS)
+        self.io_labels_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        io_labels_layout.addWidget(self.io_labels_table)
+
+        io_labels_buttons = QHBoxLayout()
+        self.import_io_labels_btn = QPushButton("Importuj...")
+        self.export_io_labels_btn = QPushButton("Eksportuj...")
+        self.import_io_labels_btn.clicked.connect(self._import_io_labels)
+        self.export_io_labels_btn.clicked.connect(self._export_io_labels)
+        io_labels_buttons.addStretch()
+        io_labels_buttons.addWidget(self.import_io_labels_btn)
+        io_labels_buttons.addWidget(self.export_io_labels_btn)
+        io_labels_layout.addLayout(io_labels_buttons)
+
+        self._result_io_labels = None
+        self._load_io_labels()
+        tabs.addTab(io_labels_tab, "Etykiety wejść/wyjść")
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self._on_accept)
@@ -322,6 +360,146 @@ class ProjectSettingsDialog(QDialog):
         with open(path, "w", encoding="utf-8") as f:
             json.dump({"format": "EPW_INTERNAL_BITS", "schema_version": 1, "internal_bits": entries}, f, indent=2, ensure_ascii=False)
 
+    # ---- I/O address labels (feat/io-labels-and-ids §2) -----------------------
+
+    def _address_usage_blocks(self, address: str) -> list:
+        """Blocks in the project whose "Address" property names this
+        channel — §2.1's "Użycia" column, and what "unused" (grayed out,
+        hidden by the default filter) means here."""
+        if not address:
+            return []
+        return [b for b in self.project.blocks if b.properties.get("Address", "") == address]
+
+    def _load_io_labels(self):
+        from logic_studio.core.device_model import DeviceModel
+
+        self.io_labels_table.setRowCount(0)
+        gray = QColor(150, 150, 150)
+
+        for address in DeviceModel.all_addresses(self.project):
+            row = self.io_labels_table.rowCount()
+            self.io_labels_table.insertRow(row)
+
+            addr_item = QTableWidgetItem(address)
+            addr_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)  # read-only
+
+            label_item = QTableWidgetItem(DeviceModel.get_io_label(self.project, address))
+            # Editable by double-click/Enter — the default QTableWidgetItem
+            # flags already include ItemIsEditable; Esc-to-cancel and
+            # Enter-to-commit are Qt's own default cell-editor behavior,
+            # nothing extra needed here (§2.1).
+
+            usage_count = len(self._address_usage_blocks(address))
+            usage_item = QTableWidgetItem(str(usage_count))
+            usage_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)  # read-only
+
+            if usage_count == 0:
+                addr_item.setForeground(gray)
+                label_item.setForeground(gray)
+                usage_item.setForeground(gray)
+
+            self.io_labels_table.setItem(row, 0, addr_item)
+            self.io_labels_table.setItem(row, 1, label_item)
+            self.io_labels_table.setItem(row, 2, usage_item)
+
+        self._apply_io_labels_filter()
+
+    def _apply_io_labels_filter(self):
+        """§2.1: filters by address OR label text, and — default ON — by
+        whether the address is actually used by any block in the project."""
+        text = self.io_labels_filter_edit.text().strip().lower()
+        only_used = self.io_labels_only_used_check.isChecked()
+
+        for row in range(self.io_labels_table.rowCount()):
+            addr = self.io_labels_table.item(row, 0).text()
+            label = self.io_labels_table.item(row, 1).text()
+            usage = int(self.io_labels_table.item(row, 2).text() or "0")
+
+            visible = not (only_used and usage == 0)
+            if visible and text and text not in addr.lower() and text not in label.lower():
+                visible = False
+
+            self.io_labels_table.setRowHidden(row, not visible)
+
+    def _collect_io_labels(self) -> dict:
+        """address -> label for every row with a non-empty (post-strip)
+        label. A cleared row is simply absent here — apply_to_project()
+        still iterates every KNOWN address, so an address missing from
+        this dict is what tells DeviceModel.set_io_label() to remove it."""
+        labels = {}
+        for row in range(self.io_labels_table.rowCount()):
+            addr = self.io_labels_table.item(row, 0).text()
+            label = self.io_labels_table.item(row, 1).text().strip()
+            if label:
+                labels[addr] = label
+        return labels
+
+    def _import_io_labels(self):
+        """§2.2: same shape as §1.1 — a plain {address: label} dict, or
+        that dict wrapped in a small envelope (mirrors how internal_bits
+        import/export already works). Never overwrites silently — reports
+        how many entries will be added/changed/skipped (unknown address)
+        and asks for confirmation before touching the table at all."""
+        from logic_studio.core.device_model import DeviceModel
+
+        path, _ = QFileDialog.getOpenFileName(self, "Importuj etykiety wejść/wyjść", "", "JSON (*.json)")
+        if not path:
+            return
+        import json
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            incoming = data.get("io_labels", data) if isinstance(data, dict) else None
+        except Exception as e:
+            QMessageBox.critical(self, "Błąd importu", str(e))
+            return
+        if not isinstance(incoming, dict):
+            QMessageBox.critical(self, "Nieprawidłowy plik", "Oczekiwano słownika adres -> etykieta.")
+            return
+
+        valid_addresses = set(DeviceModel.all_addresses(self.project))
+        current = self._collect_io_labels()
+
+        added = changed = skipped = 0
+        for addr, label in incoming.items():
+            if addr not in valid_addresses:
+                skipped += 1
+                continue
+            label = (label or "").strip()
+            if not label:
+                continue
+            old = current.get(addr, "")
+            if not old:
+                added += 1
+            elif old != label:
+                changed += 1
+
+        reply = QMessageBox.question(
+            self, "Import etykiet wejść/wyjść",
+            f"Zostanie dodanych: {added}\nZmienionych: {changed}\n"
+            f"Pominiętych (nieznany adres): {skipped}\n\nKontynuować?",
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        row_by_address = {self.io_labels_table.item(r, 0).text(): r for r in range(self.io_labels_table.rowCount())}
+        for addr, label in incoming.items():
+            row = row_by_address.get(addr)
+            if row is None:
+                continue  # unknown address — already counted as skipped above
+            self.io_labels_table.item(row, 1).setText((label or "").strip())
+
+    def _export_io_labels(self):
+        """§2.2: same format §1.1 defines — {address: label} wrapped in the
+        same small envelope internal_bits' own export already uses."""
+        labels = self._collect_io_labels()
+        path, _ = QFileDialog.getSaveFileName(self, "Eksportuj etykiety wejść/wyjść", "io_labels.json", "JSON (*.json)")
+        if not path:
+            return
+        import json
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"format": "EPW_IO_LABELS", "schema_version": 1, "io_labels": labels}, f, indent=2, ensure_ascii=False)
+
     def _on_accept(self):
         points, error = self._collect_points()
         if error:
@@ -359,6 +537,7 @@ class ProjectSettingsDialog(QDialog):
         self._result_points = points
         self._result_signals = signals
         self._bit_renames = renames
+        self._result_io_labels = self._collect_io_labels()
         self.accept()
 
     def apply_to_project(self):
@@ -381,3 +560,16 @@ class ProjectSettingsDialog(QDialog):
         for old_name, new_name in self._bit_renames.items():
             for block in self._usage_blocks(old_name):
                 block.properties["Bit"] = new_name
+
+        # feat/io-labels-and-ids §2.3: one push_state()/set_dirty() for the
+        # whole dialog (set_dirty() is called by whoever calls
+        # apply_to_project() — see main_window.py's _open_project_settings())
+        # — not per-cell-edit, exactly like the points/signals tables above.
+        # Iterates every KNOWN address (not just the ones with a label) so
+        # a row the user cleared actually removes that address's entry via
+        # DeviceModel.set_io_label()'s empty-label-removes-it rule, instead
+        # of leaving a stale value behind.
+        from logic_studio.core.device_model import DeviceModel
+        result_io_labels = self._result_io_labels or {}
+        for address in DeviceModel.all_addresses(self.project):
+            DeviceModel.set_io_label(self.project, address, result_io_labels.get(address, ""))

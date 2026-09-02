@@ -8,7 +8,7 @@ from logic_studio.core import system_signals
 
 # Bump when the EPW_RUNTIME_LOGIC structure changes in a way a consumer
 # (EPW-OS) needs to know about. See AUDIT_REPORT.md §2.2.
-RUNTIME_SCHEMA_VERSION = 3
+RUNTIME_SCHEMA_VERSION = 4
 
 # The closed set of fields that make up the EPW_RUNTIME_LOGIC schema and are
 # covered by the checksum. Compiler.compile() attaches a non-serializable
@@ -24,7 +24,7 @@ CHECKSUM_FIELDS = (
     "format", "schema_version", "source_version", "cycle_time_ms",
     "execution_order", "blocks", "generated_at", "generated_by",
     "project_name", "block_count", "contains_forced_io", "analog_points",
-    "internal_bits", "system_catalog_version",
+    "internal_bits", "system_catalog_version", "io_labels",
 )
 
 
@@ -73,6 +73,10 @@ class Exporter:
 
             runtime_blocks[block.uuid] = {
                 "type_id": block.type_id,
+                # feat/io-labels-and-ids §4.4: short_id rides along so
+                # EPW-OS can use it in its own diagnostic messages instead
+                # of this same UUID nobody can read out loud.
+                "short_id": block.short_id,
                 "category": block.category,
                 "inputs": inputs,
                 "outputs": outputs,
@@ -81,7 +85,7 @@ class Exporter:
 
             force_state = block.simulation_state.get("force_state")
             if force_state and force_state != "NO FORCE":
-                forced_block_names.append(block.display_name)
+                forced_block_names.append(block.short_id or block.display_name)
 
         contains_forced_io = len(forced_block_names) > 0
         if contains_forced_io:
@@ -105,6 +109,14 @@ class Exporter:
         # for every block that references one.
         internal_bits = [dict(e) for e in self.project.settings.get("internal_bits", [])]
 
+        # feat/io-labels-and-ids §1.5: full copy of the address -> label
+        # registry — EPW-OS uses these as event-register/Historian texts.
+        # This is the canonical source of event descriptions; without it
+        # EPW-OS would need its own independent copy that immediately
+        # drifts out of sync with the logic project (see ARCHITECTURE.md
+        # "Etykiety adresów I/O").
+        io_labels = dict(DeviceModel.get_labelled_addresses(self.project))
+
         payload = {
             "format": "EPW_RUNTIME_LOGIC",
             "schema_version": RUNTIME_SCHEMA_VERSION,
@@ -123,6 +135,7 @@ class Exporter:
             # compiled against — EPW-OS can refuse to run logic compiled
             # on a catalog newer than it understands.
             "system_catalog_version": system_signals.get_catalog_version(),
+            "io_labels": io_labels,
         }
 
         # Checksum covers the canonical serialization of everything ABOVE, computed

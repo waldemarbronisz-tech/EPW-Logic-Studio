@@ -31,7 +31,7 @@ migration chain. Never conflate them, and never bump one to fix a problem in
 the other.
 
 ### 3.1 `.epwlogic` (engineering project) — `EPWLOGIC_SCHEMA_VERSION`
-Currently **3** (`core/project.py`). Bumping it requires adding a
+Currently **4** (`core/project.py`). Bumping it requires adding a
 `_migrate_vN_to_v(N+1)(data)` function and registering it in `_MIGRATIONS`,
 keyed by the version it upgrades *from*. `Project.deserialize()` applies the
 chain sequentially —
@@ -69,6 +69,24 @@ current catalog here — an old value that predates the catalog format is
 exactly the "sygnał spoza katalogu" case the validator (§4 of the PR) flags
 live as a warning, not something a migration should silently paper over.
 
+`_migrate_v3_to_v4` (feat/io-labels-and-ids §1.3) defaults a missing
+`settings.io_labels` to `{}` (see §12) — otherwise an empty migration, since
+no v3 project could have had any entries (the feature didn't exist yet).
+Kept as its own explicit step anyway rather than folded into the general
+`proj.settings.setdefault(...)` defensive defaults further down in
+`deserialize()`: the schema version on disk should accurately reflect what
+the *current* format supports, and an empty migration function costs
+nothing to keep.
+
+`short_id` (§13) is deliberately NOT gated behind a schema-version bump —
+`Project.add_block()`, the single choke point every block passes through
+(library placement, paste/duplicate, and the loader itself, which calls it
+once per block in file order), assigns one whenever a block arrives without
+one. Loading an old project this way assigns ids to every block
+deterministically, in file order, with no separate migration step — the
+same reasoning §1.6 (feat/editor-modes-and-geometry) used for why the
+grid-realignment pass needed no dedicated migration entry either.
+
 Loading a `schema_version` newer than `EPWLOGIC_SCHEMA_VERSION` raises a
 `ValueError` naming both the file's version and the version this build
 understands, instead of silently mis-loading it (mirroring the unrecognized-
@@ -79,13 +97,14 @@ every load, so the test suite (and every engineer opening them) exercises
 the migration path instead of a pre-migrated file.
 
 ### 3.2 `EPW_RUNTIME_LOGIC` (compiled export) — `RUNTIME_SCHEMA_VERSION`
-Currently **3**, a constant in `compiler/exporter.py` — never an inline
+Currently **4**, a constant in `compiler/exporter.py` — never an inline
 literal. Carries export provenance and integrity metadata: `generated_at`
 (UTC ISO 8601), `generated_by` (`EPW Logic Studio <version>`),
 `project_name`, `block_count` (executable blocks, i.e.
 `len(execution_order)`), `contains_forced_io`, `analog_points` (see §9),
 `internal_bits` and `system_catalog_version` (see §10, feat/internal-bits
-§8), and a `checksum` — SHA-256 of the canonical JSON (`sort_keys=True,
+§8), `io_labels` (§12, feat/io-labels-and-ids §1.5 — full address -> label
+copy) and each block's own `short_id` (§13), and a `checksum` — SHA-256 of the canonical JSON (`sort_keys=True,
 separators=(',', ':')`) of exactly the fields listed in `CHECKSUM_FIELDS`,
 computed before `checksum` itself is added. `verify_checksum()` recomputes
 over that same closed field set; anything outside it — a `Compiler.compile()`
@@ -303,3 +322,116 @@ REPORT.md, wciąż tylko zadeklarowane kategorie biblioteki bloków) ani
 telemechaniki — czekają na zamrożenie odpowiedniej części kontraktu
 platformowego z EPW-OS/Synoptic Editor. Dodanie ich będzie kolejnym MINOR
 bumpem `catalog_version`, tym samym mechanizmem opisanym powyżej.
+
+## 12. Etykiety adresów I/O (feat/io-labels-and-ids §1)
+
+**Model**: `project.settings["io_labels"]` — słownik adres → etykieta,
+np. `{"ELA01.DI01": "Wyłącznik Q1 zamknięty"}`. Klucz to dowolny adres z
+`DeviceModel` (32 kanały ELA + 32 ADA) albo adres punktu analogowego
+zdefiniowanego w projekcie — nigdy nazwa sygnału wewnętrznego (§10) ani
+identyfikator systemowy (§11); to osobna, czwarta warstwa opisowa, nie
+kolejna przestrzeń nazw. Wpis o pustej (po `strip()`) wartości nie jest
+przechowywany wcale — `DeviceModel.set_io_label()` wtedy USUWA klucz,
+zamiast zapisywać pusty string; dzięki temu każdy odczyt
+(`get_io_label()`) może rozstrzygnąć "czy ten adres ma etykietę" samym
+sprawdzeniem obecności klucza, bez dodatkowej reguły "pusty string liczy
+się jako brak".
+
+**Jedyne sankcjonowane API**: `DeviceModel.get_io_label(project, address)`,
+`set_io_label(project, address, label)`, `get_labelled_addresses(project)`,
+`all_addresses(project)` (`core/device_model.py`). Żadne inne miejsce w
+kodzie nie czyta ani nie zapisuje `project.settings["io_labels"]`
+bezpośrednio — dokładnie ta sama dyscyplina co przy `internal_bits`/
+`analog_points` gdzie indziej w tym dokumencie.
+
+**Zasięg**: etykieta jest dostępna wszędzie tam, gdzie adres się pojawia —
+na bloku IO na kanwie (drugi wiersz tekstu, gdy blok nie ma własnego
+Comment), w kolumnie Opis dialogu wyboru sygnału (`SignalPickerDialog`,
+razem z wyszukiwaniem), oraz w komunikatach kompilatora/walidatora
+(`Validator._block_ref()`, §13) — "interchangeably with the physical
+address itself", dokładnie jak w referencyjnym e²TANGO (DTR §2.7.7).
+
+**Przeznaczenie po stronie EPW-OS**: `io_labels` jedzie w pełnej kopii w
+eksporcie `EPW_RUNTIME_LOGIC` (§3.2) i jest objęte checksumą. To jest
+WŁAŚCIWE źródło opisów zdarzeń dla rejestru zdarzeń i Historiana EPW-OS —
+bez tego EPW-OS musiałby trzymać drugą, niezależną listę opisów, która
+natychmiast rozjechałaby się z projektem logiki przy każdej zmianie
+etykiety w Logic Studio bez odpowiadającej zmiany po drugiej stronie.
+
+**Etykieta adresu a `Comment` na bloku — kluczowe rozgraniczenie**:
+
+| | Etykieta adresu (`io_labels`) | `Comment` (właściwość bloku) |
+|---|---|---|
+| Opisuje | ADRES — co fizycznie wisi na zacisku | TO UŻYCIE — po co ten konkretny blok tu stoi na schemacie |
+| Zasięg | Cały projekt (jeden adres = jedna etykieta) | Lokalny dla jednego bloku |
+| Dwa bloki, ten sam adres | Ta sama etykieta dla obu (to jeden fizyczny sygnał) | Mogą mieć zupełnie różne Comment |
+| Przechowywanie | `project.settings["io_labels"]` | `block.properties["Comment"]` |
+
+Renderowanie na kanwie (`BlockItem._paint_io_tag()`) egzekwuje tę hierarchię
+wprost: `Comment`, gdy niepusty, ZAWSZE wygrywa jako drugi wiersz tekstu
+wewnątrz bloku (opisuje to konkretne wystąpienie), etykieta adresu jest
+pokazywana tylko wtedy, gdy `Comment` jest pusty. Z tego samego powodu
+`Comment` przestaje być też rysowany DRUGI RAZ nad blokiem (ogólna
+adnotacja Tag/Comment, którą dostaje każdy inny typ bloku) dla bloku
+zaadresowanego przez `Address` — bez tego wyjątku ta sama wartość
+pojawiałaby się na tym samym bloku dwa razy.
+
+## 13. Krótki identyfikator bloku (`short_id`, feat/io-labels-and-ids §4)
+
+**Format**: `<litera><n>` — litera zależna od kategorii bloku, `n` kolejny
+numer w obrębie tej litery, np. `g12`, `i3`, `o7` (wzorowane na e²TANGO,
+które pokazuje np. `x181`). Tabela liter (`core/short_id.py`,
+`_PREFIX_BY_TYPE_ID`/`_PREFIX_BY_CATEGORY`):
+
+| Litera | Znaczenie |
+|---|---|
+| `g` | bramki logiczne |
+| `i` | wejścia — DI, AI, oraz `virtual.input`/`internal.reg_in` (bloki CZYTAJĄCE bit/rejestr wewnętrzny) |
+| `o` | wyjścia — DO, AO, oraz `virtual.output`/`internal.reg_out` (bloki PISZĄCE) |
+| `t` | timery |
+| `f` | przerzutniki (`SR`/`RS`) |
+| `a` | "Elementy Analogowe" — przetwarzanie analogowe, komparatory, matematyka; jedna litera dla całej kategorii biblioteki, bez dalszego różnicowania modułu źródłowego |
+| `e` | detekcja zboczy |
+| `c` | liczniki |
+| `d` | bloki dokumentacyjne (nie biorą udziału w kompilacji) |
+| `x` | wszystko inne — stałe, sygnały systemowe, przyciski, LED, ... |
+
+**Nadawanie**: wyłącznie przez `Project.add_block()` — jedyny punkt, przez
+który przechodzi każdy blok, niezależnie czy trafia do projektu z
+biblioteki, przez wklejenie/duplikację, czy przez wczytanie pliku (loader
+wywołuje `add_block()` raz na blok, W KOLEJNOŚCI Z PLIKU — stąd projekt bez
+`short_id` dostaje identyfikatory deterministycznie, w kolejności
+występowania, bez osobnego kroku migracji, patrz §3.1). Blok, który już ma
+`short_id` (odtworzony z zapisu przez `BaseLogicBlock.SERIALIZED_FIELDS`),
+zostaje nietknięty. `clone()` CELOWO nie kopiuje `short_id` — świeżo
+sklonowany blok ma `""`, więc `add_block()` nada mu nowy numer zamiast
+kolidować ze źródłem.
+
+**Licznik jest trwały i monotoniczny, nie wyliczany na bieżąco**:
+`project.settings["short_id_counters"]` — słownik litera → następny wolny
+numer, rosnący wyłącznie w jedną stronę
+(`short_id.assign_short_id()`/`resync_counters_with_existing_ids()`).
+Świadomie NIE jest to "znajdź najmniejszy nieużywany numer" — usunięcie
+`g3` nigdy nie sprawia, że kolejny nowy blok bramkowy dostanie `g3`
+ponownie; dostanie `g5` (albo cokolwiek jest następne), nawet jeśli `g3`
+i `g4` już nie istnieją. Ponowne użycie numeru po usunięciu byłoby mylące
+przy porównywaniu dwóch wersji tego samego projektu — "czy `g3` wrócił, czy
+to zupełnie inny blok?" nie powinno być pytaniem, na które trzeba
+odpowiadać.
+
+**Użycie**: panel właściwości pokazuje `short_id` jako pierwszy wiersz
+sekcji "Identyfikacja" (§5), pod etykietą "Identyfikator" — UUID zostaje
+wyłącznie w sekcji "Zaawansowane", jako klucz techniczny. WSZYSTKIE
+komunikaty kompilatora/walidatora identyfikują blok przez `short_id`
+(`Validator._block_ref()`, `GraphBuilder`'s cykl-detection, cycle-delayed-
+read info message) zamiast przez `display_name` (który mogło dzielić kilka
+identycznie nienazwanych bloków tego samego typu — "[AND] Input
+unconnected" mogło znaczyć dowolną z kilku bramek) — dla bloku IO z
+przypisanym adresem mającym etykietę (§12), referencja jest wzbogacona:
+`"i3 (ELA01.DI01 — Wyłącznik Q1 zamknięty)"`.
+
+**Eksport**: `short_id` jedzie jako pole każdego bloku w
+`EPW_RUNTIME_LOGIC["blocks"][uuid]["short_id"]` — EPW-OS może go używać we
+własnych komunikatach diagnostycznych. Osobny wpis w `CHECKSUM_FIELDS` nie
+jest potrzebny: `"blocks"` jest już na liście i niesie cały ten słownik per
+blok, `short_id` włącznie.

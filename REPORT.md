@@ -173,10 +173,12 @@ into Phase 5 below under a fresh branch/PR rather than resumed here.
   the original bug's 4-computed-where-2-fit). Phase 5 §0A replaces this
   entire panel with a corrected, viewport-width-driven layout — see below.
 
-## PHASE 5 — WIRE MODES & LABELS (in progress)
+## PHASE 5 — WIRE MODES & LABELS
 
-Branch `feat/wire-modes-and-labels`, §0/§0A committed so far (§1 onward
-paused for a scheduled report/confirmation checkpoint per the task).
+Branch `feat/wire-modes-and-labels`, merged with §0/§0A only (§1 onward —
+editor work modes, multi-segment wire drawing, wire labels/net semantics —
+was not picked up again after this PR's report/confirmation checkpoint;
+Phase 6 below is an independent PR, not a continuation of it).
 
 ### PIN/BLOCK SERIALIZATION — STRUCTURAL FIX (§0)
 - [X] A field added to `Pin` has now silently failed to round-trip through
@@ -220,3 +222,94 @@ paused for a scheduled report/confirmation checkpoint per the task).
   — resizing the panel only ever changes which COLUMN a whole group of 8
   lands in, never the channel order inside a group, so "DI17" is always the
   first row under "DI17-24" no matter the window width.
+
+## PHASE 6 — I/O LABELS & SHORT IDS
+
+Branch `feat/io-labels-and-ids`, all sections closed, no stop-and-report
+checkpoint required by the task (data-model/presentation work only — no
+editor-interaction or simulation-behavior changes).
+
+### DESCRIPTIVE I/O ADDRESS LABELS (§1/§2/§3)
+- [X] `project.settings["io_labels"]` (address -> label), read/written
+  exclusively through `DeviceModel.get_io_label()`/`set_io_label()`/
+  `get_labelled_addresses()`/`all_addresses()` — never the dict directly.
+  Empty (post-strip) label removes the entry rather than storing "".
+  `EPWLOGIC_SCHEMA_VERSION` 3 -> 4 (an intentionally empty migration —
+  nothing to migrate FROM, but the version number should still reflect
+  what the format supports).
+- [X] New "Etykiety wejść/wyjść" tab in Project Settings: one row per
+  fixed ELA/ADA channel plus every project analog point, a read-only
+  Użycia (usage count) column, "pokaż tylko używane" default ON, a filter
+  matching address or label text, import/export to JSON with an added/
+  changed/skipped-count confirmation before ever overwriting anything.
+- [X] Surfaced everywhere an address appears: the canvas block's own
+  second line (Comment wins when set — it describes THIS USE, the label
+  describes the ADDRESS; also fixed a resulting double-display of Comment
+  found while wiring this up), the signal picker's Opis column (and its
+  search, for free, since search already scans every column), and every
+  compiler/validator message for an addressed I/O block
+  ("i3 (ELA01.DI01 — Wyłącznik Q1 zamknięty)").
+- [X] Exported in `EPW_RUNTIME_LOGIC` and covered by `CHECKSUM_FIELDS` —
+  the canonical source for EPW-OS's own event-register/Historian text.
+  `RUNTIME_SCHEMA_VERSION` 3 -> 4.
+- [ ] `simulation.py` was explicitly out of scope for this PR (a parallel
+  branch owned the panel at the time) — the panel doesn't read
+  `io_labels` yet even though the registry is now populated and ready;
+  wiring it in is a small follow-up once that branch's work is settled.
+
+### SHORT BLOCK IDENTIFIERS (§4)
+- [X] `BaseLogicBlock.short_id` ("g12", "i3", ...) — category letter +
+  a project-persistent, monotonically increasing per-prefix counter
+  (`project.settings["short_id_counters"]`, `core/short_id.py`) that never
+  reissues a deleted block's number. Assigned exactly once, in
+  `Project.add_block()` — the one choke point every block passes through,
+  which is also what makes an older project without `short_id` get one
+  per block, deterministically, in file order, with no dedicated
+  migration step. `clone()` deliberately never copies it.
+- [X] Replaces `display_name`/UUID in every compiler/validator message
+  (`Validator._block_ref()`, `GraphBuilder`'s cycle-detection message,
+  the cycle-delayed-read info message) — a bare `display_name` could be
+  shared identically by several untitled blocks of the same type.
+  Exported as each block's own `short_id` field in `EPW_RUNTIME_LOGIC`;
+  already checksum-covered via the existing `"blocks"` entry.
+
+### PROPERTY PANEL REBUILT (§5)
+- [X] Four collapsible sections (Identyfikacja/Adresacja/Parametry/
+  Zaawansowane) replacing the old flat table — an empty section for a
+  given block type is hidden, not shown empty; expand state persisted
+  per-section.
+- [X] Typed, range-checked editors (QSpinBox/QDoubleSpinBox/QCombobox/
+  QLineEdit) instead of free-text table cells a numeric property used to
+  silently swallow bad input into. Domain floors by property name
+  (non-negative time/count properties, sample counts >= 1) and cross-
+  field min<max validation for the known Min/Max-shaped property pairs —
+  a rejected edit reverts the field and shows a 4-second status-bar
+  message instead of silently keeping (or silently discarding) the edit.
+- [X] A numeric property's unit now lives on the editor as a suffix
+  ("Preset" + " ms") instead of baked into the displayed name ("Preset
+  (ms)") — the underlying `properties` dict KEY is untouched, this is
+  presentation-only.
+- [X] Undo-stack flooding fixed: commits happen on `editingFinished` (with
+  spinbox keyboard-tracking off), and only when the value actually
+  changed — not on every keystroke.
+- [X] Widget leak fixed: every per-block editor widget set is explicitly
+  torn down (`QFormLayout.removeRow()`, which deletes the underlying
+  widgets outright) before the next block's is built.
+- [X] §5.6 dead-property audit (mandatory per the task) — see ARCHITECTURE.md
+  and the answers below; `Visible`/`Execution State` removed outright,
+  `Enabled` kept (a real, if currently unreachable pending a UI toggle,
+  `validate()` consumer).
+
+### §5.6 — DEAD PROPERTY AUDIT ANSWERS
+- **`Enabled`**: read by `BaseLogicBlock.validate()`
+  (`if not self.enabled: return errors`) — KEPT. Honest caveat: nothing in
+  the application currently ever writes it `False` (no UI toggle exists
+  yet), so that branch is presently unreachable in practice. Its property-
+  panel row was also dropped in this PR's rebuild — §5.1's own explicit
+  section list never mentions one either.
+- **`Visible`**: read nowhere except this class's own `serialize()`/
+  `deserialize()` round-trip and the old property grid's display of it —
+  REMOVED (attribute, serialization, property-grid row).
+- **`Execution State`**: set once to `"Idle"` in `__init__`, never updated
+  anywhere during simulation — permanently displayed a constant, misleading
+  value. REMOVED entirely.

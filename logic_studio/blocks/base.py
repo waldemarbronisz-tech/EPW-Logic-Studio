@@ -5,30 +5,44 @@ class BaseLogicBlock:
     # SERIALIZED_FIELDS, applied here because serialize()/deserialize()
     # already had the identical fragile shape — a hand-written dict literal
     # on one side, a hand-written set of assignments on the other, free to
-    # silently drift apart. Auditing this class while building that fix
-    # turned up a real (if currently latent) instance of exactly that drift:
-    # `visibility` and `enabled` were written by serialize() but never read
-    # back by deserialize() — a saved hidden/disabled block would silently
-    # come back visible/enabled. Latent today because nothing in the UI
-    # actually sets either to False yet, but `enabled` already has a
-    # validate()-early-exit consumer (see validate() below) clearly meant
-    # for a future toggle, and the save format has claimed to persist both
-    # values since day one regardless.
+    # silently drift apart.
     #
     # Only the flat, directly-comparable fields live in this list — not
     # every serialize() key. `type_id`/`category`/`description` are
     # deliberately excluded: they're determined by the block's own CLASS
     # (cls() already sets them correctly), and restoring them from a file
     # would risk overwriting current code's definition with stale data
-    # instead of catching a mismatch. `execution_state` is deliberately
-    # excluded too: it's runtime/session state ("Idle" at every fresh
-    # load is correct, not a bug — nothing has executed yet). `position`/
-    # `size`/`properties`/`inputs`/`outputs` are structured, not flat
-    # scalars, and keep their own explicit handling in deserialize().
-    SERIALIZED_FIELDS = ("uuid", "display_name", "execution_priority", "color", "visibility", "enabled")
+    # instead of catching a mismatch. `position`/`size`/`properties`/
+    # `inputs`/`outputs` are structured, not flat scalars, and keep their
+    # own explicit handling in deserialize().
+    #
+    # feat/io-labels-and-ids §5.6 dead-property audit removed `visibility`
+    # and `execution_state` from here (and from __init__ entirely — see
+    # that section's report): neither was ever read by anything but the
+    # property grid's own display and this class's serialize()/
+    # deserialize(), so keeping them was exactly the "UI element showing a
+    # value nothing depends on" problem this project consistently cuts.
+    # `enabled` stays: validate() (below) genuinely branches on it, even
+    # though — also noted in that audit — nothing currently WRITES it
+    # False, so that branch is presently unreachable in practice pending a
+    # real UI toggle.
+    #
+    # §4.1/§4.2: `short_id` (a project-unique, human-readable "g12"-style
+    # id, replacing the UUID in every user-facing message) is assigned
+    # exactly once, by Project.add_block() — never here, and never
+    # copied by clone() below — so a pasted/duplicated block always gets a
+    # fresh one instead of colliding with its source (core/short_id.py).
+    SERIALIZED_FIELDS = ("uuid", "short_id", "display_name", "execution_priority", "color", "enabled")
 
     def __init__(self, type_id: str, default_name: str, category: str, description: str = ""):
         self.uuid: str = str(uuid.uuid4())
+        # feat/io-labels-and-ids §4: human-readable id ("g12", "i3", ...),
+        # assigned once by Project.add_block() — see core/short_id.py and
+        # the SERIALIZED_FIELDS comment above. Empty until then; a block
+        # constructed directly (tests, a block not yet added to a project)
+        # simply has none yet, same as it has no project-assigned uuid
+        # collision-checking either.
+        self.short_id: str = ""
         self.type_id: str = type_id
         self.display_name: str = default_name # instance_name
         self.category: str = category
@@ -47,10 +61,14 @@ class BaseLogicBlock:
         self.outputs: list = [] # List of Pin objects
 
         # Basic properties
-        self.execution_state: str = "Idle"
         self.execution_priority: int = 1
         self.color: str = "#C0C0C0"  # Classic Win98 grey
-        self.visibility: bool = True
+        # §5.6: consumed by validate() below — a disabled block skips its
+        # own validation entirely. No UI writer sets this False yet (a
+        # future toggle would use update_property() the same way any other
+        # property does), so the branch is presently unreachable, but the
+        # field is a real, intentional consumer, unlike visibility/
+        # execution_state which this same audit removed outright.
         self.enabled: bool = True
 
         # Read-only UI display state. Blocks may WRITE their current value here for
@@ -125,7 +143,6 @@ class BaseLogicBlock:
             "size": {"width": self.width, "height": self.height},
             "inputs": [pin.serialize() for pin in self.inputs],
             "outputs": [pin.serialize() for pin in self.outputs],
-            "execution_state": self.execution_state,
             "properties": self.properties,
         })
         return data
@@ -140,10 +157,9 @@ class BaseLogicBlock:
         block = cls()
 
         # §0.1: every flat SERIALIZED_FIELDS value present in `data` is
-        # restored generically — including visibility/enabled, which a
-        # hand-written version of this loop had silently dropped (see the
-        # comment on SERIALIZED_FIELDS). Absent -> whatever cls() already
-        # set, same back-compat behavior as before this refactor.
+        # restored generically. Absent -> whatever cls() already set (a
+        # freshly-generated uuid, short_id="" pending Project.add_block(),
+        # ...), same back-compat behavior as before this refactor.
         for field in cls.SERIALIZED_FIELDS:
             if field in data:
                 setattr(block, field, data[field])
@@ -160,6 +176,10 @@ class BaseLogicBlock:
     def clone(self, preserve_uuid=False):
         """Creates a copy of the block."""
         new_block = self.__class__()
+        # §4.2: short_id is deliberately NOT copied — new_block already has
+        # "" from __init__ above, same as any newly constructed block, so a
+        # pasted/duplicated copy gets a fresh id from Project.add_block()
+        # instead of colliding with the block it was copied from.
         if preserve_uuid:
             new_block.uuid = self.uuid
         new_block.display_name = self.display_name

@@ -322,7 +322,10 @@ def test_validator_error_multiple_writers():
     errors, warnings = _validate(p)
     matching = [e for e in errors if "BLOKADA_ZS" in e]
     assert len(matching) == 1
-    assert "VO1" in matching[0] and "VO2" in matching[0]
+    # feat/io-labels-and-ids §4.3: validator messages name a block by its
+    # short_id now, not the (here deliberately set, but otherwise often
+    # shared) display_name.
+    assert vo1.short_id in matching[0] and vo2.short_id in matching[0]
 
 def test_validator_single_writer_is_not_an_error():
     _app()
@@ -431,7 +434,9 @@ def test_cycle_delay_detected_when_writer_is_scheduled_after_reader():
     assert vi.uuid in compiled["cycle_delayed_reads"]
     assert vi.uuid in compiled["program"].cycle_delayed_reads
     assert any("M.X" in msg for msg in compiler.infos)
-    assert any(vi.display_name in msg for msg in compiler.infos)
+    # feat/io-labels-and-ids §4.3: compiler messages identify a block by
+    # its short_id now, not the possibly-shared display_name.
+    assert any(vi.short_id in msg for msg in compiler.infos)
 
 def test_cycle_delay_not_flagged_when_writer_precedes_reader():
     """Negative case: force the writer to sort BEFORE the reader in the

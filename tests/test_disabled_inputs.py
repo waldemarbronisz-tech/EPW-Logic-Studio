@@ -81,7 +81,9 @@ def test_or3_with_two_disabled_inputs_warns_with_exact_message():
     Validator(p).run(errors, warnings)
 
     assert errors == []
-    expected = f"Bramka {gate.display_name} ma tylko 1 aktywne wejście — działa jak przekaźnik powtarzający."
+    # feat/io-labels-and-ids §4.3: compiler/validator messages identify a
+    # block by its short_id now, not the possibly-shared display_name.
+    expected = f"Bramka {gate.short_id} ma tylko 1 aktywne wejście — działa jak przekaźnik powtarzający."
     assert expected in warnings
 
 def test_disabled_input_generates_no_unconnected_warning():

@@ -125,18 +125,26 @@ class SignalPickerDialog(QDialog):
         # (project-defined vs. platform contract).
         if "physical" in self.sections:
             phys_root = QTreeWidgetItem(self.tree, ["Wejścia i wyjścia fizyczne"])
+            # feat/io-labels-and-ids §3.2: the Opis column shows the
+            # address's own descriptive label (§1) when one is set — "Wyl.
+            # Q1 zamknięty" is what an engineer actually recognizes, not
+            # the generic "Wejście cyfrowe (ELA)" every one of the 32 DI
+            # channels shares. Falls back to that generic description when
+            # no label exists yet. Search already scans every column
+            # (_filter_subtree), so this alone makes label text searchable
+            # too — no separate search-path change needed.
             if self.value_type in (None, "BOOL"):
                 for addr in DeviceModel.get_ela_addresses():
-                    self._add_leaf(phys_root, "Wejście cyfrowe (ELA)", addr, "", addr, "physical")
+                    desc = DeviceModel.get_io_label(self.project, addr) or "Wejście cyfrowe (ELA)"
+                    self._add_leaf(phys_root, desc, addr, "", addr, "physical")
                 for addr in DeviceModel.get_ada_addresses():
-                    self._add_leaf(phys_root, "Wyjście cyfrowe (ADA)", addr, "", addr, "physical")
+                    desc = DeviceModel.get_io_label(self.project, addr) or "Wyjście cyfrowe (ADA)"
+                    self._add_leaf(phys_root, desc, addr, "", addr, "physical")
             if self.value_type in (None, "REAL"):
                 for point in DeviceModel.get_analog_points(self.project):
-                    self._add_leaf(
-                        phys_root, point.get("name", "") or point.get("address", ""),
-                        point.get("address", ""), point.get("unit", ""),
-                        point.get("address", ""), "physical",
-                    )
+                    addr = point.get("address", "")
+                    desc = DeviceModel.get_io_label(self.project, addr) or point.get("name", "") or addr
+                    self._add_leaf(phys_root, desc, addr, point.get("unit", ""), addr, "physical")
 
         # §6.3, section 2: internal signals, grouped by their own "category".
         if "internal" in self.sections:

@@ -446,7 +446,17 @@ class BlockItem(QGraphicsItem):
             second_line = entry.get("label", "") if entry else ""
             lines = [(identifier, True), (second_line, False)]
         else:
-            lines = [(identifier, True), (self.logic_block.display_name, False)]
+            # feat/io-labels-and-ids §3.1/§3.4: Comment describes THIS
+            # USAGE of the signal on the schematic (block-local, editable
+            # per-instance); the io_label describes the ADDRESS itself
+            # (project-wide, one label per physical/analog channel — see
+            # DeviceModel.get_io_label()). A non-empty Comment always wins:
+            # it's what the engineer deliberately wrote for this specific
+            # block. Falls back to the generic display_name ("DI", "AO",
+            # ...) when neither is set, same as before this feature existed.
+            comment = self.logic_block.properties.get("Comment", "")
+            second_line = comment or self._io_label_for_display(identifier) or self.logic_block.display_name
+            lines = [(identifier, True), (second_line, False)]
 
         if self.type_id in ("input.ai", "output.ao"):
             unit = self._lookup_analog_unit(identifier) if identifier else ""
@@ -533,6 +543,23 @@ class BlockItem(QGraphicsItem):
             elided = fm.elidedText(text, Qt.ElideRight, available_width)
             painter.drawText(QRectF(margin_x, y, available_width, line_height), Qt.AlignLeft | Qt.AlignTop, elided)
             y += line_height
+
+    def _io_label_for_display(self, address: str) -> str:
+        """Best-effort lookup of this address's descriptive label (§1) for
+        on-canvas display — same UI-only, reach-into-the-live-Project
+        pattern as _lookup_analog_unit() below (the runtime engine never
+        holds a Project reference, so this can only ever run here)."""
+        if not address:
+            return ""
+        try:
+            window = self.scene().views()[0].window()
+            project = getattr(window, 'project', None)
+            if project is None:
+                return ""
+            from logic_studio.core.device_model import DeviceModel
+            return DeviceModel.get_io_label(project, address)
+        except Exception:
+            return ""
 
     def _lookup_analog_unit(self, address: str) -> str:
         """Best-effort lookup of an analog point's unit for on-canvas display.
@@ -703,12 +730,21 @@ class BlockItem(QGraphicsItem):
         block would just duplicate it. Only IO blocks addressed via
         "Address" (DI/DO/AI/AO) treat "Tag" as the separate, generic
         schematic designation from §7.1 here.
+
+        feat/io-labels-and-ids §3.1: for that same "Address" IO case,
+        Comment is ALSO already shown inside the block now (_paint_io_tag()
+        — it takes priority over the address's io_label as the block's own
+        second line, since it describes THIS USAGE specifically). Showing
+        it a second time above the block would be the exact same value
+        twice on one block — suppressed here the same way Tag already is.
         """
         block = self.logic_block
         tag = block.properties.get("Tag", "")
         comment = block.properties.get("Comment", "")
 
-        if self.shape_style == "IO" and not block.properties.get("Address"):
+        if self.shape_style == "IO" and block.properties.get("Address"):
+            comment = ""
+        elif self.shape_style == "IO" and not block.properties.get("Address"):
             tag = ""
 
         return tag, comment

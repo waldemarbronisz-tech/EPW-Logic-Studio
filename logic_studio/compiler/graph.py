@@ -81,7 +81,13 @@ class GraphBuilder:
                 key=lambda u: self._sort_key(block_by_uuid[u])
             )
             if not stateful_candidates:
-                names = [block_by_uuid[u].display_name for u in sorted(missing, key=lambda u: self._sort_key(block_by_uuid[u]))]
+                # feat/io-labels-and-ids §4.3: short_id, not display_name —
+                # several untitled blocks of the same type would otherwise
+                # name themselves identically in this list.
+                names = [
+                    block_by_uuid[u].short_id or block_by_uuid[u].display_name
+                    for u in sorted(missing, key=lambda u: self._sort_key(block_by_uuid[u]))
+                ]
                 errors.append(f"Execution Loop Detected. Combinational cyclic logic is not supported. Affected blocks: {', '.join(names)}")
                 return []
 
