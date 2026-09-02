@@ -109,3 +109,55 @@ bugs were caught and fixed during this work rather than shipped: a
 pre-existing fixture ambiguity the new "one writer" rule correctly exposed,
 and a rename-vs-delete confusion in the registry editor that hung the test
 suite in isolation before being diagnosed and fixed.
+
+## PHASE 4 — EDITOR MODES & GEOMETRY (in progress)
+
+Branch `feat/editor-modes-and-geometry`, §1-§4 committed so far (§5 onward
+paused for a scheduled report/confirmation checkpoint per the task).
+
+### GATE GEOMETRY (§1)
+- [X] Gate body is now a fixed `GATE_BODY` (40x40) square regardless of
+  input count — the D-shape/shield curve no longer flattens as inputs are
+  added. Inputs beyond what the fixed body holds (4+) spread symmetrically
+  above/below it and merge into a vertical rail at the body's own left edge.
+- [X] `centered_port_offsets()` (`ui/canvas/shapes.py`) is the one shared
+  formula for "N ports symmetric around a block's own center," used
+  identically for the real `PortItem` placement and the lead/rail drawing.
+
+### DISABLED ("ZAŚLEPIONE") INPUTS (§2)
+- [X] A multi-input logic gate's unconnected input can be explicitly
+  disabled — excluded from the block's own logic entirely (not fed an
+  implicit default value), toggled by double-click or a right-click context
+  menu action on the port, rendered as a short capped gray stub. Compile-time
+  rules: no "unconnected" warning for a disabled input; a warning once a
+  multi-input gate is down to one active input; an error if every input is
+  disabled or if a block type that never opted in ends up with one anyway.
+
+### LIBRARY — ROADMAP CATEGORIES REMOVED FROM THE UI (§3)
+- [X] Six categories that had structure but zero registered blocks behind
+  them — previously shown grayed out as "(w przygotowaniu)" — are removed
+  from the tree entirely. Declaring a feature that doesn't exist yet is the
+  same class of problem as a UI element showing a fabricated value; the
+  roadmap now lives here instead of in the running application. They return
+  as real, populated categories once blocks are registered under them:
+  - Zabezpieczenia Analogowe
+  - Zabezpieczenia Dwustanowe
+  - Zabezpieczenia Technologiczne
+  - Łączniki
+  - Banki Nastaw
+  - Zabezpieczenia silnikowe
+
+### SIMULATION PANEL — UNREACHABLE DI/DO CHANNELS FIXED (§4)
+- [X] Bug: the ELA (DI) and ADA (DO) channel grids were laid out in a
+  hardcoded 4 columns, but the panel's typical docked width was really only
+  wide enough for ~2 — DI03/DI04/DI07/DI08/... and the equivalent ADA
+  channels were squeezed out of the visible area with no horizontal
+  scrollbar available to reach them (`QScrollArea(widgetResizable=True)`
+  never offers one). Half of all 32+32 channels were silently unreachable.
+- [X] Column count is now computed from the panel's actual current width
+  (`ELA_ADA_COLUMN_WIDTH`) and recalculated on every `resizeEvent`, so both
+  docking wider/narrower and the initial docked width itself keep every
+  channel reachable. A vertical scrollbar remains available whenever the
+  now-taller (fewer-columns) content overflows.
+- [X] Added a filter/search field above both grids (`io_filter`) — 32 inputs
+  + 32 outputs is faster to search than to scroll for.

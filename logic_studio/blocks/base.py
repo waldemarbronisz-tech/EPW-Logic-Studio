@@ -43,6 +43,14 @@ class BaseLogicBlock:
         # block by what an engineer actually types, not just its type_id/name.
         self.aliases: list = []
 
+        # feat/editor-modes-and-geometry §2.4: whether this block permits
+        # disabling one of its own inputs (Pin.disabled) at all — False for
+        # everything except multi-input logic gates (LogicGateBase sets
+        # this to True for 2+ input gates specifically; see its __init__).
+        # Disabling an input on a block that doesn't allow it is a compile
+        # ERROR (compiler/validator.py), not silently accepted.
+        self.allows_disabled_inputs: bool = False
+
         # Extensible properties mapped by string key. Every block gets "Tag"
         # (its schematic designation, e.g. "C1", "Q_I>1") and "Comment" (a
         # short description of what it does) — the first two fields an
@@ -139,9 +147,14 @@ class BaseLogicBlock:
         # (isolating a CompiledProgram from the UI project), pin UUIDs and their
         # `connections` lists — which reference OTHER pins' UUIDs — are copied
         # verbatim, because GraphBuilder's execution_order is keyed by those UUIDs.
+        # disabled/negated (feat/editor-modes-and-geometry §2/§8) are
+        # configuration of the PIN ITSELF, not tied to a specific wire —
+        # copied unconditionally, unlike uuid/connections which only make
+        # sense to preserve for the isolated-CompiledProgram case.
         new_block.inputs = []
         for p in self.inputs:
             new_p = Pin(p.name, p.direction, p.data_type)
+            new_p.disabled = p.disabled
             if preserve_uuid:
                 new_p.uuid = p.uuid
                 new_p.connections = list(p.connections)
@@ -162,6 +175,15 @@ class BaseLogicBlock:
     def evaluate(self, engine=None):
         """Execute block logic. Overridden by subclasses."""
         pass
+
+    def _active_inputs(self) -> list:
+        """Input pins participating in evaluate() — every input EXCEPT one
+        explicitly disabled (feat/editor-modes-and-geometry §2). A disabled
+        input is excluded from the block's own logic entirely, not fed an
+        implicit default value; blocks that allow disabling (multi-input
+        logic gates, see LogicGateBase) should loop over this instead of
+        self.inputs directly."""
+        return [p for p in self.inputs if not p.disabled]
 
     def reset_runtime_state(self):
         """Reset block to cold deterministic state. Overridden by subclasses."""

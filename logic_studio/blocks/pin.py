@@ -28,6 +28,17 @@ class Pin:
         # for use once the Zabezpieczenia * block categories exist.
         self.safety_relevant: bool = False
 
+        # feat/editor-modes-and-geometry §2: an explicitly disabled input is
+        # EXCLUDED from the block's own evaluate() entirely — not fed a
+        # default value (True for AND, False for OR, ...), which would be
+        # an implicit, easy-to-misread rule that differs per block type.
+        # Exclusion is unambiguous regardless of what kind of block it is.
+        # Only meaningful for an INPUT pin with no connection (§2.2 — you
+        # must remove a wire before disabling the port it lands on) and
+        # only on block types that opt in (BaseLogicBlock.
+        # allows_disabled_inputs, §2.4) — multi-input logic gates only.
+        self.disabled: bool = False
+
     def connect(self, other_pin: 'Pin') -> bool:
         """Connect this pin to another pin if types/directions match."""
         if self.direction == other_pin.direction:
@@ -72,7 +83,8 @@ class Pin:
             "name": self.name,
             "direction": "input" if self.direction == self.DIR_INPUT else "output",
             "data_type": canonical_type,
-            "connections": self.connections
+            "connections": self.connections,
+            "disabled": self.disabled,
         }
 
     @classmethod
@@ -94,4 +106,5 @@ class Pin:
         pin = cls(data.get("name", ""), direction, internal_type)
         pin.uuid = data.get("uuid", pin.uuid)
         pin.connections = data.get("connections", [])
+        pin.disabled = bool(data.get("disabled", False))  # back-compat: absent = False
         return pin

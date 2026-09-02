@@ -1,18 +1,21 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLineEdit, QTreeWidget, QTreeWidgetItem
-from PySide6.QtGui import QDrag, QColor, QBrush
+from PySide6.QtGui import QDrag
 from PySide6.QtCore import Qt, QMimeData, QSettings, QPoint, Signal
 
 from logic_studio.ui.icons import block_icon
 
-# Categories with structure but, as of this build, no registered blocks
-# behind them (see AUDIT_REPORT.md) — shown grayed out and unexpandable
-# instead of hidden, so an engineer sees the product's intended map instead
-# of a gap (§4.8).
-PLACEHOLDER_CATEGORIES = [
-    "Zabezpieczenia Analogowe", "Zabezpieczenia Dwustanowe",
-    "Zabezpieczenia Technologiczne", "Łączniki", "Banki Nastaw",
-    "Zabezpieczenia silnikowe",
-]
+# feat/editor-modes-and-geometry §3: these six categories used to appear in
+# the tree, grayed out and unexpandable, labeled "(w przygotowaniu)" —
+# structure with no registered blocks behind it at all. Removed entirely
+# (both here and from the tree — see _populate_tree()'s standard_categories
+# below, which no longer includes them): declaring a feature that doesn't
+# exist is the same class of problem as a UI element showing a fabricated
+# value. They return, as real categories with real blocks, once something
+# is registered under them — until then the roadmap belongs in REPORT.md,
+# not in the running application:
+#   "Zabezpieczenia Analogowe", "Zabezpieczenia Dwustanowe",
+#   "Zabezpieczenia Technologiczne", "Łączniki", "Banki Nastaw",
+#   "Zabezpieczenia silnikowe"
 
 RECENT_LABEL = "Ostatnio używane"
 RECENT_MAX = 10
@@ -113,9 +116,7 @@ class LibraryPanel(QWidget):
 
         standard_categories = [
             "Bramki logiczne", "Detekcja zboczy", "Wejścia / Wyjścia", "Elementy Analogowe", "Timery",
-            "Przerzutniki"
-        ] + PLACEHOLDER_CATEGORIES + [
-            "Przyciski", "LED", "Liczniki", "Telemechanika", "Inne",
+            "Przerzutniki", "Przyciski", "LED", "Liczniki", "Telemechanika", "Inne",
             # Documentation blocks aren't executable logic — kept last, after
             # every functional category (§9.8).
             "Dokumentacja",
@@ -136,10 +137,6 @@ class LibraryPanel(QWidget):
         all_cats.sort(key=sort_key)
 
         for cat in all_cats:
-            if cat in PLACEHOLDER_CATEGORIES:
-                self._add_placeholder_category(cat)
-                continue
-
             type_ids = BlockRegistry.get_blocks_in_category(cat)
             if not type_ids:
                 continue
@@ -157,13 +154,6 @@ class LibraryPanel(QWidget):
         item.setIcon(0, block_icon(type_id))
         item.setToolTip(0, self._description(type_id))
         return item
-
-    def _add_placeholder_category(self, cat):
-        root = QTreeWidgetItem(self.tree, [f"{cat} (w przygotowaniu)"])
-        root.setDisabled(True)
-        root.setForeground(0, QBrush(QColor(150, 150, 150)))
-        # No children -> the expand arrow never appears; explicit for clarity.
-        root.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicator)
 
     @staticmethod
     def _display_name(type_id):
