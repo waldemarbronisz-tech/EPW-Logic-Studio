@@ -110,10 +110,11 @@ pre-existing fixture ambiguity the new "one writer" rule correctly exposed,
 and a rename-vs-delete confusion in the registry editor that hung the test
 suite in isolation before being diagnosed and fixed.
 
-## PHASE 4 — EDITOR MODES & GEOMETRY (in progress)
+## PHASE 4 — EDITOR MODES & GEOMETRY
 
-Branch `feat/editor-modes-and-geometry`, §1-§4 committed so far (§5 onward
-paused for a scheduled report/confirmation checkpoint per the task).
+Branch `feat/editor-modes-and-geometry`, merged (PR #8). §1-§4 shipped; §5
+onward (editor work modes, wire drawing/branching, probes, labels) carried
+into Phase 5 below under a fresh branch/PR rather than resumed here.
 
 ### GATE GEOMETRY (§1)
 - [X] Gate body is now a fixed `GATE_BODY` (40x40) square regardless of
@@ -161,3 +162,61 @@ paused for a scheduled report/confirmation checkpoint per the task).
   now-taller (fewer-columns) content overflows.
 - [X] Added a filter/search field above both grids (`io_filter`) — 32 inputs
   + 32 outputs is faster to search than to scroll for.
+- **Correction (Phase 5 / feat/wire-modes-and-labels §0A):** manual GUI
+  verification after this shipped found the fix was still wrong — the
+  column count was computed from the PANEL's own requested width
+  (`self.width()`), not the scroll area's actual viewport width, and
+  `ELA_ADA_COLUMN_WIDTH` assumed a short "DI01"-style label when the real
+  checkbox text was the full "ELA01.DI01". Both errors pushed the computed
+  column count too high, so a third of all channels still rendered outside
+  the visible area (now 3 columns computed where 2 truly fit, instead of
+  the original bug's 4-computed-where-2-fit). Phase 5 §0A replaces this
+  entire panel with a corrected, viewport-width-driven layout — see below.
+
+## PHASE 5 — WIRE MODES & LABELS (in progress)
+
+Branch `feat/wire-modes-and-labels`, §0/§0A committed so far (§1 onward
+paused for a scheduled report/confirmation checkpoint per the task).
+
+### PIN/BLOCK SERIALIZATION — STRUCTURAL FIX (§0)
+- [X] A field added to `Pin` has now silently failed to round-trip through
+  save/load TWICE (`connections` aliased instead of copied; `disabled`
+  dropped entirely) — both times because serialize() and deserialize() were
+  two independently hand-written enumerations free to drift apart.
+  `Pin.SERIALIZED_FIELDS` is now the single declared list both methods walk;
+  `Pin.restore_fields()` is the one shared implementation of "which fields
+  get restored onto an existing pin," used by both `Pin.deserialize()` and
+  the project loader (which no longer hand-copies fields itself).
+- [X] The same fix applied to `BaseLogicBlock` turned up a real, if latent,
+  instance of the identical bug: `visibility`/`enabled` were serialized but
+  never restored. Fixed via `BaseLogicBlock.SERIALIZED_FIELDS`.
+- [X] Guardian tests (`tests/test_pin_serialization.py`): parametrized over
+  every `SERIALIZED_FIELDS` entry, plus a field-audit test that fails if a
+  new `Pin.__init__` attribute is added without being classified as
+  persisted or transient.
+
+### SIMULATION PANEL — FULL REBUILD (§0A)
+- [X] Root cause of the still-broken panel (see Phase 4's correction note
+  above): column count now derives from `QScrollArea.viewport().width()`
+  (the actually-available space, minus the scrollbar itself) and a tile
+  width computed from `QFontMetrics` on the real longest label, not a
+  guessed constant.
+- [X] New "tylko użyte" ("only used") filter, ON by default — a channel is
+  "used" when some block's `Address` property references it. The single
+  biggest usability improvement here: a real project uses a handful of the
+  32 available DI/DO channels, and scrolling past the other 28 every time
+  was pure friction.
+- [X] Row redesigned (§0A.3): a colored state dot (not a checkbox — a
+  checkbox means "setting," this means "state"), short address ("DI01," not
+  "ELA01.DI01" — the module prefix is already in the section header and
+  repeats 32 times for nothing), a description column ready for
+  `project.settings["io_labels"]` once that registry exists (§0A.5 —
+  forward-compatible, not implemented this PR), and a right-aligned value.
+  The whole row is the click target for an input; output rows are visually
+  inert and non-interactive (§0A.0: DI/AI is what the engineer sets, DO/AO
+  is what the logic answers back).
+- [X] "Wszystkie" (all-channels) view groups channels into fixed banks of 8
+  (§0A.4), mirroring how physical IO modules/terminal strips are organized
+  — resizing the panel only ever changes which COLUMN a whole group of 8
+  lands in, never the channel order inside a group, so "DI17" is always the
+  first row under "DI17-24" no matter the window width.

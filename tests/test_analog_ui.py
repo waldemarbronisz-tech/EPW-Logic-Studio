@@ -216,6 +216,11 @@ def test_simulation_panel_analog_widgets_rebuild_on_set_project():
     ]
 
     panel = SimulationPanel()
+    # feat/wire-modes-and-labels §0A.2/§0A.6: "only used" defaults ON and no
+    # block here actually references these addresses — turn it off so this
+    # test can exercise the analog widgets themselves, which is what it's
+    # actually about.
+    panel.only_used_btn.setChecked(False)
     panel.set_project(p)
 
     assert "AI.A" in panel.ai_spinboxes
@@ -244,6 +249,7 @@ def test_simulation_panel_slider_spinbox_sync():
         {"address": "AI.A", "name": "A", "unit": "", "min": -10.0, "max": 10.0, "direction": "input"},
     ]
     panel = SimulationPanel()
+    panel.only_used_btn.setChecked(False)  # §0A.2/§0A.6: no block "uses" AI.A here
     panel.set_project(p)
 
     slider = panel.ai_sliders["AI.A"]
@@ -279,6 +285,11 @@ def test_analog_chain_full_scan_through_main_window(qsettings):
     ai.properties["Address"] = "AI.TEMP"
     ao.properties["Address"] = "AO.OUT"
     ai.outputs[0].connect(ao.inputs[0])
+    # feat/wire-modes-and-labels §0A.2: these Address properties were set
+    # directly on the dict (not through PropertyGridPanel, which would have
+    # triggered this automatically) — refresh so the "only used" filter
+    # (default ON) picks up that both blocks now use their channel.
+    m.simulation_panel.refresh()
 
     m.compile_project()
     assert m.engine.program is not None

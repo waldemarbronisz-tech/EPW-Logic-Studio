@@ -63,6 +63,11 @@ class PropertyGridPanel(QWidget):
 
             self.current_block.update_property(key, val)
 
+            # feat/wire-modes-and-labels §0A.2: an edited Address can change
+            # which DI/DO/AI/AO channel this block counts as "using".
+            if key == "Address" and hasattr(window, 'simulation_panel'):
+                window.simulation_panel.refresh()
+
             # Request visual repaint
             if hasattr(window, 'scene'):
                 window.scene.update()
