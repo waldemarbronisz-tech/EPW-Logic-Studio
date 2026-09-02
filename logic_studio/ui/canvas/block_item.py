@@ -845,6 +845,16 @@ class BlockItem(QGraphicsItem):
         show_usage_action = menu.addAction("Pokaż użycia sygnału")
         show_usage_action.setEnabled(bool(signal_ref))
 
+        # feat/clipboard-and-align §2.3: canvas context menu, when 2+
+        # blocks are selected — populate_align_menu() (scene.py) wires its
+        # own actions straight to the scene, so nothing further is needed
+        # in the action-dispatch chain below for these.
+        scene = self.scene()
+        if scene is not None and len(scene.selectedItems()) >= 2:
+            menu.addSeparator()
+            from logic_studio.ui.canvas.scene import populate_align_menu
+            populate_align_menu(menu.addMenu("Wyrównaj"), scene)
+
         action = menu.exec(QCursor.pos())
         if action == del_action:
             if self.scene():
@@ -935,6 +945,15 @@ class BlockItem(QGraphicsItem):
         super().mouseDoubleClickEvent(event)
 
     def itemChange(self, change, value):
+        # feat/clipboard-and-align §2.2: alignment operates on the FIRST-
+        # SELECTED block, not an extreme of the selection — the order
+        # isn't tracked anywhere else, so it's tracked here, the one place
+        # every selection state change already passes through.
+        if change == QGraphicsItem.ItemSelectedHasChanged and self.scene() is not None:
+            on_selected_changed = getattr(self.scene(), '_on_item_selected_changed', None)
+            if on_selected_changed is not None:
+                on_selected_changed(self, bool(value))
+
         if change == QGraphicsItem.ItemPositionChange and self.scene() is not None:
             if getattr(self.scene(), 'snap_enabled', True):
                 grid = getattr(self.scene(), 'grid_size', style.GRID_SNAP)

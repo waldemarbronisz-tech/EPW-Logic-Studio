@@ -92,6 +92,14 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self.act_copy)
         edit_menu.addAction(self.act_paste)
         edit_menu.addAction(self.act_delete)
+        edit_menu.addSeparator()
+        # feat/clipboard-and-align §2.3: rebuilt on every open
+        # (aboutToShow) rather than kept as persistent QActions — the
+        # enabled state of all 8 operations depends on the CURRENT
+        # selection size, and populate_align_menu() (scene.py, shared with
+        # the block/canvas context menu) already does exactly that.
+        self.align_menu = edit_menu.addMenu("Wyrównaj")
+        self.align_menu.aboutToShow.connect(self._rebuild_align_menu)
 
         # --- View ---
         self.act_zoom_in = self._make_action("Zoom In", self._zoom_in, icon_name="zoom_in")
@@ -818,3 +826,9 @@ class MainWindow(QMainWindow):
 
     def _update_paste_action(self):
         self.act_paste.setEnabled(not self.scene.clipboard_is_empty())
+
+    def _rebuild_align_menu(self):
+        """feat/clipboard-and-align §2.3: Edit -> Wyrównaj."""
+        from logic_studio.ui.canvas.scene import populate_align_menu
+        self.align_menu.clear()
+        populate_align_menu(self.align_menu, self.scene)

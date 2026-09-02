@@ -31,6 +31,13 @@ class LogicScene(QGraphicsScene):
         # don't stack — reset to 0 on every copy_selected_items()/
         # cut_selected_items() call, incremented on every paste.
         self._paste_cascade = 0
+
+        # feat/clipboard-and-align §2.2: BlockItems in the order they
+        # entered the CURRENT selection — maintained by
+        # _on_item_selected_changed(), called from BlockItem.itemChange()
+        # on ItemSelectedHasChanged, the one place every selection change
+        # already passes through.
+        self.selection_order = []
         # Block placement / port-grid snap unit (feat/editor-modes-and-
         # geometry §1.1) — equal to GRID_MINOR, the finer of the two
         # background dot spacings below.
@@ -508,3 +515,174 @@ class LogicScene(QGraphicsScene):
             return
 
         super().mouseReleaseEvent(event)
+
+    # ---- Selection order tracking (§2.2) ---------------------------------
+
+    def _on_item_selected_changed(self, item, is_selected: bool):
+        """Called from BlockItem.itemChange() on ItemSelectedHasChanged —
+        the only place selection order is recorded. A fresh click (which
+        clears the old selection first) naturally empties this list before
+        the newly-clicked item(s) re-enter it, so "first selected" always
+        means first in THIS selection, not some previous one."""
+        if is_selected:
+            if item not in self.selection_order:
+                self.selection_order.append(item)
+        else:
+            if item in self.selection_order:
+                self.selection_order.remove(item)
+
+    def _selected_block_items_in_order(self):
+        """Selected BlockItems, first-selected first. Falls back to
+        appending anything selected-but-missing from selection_order at
+        the end (defensive — every current selection path goes through
+        itemChange(), so this should never actually trigger)."""
+        from logic_studio.ui.canvas.block_item import BlockItem
+        selected = [i for i in self.selectedItems() if isinstance(i, BlockItem)]
+        selected_set = set(selected)
+        ordered = [i for i in self.selection_order if i in selected_set]
+        for item in selected:
+            if item not in ordered:
+                ordered.append(item)
+        return ordered
+
+    # ---- Align & distribute (§2) -------------------------------------------
+
+    def _apply_block_positions(self, target_positions: dict):
+        """target_positions: {BlockItem: (x, y)}. Applied via item.setPos()
+        so the EXISTING BlockItem.itemChange() intercept — snap-to-grid
+        (§2.2's "przyciągane do siatki, gdy Snap jest włączony", already
+        implemented there for ordinary dragging), logic_block.
+        set_position() sync, and wire-path updates — does all the real
+        work; align/distribute need no snap logic of their own. Exactly
+        ONE undo entry (§2.2), regardless of how many blocks actually move,
+        pushed even when target_positions ends up empty (the operation was
+        still "performed")."""
+        if not self.views():
+            return
+        window = self.views()[0].window()
+        project = getattr(window, 'project', None)
+        if project is None:
+            return
+        project.push_state()
+        window.set_dirty()
+        for item, (x, y) in target_positions.items():
+            item.setPos(x, y)
+
+    def _run_align(self, compute_positions, min_selection: int = 2):
+        blocks = self._selected_block_items_in_order()
+        if len(blocks) < min_selection:
+            return
+        reference = blocks[0]
+        self._apply_block_positions(compute_positions(blocks, reference))
+
+    def align_left(self):
+        self._run_align(lambda blocks, ref: {
+            b: (ref.pos().x(), b.pos().y()) for b in blocks if b is not ref
+        })
+
+    def align_right(self):
+        self._run_align(lambda blocks, ref: {
+            b: (ref.pos().x() + ref.width - b.width, b.pos().y()) for b in blocks if b is not ref
+        })
+
+    def align_top(self):
+        self._run_align(lambda blocks, ref: {
+            b: (b.pos().x(), ref.pos().y()) for b in blocks if b is not ref
+        })
+
+    def align_bottom(self):
+        self._run_align(lambda blocks, ref: {
+            b: (b.pos().x(), ref.pos().y() + ref.height - b.height) for b in blocks if b is not ref
+        })
+
+    def align_center_vertical(self):
+        """§2.1: "Wyśrodkuj w pionie" — aligns HORIZONTAL axes (same Y),
+        i.e. every block's own vertical center lands on the reference's."""
+        def compute(blocks, ref):
+            center_y = ref.pos().y() + ref.height / 2.0
+            return {b: (b.pos().x(), center_y - b.height / 2.0) for b in blocks if b is not ref}
+        self._run_align(compute)
+
+    def align_center_horizontal(self):
+        """§2.1: "Wyśrodkuj w poziomie" — aligns VERTICAL axes (same X)."""
+        def compute(blocks, ref):
+            center_x = ref.pos().x() + ref.width / 2.0
+            return {b: (center_x - b.width / 2.0, b.pos().y()) for b in blocks if b is not ref}
+        self._run_align(compute)
+
+    def _run_distribute(self, axis: str):
+        """§2.2: distribution ignores selection ORDER entirely — it keeps
+        whichever two blocks are CURRENTLY the extremes along `axis` fixed
+        and spaces the rest evenly between them (equal gaps between edges,
+        not equal spacing between reference points — matters once blocks
+        have different widths/heights)."""
+        blocks = self._selected_block_items_in_order()
+        if len(blocks) < 3:
+            return
+
+        if axis == "x":
+            ordered = sorted(blocks, key=lambda b: b.pos().x())
+            size_attr = "width"
+        else:
+            ordered = sorted(blocks, key=lambda b: b.pos().y())
+            size_attr = "height"
+
+        first, last = ordered[0], ordered[-1]
+        middle = ordered[1:-1]
+
+        first_pos = first.pos().x() if axis == "x" else first.pos().y()
+        last_pos = last.pos().x() if axis == "x" else last.pos().y()
+        first_size = getattr(first, size_attr)
+        middle_sizes = sum(getattr(b, size_attr) for b in middle)
+
+        span = last_pos - (first_pos + first_size) - middle_sizes
+        gap = span / (len(middle) + 1)
+
+        positions = {}
+        cursor = first_pos + first_size + gap
+        for b in middle:
+            if axis == "x":
+                positions[b] = (cursor, b.pos().y())
+            else:
+                positions[b] = (b.pos().x(), cursor)
+            cursor += getattr(b, size_attr) + gap
+
+        self._apply_block_positions(positions)
+
+    def distribute_horizontal(self):
+        self._run_distribute("x")
+
+    def distribute_vertical(self):
+        self._run_distribute("y")
+
+
+# feat/clipboard-and-align §2.1/§2.3: the 8 operations, shared between the
+# Edit menu ("Wyrównaj" submenu, main_window.py) and the canvas/block
+# context menu (block_item.py) so the list — and each operation's minimum
+# selection size — lives in exactly one place.
+ALIGN_OPERATIONS = [
+    ("Wyrównaj do lewej", "align_left", 2),
+    ("Wyrównaj do prawej", "align_right", 2),
+    ("Wyrównaj do góry", "align_top", 2),
+    ("Wyrównaj do dołu", "align_bottom", 2),
+    ("Wyśrodkuj w pionie", "align_center_vertical", 2),
+    ("Wyśrodkuj w poziomie", "align_center_horizontal", 2),
+    (None, None, None),  # separator marker
+    ("Rozłóż równomiernie w poziomie", "distribute_horizontal", 3),
+    ("Rozłóż równomiernie w pionie", "distribute_vertical", 3),
+]
+
+
+def populate_align_menu(menu, scene: "LogicScene"):
+    """§2.3: adds the 8 operations to `menu`, each enabled only when the
+    current selection is large enough, wired straight to `scene`'s own
+    methods."""
+    selected_count = len(scene.selectedItems())
+    for label, method_name, min_count in ALIGN_OPERATIONS:
+        if label is None:
+            menu.addSeparator()
+            continue
+        action = menu.addAction(label)
+        action.setEnabled(selected_count >= min_count)
+        action.triggered.connect(getattr(scene, method_name))
+    return menu
