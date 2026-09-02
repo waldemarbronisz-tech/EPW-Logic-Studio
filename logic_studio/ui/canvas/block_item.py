@@ -828,12 +828,22 @@ class BlockItem(QGraphicsItem):
             QMenu { background-color: #F0F0F0; border: 1px solid #A0A0A0; }
             QMenu::item { padding: 4px 20px; color: black; }
             QMenu::item:selected { background-color: #0078D7; color: white; }
+            QMenu::item:disabled { color: #A0A0A0; }
         """)
 
         prop_action = menu.addAction("Properties")
         menu.addSeparator()
         dup_action = menu.addAction("Duplicate")
         del_action = menu.addAction("Delete")
+
+        # feat/signal-crossref §4: "gdzie jeszcze jest używany ELA01.DI07"
+        # — jumps to the Sygnały panel, pre-filtered to this block's own
+        # signal. Always shown so it's discoverable, but only ENABLED for a
+        # block that actually has an Address/Bit/Sygnał assigned.
+        menu.addSeparator()
+        signal_ref = self._current_signal_reference()
+        show_usage_action = menu.addAction("Pokaż użycia sygnału")
+        show_usage_action.setEnabled(bool(signal_ref))
 
         action = menu.exec(QCursor.pos())
         if action == del_action:
@@ -844,6 +854,41 @@ class BlockItem(QGraphicsItem):
                 self.scene().duplicate_selected_items()
         elif action == prop_action:
             self.setSelected(True)
+        elif action == show_usage_action:
+            self._show_signal_usage(signal_ref)
+
+    def _current_signal_reference(self) -> str:
+        """feat/signal-crossref §4: the signal_id "Pokaż użycia sygnału"
+        should search for — the same three properties core/crossref.py's
+        own block scan checks (Address/Bit/Sygnał), resolved the same way
+        where possible: Bit goes through the existing
+        _resolved_internal_signal_id() above, which already does the
+        identical DeviceModel.get_internal_bit()/internal_bit_id() lookup
+        crossref.py's own _resolve_bit() uses, falling back to the raw
+        name the same way."""
+        props = self.logic_block.properties
+        if props.get("Address", ""):
+            return props.get("Address", "")
+        if props.get("Bit", ""):
+            return self._resolved_internal_signal_id() or props.get("Bit", "")
+        if props.get("Sygnał", ""):
+            return props.get("Sygnał", "")
+        return ""
+
+    def _show_signal_usage(self, signal_id: str):
+        if not signal_id:
+            return
+        try:
+            window = self.scene().views()[0].window()
+        except Exception:
+            return
+        signals_panel = getattr(window, 'signals_panel', None)
+        if signals_panel is None:
+            return
+        left_tabs = getattr(window, 'left_tabs', None)
+        if left_tabs is not None:
+            left_tabs.setCurrentWidget(signals_panel)
+        signals_panel.focus_signal(signal_id)
 
     def mousePressEvent(self, event):
         if self._is_doc_note_resizable() and self._in_resize_handle(event.pos()):
