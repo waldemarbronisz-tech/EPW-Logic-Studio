@@ -126,23 +126,27 @@ def test_disabled_field_survives_roundtrip_explicit_regression():
 
 # ---- BaseLogicBlock gets the same treatment (§0.1: "to samo dla bloku") --
 
-def test_block_visibility_and_enabled_survive_roundtrip():
+def test_block_enabled_survives_roundtrip():
     """§0.1 found this exact same bug, latent, on BaseLogicBlock:
     serialize() wrote `visibility`/`enabled`, deserialize() never read them
     back. Nothing in the UI sets either False yet, but the save format has
     claimed to persist both since day one — fixed as part of the same
-    refactor (BaseLogicBlock.SERIALIZED_FIELDS)."""
+    refactor (BaseLogicBlock.SERIALIZED_FIELDS).
+
+    feat/io-labels-and-ids §5.6's dead-property audit later REMOVED
+    `visibility` entirely (never read by anything but this round-trip and
+    the property grid's own display) — only `enabled` remains, since
+    validate() genuinely branches on it."""
     p = Project()
     gate = AndGate()
-    gate.visibility = False
     gate.enabled = False
     p.add_block(gate)
 
     data = p.serialize()
     p2 = Project.deserialize(data)
 
-    assert p2.blocks[0].visibility is False
     assert p2.blocks[0].enabled is False
+    assert not hasattr(p2.blocks[0], 'visibility')
 
 def test_block_serialized_fields_round_trip_via_project_deserialize():
     p = Project()

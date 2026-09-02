@@ -6,7 +6,7 @@ from logic_studio.core.grid import GRID_SIZE
 # Bump when the on-disk .epwlogic schema changes in a way that requires migration.
 # Every bump needs a matching _migrate_vN_to_v(N+1)(data) function registered in
 # _MIGRATIONS below — see AUDIT_REPORT.md §2 "Wersjonowanie schematów".
-EPWLOGIC_SCHEMA_VERSION = 3
+EPWLOGIC_SCHEMA_VERSION = 4
 
 
 def _migrate_v1_to_v2(data: dict) -> dict:
@@ -114,12 +114,30 @@ def _migrate_v2_to_v3(data: dict) -> dict:
     return data
 
 
+def _migrate_v3_to_v4(data: dict) -> dict:
+    """v3 -> v4 (feat/io-labels-and-ids §1.3):
+    - settings.io_labels introduced (address -> descriptive label, e.g.
+      "ELA01.DI01" -> "Wyłącznik Q1 zamknięty" — see core/device_model.py's
+      get_io_label()/set_io_label()). Default to {} when absent — no v3
+      project could have had any entries, since the feature didn't exist.
+    This step is otherwise a no-op (nothing to migrate FROM), but it still
+    needs to exist and bump schema_version, so a v3 file's version number
+    accurately reflects what the CURRENT format supports — see §1.3's own
+    reasoning: an empty migration is not a skipped one.
+    """
+    settings = data.setdefault("settings", {})
+    settings.setdefault("io_labels", {})
+    data["schema_version"] = 4
+    return data
+
+
 # Keyed by the version a migration upgrades FROM. Project.deserialize() walks
 # this sequentially — apply the migration for the file's current version,
-# re-check, repeat — so a v1 file goes through v1->v2->v3 in one load.
+# re-check, repeat — so a v1 file goes through v1->v2->v3->v4 in one load.
 _MIGRATIONS = {
     1: _migrate_v1_to_v2,
     2: _migrate_v2_to_v3,
+    3: _migrate_v3_to_v4,
 }
 
 
@@ -143,7 +161,15 @@ class Project:
             # internal.reg_in/out reference by name. See
             # core/internal_bits.py for the entry shape and
             # internal_bit_id() (the derived M./MR./MW./MWR.<name> id).
-            "internal_bits": []
+            "internal_bits": [],
+            # Descriptive labels for I/O addresses (feat/io-labels-and-ids
+            # §1) — address -> label, e.g. "ELA01.DI01" -> "Wyłącznik Q1
+            # zamknięty". Always read/written through DeviceModel.
+            # get_io_label()/set_io_label() (§1.4), never this dict
+            # directly. A short_id_counters entry (core/short_id.py, §4)
+            # is added here lazily by the first block ever added to the
+            # project — not seeded here, since an empty project needs none.
+            "io_labels": {},
         }
 
         self.undo_stack = []
@@ -175,6 +201,18 @@ class Project:
 
     def add_block(self, block):
         if block not in self.blocks:
+            # feat/io-labels-and-ids §4.1/§4.2: assign a short_id the FIRST
+            # time a block joins a project — the single choke point every
+            # block passes through (library placement, paste/duplicate, and
+            # the project loader below, which calls this once per block in
+            # FILE ORDER — that's what makes loading an older project
+            # without short_id assign ids deterministically in file order
+            # with no separate migration pass). A block that already has
+            # one (restored from a save file via BaseLogicBlock.
+            # SERIALIZED_FIELDS) is left untouched.
+            if not getattr(block, 'short_id', None):
+                from logic_studio.core import short_id as short_id_module
+                short_id_module.assign_short_id(self, block)
             self.blocks.append(block)
 
     def remove_block(self, block):
@@ -239,8 +277,22 @@ class Project:
         # before schema versioning existed).
         proj.settings.setdefault("analog_points", [])
         proj.settings.setdefault("internal_bits", [])
+        proj.settings.setdefault("io_labels", {})
 
         block_data_list = data.get("blocks", [])
+
+        # feat/io-labels-and-ids §4.2: fast-forward the short_id counters
+        # (core/short_id.py) past every short_id already present in the
+        # FILE ITSELF before any block is constructed/added — so if some
+        # blocks in this file already carry one and others don't (e.g. a
+        # file hand-edited, or merged from two sources), a freshly assigned
+        # id in the loop below can never collide with one about to be
+        # restored a few blocks later. A no-op for the common case (a file
+        # either fully has short_ids or, pre-migration, fully doesn't).
+        from logic_studio.core import short_id as short_id_module
+        short_id_module.resync_counters_with_existing_ids(
+            proj, (b_data.get("short_id") for b_data in block_data_list)
+        )
 
         # Instantiate blocks and wire up their pin UUIDs/connections. Connections
         # are fully defined by the UUID lists already embedded in each pin, so no

@@ -152,14 +152,24 @@ class PropertyGridPanel(QWidget):
         self.current_project = project
         self.table.setRowCount(0)
 
-        # Tag/Comment first — the first two fields an engineer fills in
-        # after placing a block (feat/block-rendering-library §3.3).
+        # Identyfikator (short_id) first, then Tag/Comment — the first two
+        # fields an engineer fills in after placing a block (feat/block-
+        # rendering-library §3.3). Full grouping into collapsible sections
+        # is §5.1; this flat table keeps this ordering in the meantime.
         props = {
+            "Identyfikator": block.short_id,
             "Tag": block.properties.get("Tag", ""),
             "Comment": block.properties.get("Comment", ""),
         }
 
         # Common properties defined in SRS
+        # feat/io-labels-and-ids §5.6 dead-property audit: "Visible" and
+        # "Execution State" were removed from BaseLogicBlock entirely
+        # (neither was ever read by anything but this row's own display —
+        # see base.py's SERIALIZED_FIELDS comment for the full finding), so
+        # they're gone from here too rather than crashing on a missing
+        # attribute. This whole table is superseded by the grouped-
+        # sections rebuild (§5.1); it stays functional in the meantime.
         props.update({
             "Name": block.display_name,
             "Description": block.description,
@@ -167,8 +177,6 @@ class PropertyGridPanel(QWidget):
             "Category": block.category,
             "Priority": str(block.execution_priority),
             "Enabled": str(block.enabled),
-            "Visible": str(block.visibility),
-            "Execution State": block.execution_state
         })
 
         # Force is runtime-only (AUDIT_REPORT.md §5.1): it lives in simulation_state,
@@ -191,7 +199,7 @@ class PropertyGridPanel(QWidget):
             val_item = QTableWidgetItem(str(value))
 
             # If property is read-only in this Phase
-            if key in ["UUID", "Category", "Execution State", "Enabled", "Visible"]:
+            if key in ["Identyfikator", "UUID", "Category", "Enabled"]:
                 val_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
             else:
                 # Fully editable for "Address", "Name", "Description", "Comment", "Preset" etc

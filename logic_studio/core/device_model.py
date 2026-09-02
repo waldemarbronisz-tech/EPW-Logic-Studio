@@ -48,6 +48,58 @@ class DeviceModel:
                 return p
         return None
 
+    # ---- I/O labels (feat/io-labels-and-ids §1) -------------------------------
+    # Descriptive labels for physical (ELA/ADA) and analog addresses —
+    # project.settings["io_labels"], address -> label. Reference: e²TANGO's
+    # "Etykiety i LED" configuration category (DTR §2.7.7) — labels
+    # assigned to addresses are used as fragments of event texts, as
+    # descriptions in logic, and on state-overview screens, "available
+    # throughout the program interchangeably with physical addresses".
+    # Every reader goes through get_io_label()/get_labelled_addresses()
+    # here, never project.settings["io_labels"] directly, so the storage
+    # shape (currently a flat dict) can change without every call site
+    # needing to know.
+
+    MAX_IO_LABEL_LENGTH = 64
+
+    @classmethod
+    def get_io_label(cls, project, address: str) -> str:
+        """The label assigned to `address`, or "" if none (project.settings
+        never stores an empty-string entry — see set_io_label)."""
+        return project.settings.get("io_labels", {}).get(address, "")
+
+    @classmethod
+    def set_io_label(cls, project, address: str, label: str):
+        """§1.2: any text is accepted (Polish diacritics/spaces included —
+        unlike an internal-signal name, a label is never used as an
+        identifier), truncated to MAX_IO_LABEL_LENGTH rather than rejected.
+        An empty (post-strip) label REMOVES the entry instead of storing
+        "" — io_labels is meant to answer "does this address have a
+        label"; a stored empty string would make every reader re-implement
+        that emptiness check itself."""
+        io_labels = project.settings.setdefault("io_labels", {})
+        label = (label or "").strip()[:cls.MAX_IO_LABEL_LENGTH]
+        if label:
+            io_labels[address] = label
+        else:
+            io_labels.pop(address, None)
+
+    @classmethod
+    def get_labelled_addresses(cls, project) -> dict:
+        """A copy of the full address -> label mapping (never the live
+        dict — callers must go through set_io_label() to write)."""
+        return dict(project.settings.get("io_labels", {}))
+
+    @classmethod
+    def all_addresses(cls, project) -> list:
+        """Every address a label (or the §2 editor table) could apply to:
+        the 32 fixed ELA + 32 fixed ADA channels, plus every analog point
+        the project currently defines."""
+        return (
+            cls.get_ela_addresses() + cls.get_ada_addresses()
+            + cls.get_analog_input_addresses(project) + cls.get_analog_output_addresses(project)
+        )
+
     # ---- Internal signal registry (feat/internal-bits §1.4) ------------------
     # Also entirely project-defined (project.settings["internal_bits"]) —
     # see core/internal_bits.py for the entry shape and internal_bit_id().
