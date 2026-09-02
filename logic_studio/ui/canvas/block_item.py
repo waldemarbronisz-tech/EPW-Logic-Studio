@@ -42,16 +42,8 @@ def pin_labels_suppressed(item) -> bool:
 
 
 def _round_up_to_grid(value, grid=None):
-    grid = grid or style.GRID_SIZE
+    grid = grid or style.GRID_SNAP
     return math.ceil(value / grid) * grid
-
-
-def _round_up_to_pitch(value):
-    """Like _round_up_to_grid(), but against the finer PORT_PITCH sub-grid
-    rather than GRID_SIZE — used for sizes (IO block height, §0.1) that
-    only need to land on a pin-pitch multiple, not the coarser block-
-    placement grid."""
-    return math.ceil(value / style.PORT_PITCH) * style.PORT_PITCH
 
 
 def io_text_margin_x(width, direction):
@@ -65,26 +57,6 @@ def io_text_margin_x(width, direction):
     _determine_shape_style() so the two can never disagree about how much
     room the notch actually needs."""
     return 6 + (shapes.io_notch_width(width) if direction == "output" else 0)
-
-
-def _complex_readout_y(pins_count):
-    """Top y (local, below the type-name label) for a COMPLEX block's
-    param_text/sim_text readout (TON/TOF/TP's "T=...[s]", counters'
-    "PV=.../CV=..."). Must clear every pin row's own label — a pin's label
-    is vertically centered on its row at PORT_MARGIN + i*PORT_PITCH and
-    reserves roughly [-10, +10] around that — so this starts 5px below the
-    bottom of the LAST row's reserved band, regardless of how many pins the
-    block has or how long the readout string is (§ "bramki się rozjechały"
-    follow-up: a fixed offset that happened to work for short strings on
-    few-pin blocks silently collided for longer strings / more pins)."""
-    last_pin_y = style.PORT_MARGIN + max(0, pins_count - 1) * style.PORT_PITCH
-    return last_pin_y + style.PORT_PITCH / 2 + 5
-
-
-# Shared with shapes.py (which draws the output lead line at this same y —
-# see shapes.gate_output_y()) so the two can never drift apart; kept under
-# its old name here since existing tests import it from this module.
-_round_half_up_to_pitch = shapes.round_half_up_to_pitch
 
 
 class BlockItem(QGraphicsItem):
@@ -124,11 +96,16 @@ class BlockItem(QGraphicsItem):
 
     def _determine_shape_style(self):
         """Determines the visual rendering style AND the block's size, based
-        on category and type_id. Sizing follows §4's grid rule everywhere:
-        every port sits at PORT_MARGIN + i*PORT_PITCH from the block's own
-        top/left edge, so a grid-aligned block origin (guaranteed by
-        snap-on-drop and snap-on-move) is enough to put every port on the
-        scene grid too — no per-block special-casing needed downstream."""
+        on category and type_id.
+
+        feat/editor-modes-and-geometry §1: every port lands symmetrically
+        around the block's own vertical center, `PORT_PITCH` apart (see
+        shapes.centered_port_offsets(), used identically by _create_ports()
+        below) — replacing the earlier "anchored PORT_MARGIN below the top
+        edge" rule entirely. Combined with a grid-aligned block origin
+        (guaranteed by snap-on-drop/snap-on-move), every port still lands on
+        the scene's placement grid (GRID_SNAP) too, since PORT_PITCH is a
+        GRID_SNAP multiple."""
         if self.category == "Bramki logiczne":
             if self.type_id.startswith("logic.buffer"):
                 self.shape_style = "BUFFER"
@@ -149,52 +126,36 @@ class BlockItem(QGraphicsItem):
             else:
                 self.shape_style = "GATE_GENERIC"
 
-            # Symmetric top/bottom margin around the input pins: the first
-            # sits PORT_MARGIN below the top edge, the last PORT_MARGIN
-            # above the bottom edge, with PORT_PITCH between consecutive
-            # ones — not the old `(inputs_count+1)*PORT_PITCH`, which only
-            # produced that same symmetric result back when PORT_MARGIN and
-            # PORT_PITCH were equal (§ grid-density redesign).
-            #
-            # §0.3 audit follow-up: rounded UP to a multiple of 2*PORT_PITCH
-            # on top of that, so height/2 always lands exactly on a
-            # PORT_PITCH multiple — for an even input count the raw formula
-            # above isn't one (e.g. 2 inputs: 50, center 25 — not a
-            # PORT_PITCH multiple), which used to force gate_output_y() to
-            # round the output port away from the body's true geometric
-            # center; the D-shape/shield curve's tip (drawn at the real
-            # center) and the output port (rounded to the nearest one) then
-            # visibly disagreed. This costs perfect top/bottom input-margin
-            # symmetry for even input counts (bottom ends up PORT_PITCH
-            # taller than top) in exchange for the output port always
-            # sitting exactly where the curve's tip actually is — the more
-            # visible of the two problems.
+            # §1.2: fixed GATE_BODY-square body — the block's own height
+            # only grows past GATE_BODY once more inputs need it
+            # (`n * PORT_PITCH > GATE_BODY`, i.e. 4+), never stretching the
+            # BODY itself (drawn in shapes.draw_gate_shape(), always exactly
+            # GATE_BODY tall, vertically centered — that fixed size is
+            # exactly what stops the D-shape/shield curve from flattening
+            # for multi-input gates, the root cause the earlier "denser
+            # pitch" fix only patched around). height/2 always lands exactly
+            # on the block's own center by construction — no rounding is
+            # needed here (unlike the old formula's §0.3 workaround), since
+            # nothing anchors ports to the top anymore.
             inputs_count = len(self.logic_block.inputs)
-            raw_height = 2 * style.PORT_MARGIN + max(0, inputs_count - 1) * style.PORT_PITCH
-            self.height = math.ceil(raw_height / (2 * style.PORT_PITCH)) * (2 * style.PORT_PITCH)
+            self.height = max(style.GATE_BODY, inputs_count * style.PORT_PITCH)
 
-            # Every gate is the same width regardless of negation — only how
-            # shapes.draw_gate_shape() fills the last few pixels near the tip
-            # differs (the body is drawn pulled back to make room for the
-            # bubble; see that function). The output port always sits at
-            # exactly `width`, identical to the non-negated sibling, so
-            # negating a gate never shifts its output connection point, and
-            # AND/NAND are always drawn the same size (§4.2).
-            self.width = 2 * style.GRID_SIZE
+            # Every gate is the same width regardless of negation OR input
+            # count now — GATE_BODY, always. Extra inputs spread out
+            # vertically (above/below the body, collected by the rail,
+            # §1.3) rather than widening or heightening the body itself.
+            self.width = style.GATE_BODY
 
         elif self.category == "Wejścia / Wyjścia":
             self.shape_style = "IO"
-            base_height = 60 if self.type_id in ("input.ai", "output.ao") else 40
 
-            # §0.1 audit follow-up: height must fit however many pins this
-            # IO block actually has — input.ai's 2 outputs (Value, Quality)
-            # both landed at the same y before this, since nothing here
-            # accounted for more than one. max(existing, needed) so no
-            # current block shrinks; rounded up to a PORT_PITCH multiple so
-            # the last pin's own margin stays a clean grid value.
+            # §1.4: height always 40 for a single-pin IO block (so DI/NOT/DO
+            # in a straight line connect with a dead-straight wire, per the
+            # gate's own n=1 case) — generalized to the same symmetric
+            # formula gates use for the (currently only input.ai) multi-pin
+            # case, which happens to also give exactly 40 for n<=2.
             n_pins = len(self.logic_block.outputs) if self._io_direction() == "input" else len(self.logic_block.inputs)
-            needed_height = style.PORT_MARGIN + max(0, n_pins - 1) * style.PORT_PITCH + style.PORT_MARGIN
-            self.height = _round_up_to_pitch(max(base_height, needed_height))
+            self.height = max(style.GATE_BODY, n_pins * style.PORT_PITCH)
 
             # §0.4/§0.5 audit follow-up: the same formula for both
             # directions (nothing here special-cases "input"/"output") —
@@ -228,11 +189,13 @@ class BlockItem(QGraphicsItem):
 
         else:
             self.shape_style = "COMPLEX"
+            # §1.4: same symmetric-around-center rule as gates — height
+            # driven by whichever side (inputs or outputs) has more pins.
             inputs_count = len(self.logic_block.inputs)
             outputs_count = len(self.logic_block.outputs)
-            min_height = style.PORT_MARGIN + max(inputs_count, outputs_count) * style.PORT_PITCH + style.PORT_MARGIN
+            min_height = max(style.GATE_BODY, max(inputs_count, outputs_count) * style.PORT_PITCH)
             self.height = _round_up_to_grid(max(self.height, min_height))
-            self.width = _round_up_to_grid(max(self.width, style.GRID_SIZE * 2))
+            self.width = _round_up_to_grid(max(self.width, style.GATE_BODY))
 
     def _size_doc_block(self):
         """DOC blocks have no pins to align to a grid, so they size to their
@@ -240,8 +203,8 @@ class BlockItem(QGraphicsItem):
         resizable (§6.6/§6.5): its persisted width/height IS the size, only
         rounded up to the grid, never recomputed from the text."""
         if self.type_id == "doc.note":
-            self.width = _round_up_to_grid(max(self.logic_block.width, style.GRID_SIZE * 2))
-            self.height = _round_up_to_grid(max(self.logic_block.height, style.GRID_SIZE * 2))
+            self.width = _round_up_to_grid(max(self.logic_block.width, style.GATE_BODY))
+            self.height = _round_up_to_grid(max(self.logic_block.height, style.GATE_BODY))
             return
 
         text = self.logic_block.properties.get("Text", "") or " "
@@ -251,8 +214,8 @@ class BlockItem(QGraphicsItem):
             font = QFont(style.FONT_FAMILY, style.FONT_SIZE_DOC_TEXT)
 
         fm = QFontMetricsF(font)
-        self.width = _round_up_to_grid(max(fm.horizontalAdvance(text) + 20, style.GRID_SIZE * 2))
-        self.height = _round_up_to_grid(max(fm.height() + 10, style.GRID_SIZE))
+        self.width = _round_up_to_grid(max(fm.horizontalAdvance(text) + 20, style.GATE_BODY))
+        self.height = _round_up_to_grid(max(fm.height() + 10, style.GRID_SNAP))
 
     def _create_ports(self):
         from logic_studio.ui.canvas.port_item import PortItem
@@ -260,39 +223,44 @@ class BlockItem(QGraphicsItem):
         if self.shape_style == "DOC":
             return  # documentation blocks have no pins (§6.3)
 
+        center = self.height / 2
+
         if self.shape_style in GATE_SHAPES:
+            offsets = shapes.centered_port_offsets(len(self.logic_block.inputs))
             for i, pin in enumerate(self.logic_block.inputs):
                 port = PortItem(pin, parent=self)
-                port.setPos(0, style.PORT_MARGIN + i * style.PORT_PITCH)
+                port.setPos(0, center + offsets[i])
 
-            output_y = shapes.gate_output_y(self.height)
             for pin in self.logic_block.outputs:
                 port = PortItem(pin, parent=self)
-                port.setPos(self.width, output_y)
+                port.setPos(self.width, center)
 
         elif self.shape_style == "IO":
             # §0.1 audit follow-up: spaced by PORT_PITCH like every other
             # multi-pin block, not all pinned to the same y — input.ai's
             # Value and Quality used to land exactly on top of each other,
             # making Quality (the pin PR #4's whole quality-tracking
-            # mechanism depends on) unreachable by a wire.
+            # mechanism depends on) unreachable by a wire. §1.4: symmetric
+            # around the block's own center, same rule as gates.
             if self._io_direction() == "input":
-                for i, pin in enumerate(self.logic_block.outputs):  # Input blocks have output pins
-                    port = PortItem(pin, parent=self)
-                    port.setPos(self.width, style.PORT_MARGIN + i * style.PORT_PITCH)
+                pins, x = self.logic_block.outputs, self.width  # Input blocks have output pins
             else:
-                for i, pin in enumerate(self.logic_block.inputs):  # Output blocks have input pins
-                    port = PortItem(pin, parent=self)
-                    port.setPos(0, style.PORT_MARGIN + i * style.PORT_PITCH)
+                pins, x = self.logic_block.inputs, 0  # Output blocks have input pins
+            offsets = shapes.centered_port_offsets(len(pins))
+            for i, pin in enumerate(pins):
+                port = PortItem(pin, parent=self)
+                port.setPos(x, center + offsets[i])
 
         else:
+            in_offsets = shapes.centered_port_offsets(len(self.logic_block.inputs))
             for i, pin in enumerate(self.logic_block.inputs):
                 port = PortItem(pin, parent=self)
-                port.setPos(0, style.PORT_MARGIN + i * style.PORT_PITCH)
+                port.setPos(0, center + in_offsets[i])
 
+            out_offsets = shapes.centered_port_offsets(len(self.logic_block.outputs))
             for i, pin in enumerate(self.logic_block.outputs):
                 port = PortItem(pin, parent=self)
-                port.setPos(self.width, style.PORT_MARGIN + i * style.PORT_PITCH)
+                port.setPos(self.width, center + out_offsets[i])
 
     def boundingRect(self):
         if self.shape_style == "DOC":
@@ -587,6 +555,21 @@ class BlockItem(QGraphicsItem):
 
     # ---- COMPLEX blocks -------------------------------------------------------
 
+    def _complex_readout_y(self):
+        """Top y for a COMPLEX block's param_text/sim_text readout — starts
+        just below the LOWEST pin row (input or output side, whichever
+        reaches further down), using the same symmetric-around-center
+        layout _create_ports() uses. A method, not a bare function of pin
+        count (as it was pre-§1.4) — pins are no longer anchored from the
+        top, so knowing where the last one lands needs the actual block
+        height too."""
+        center = self.height / 2
+        in_offsets = shapes.centered_port_offsets(len(self.logic_block.inputs))
+        out_offsets = shapes.centered_port_offsets(len(self.logic_block.outputs))
+        all_offsets = in_offsets + out_offsets
+        last_pin_y = center + (max(all_offsets) if all_offsets else 0)
+        return last_pin_y + style.PORT_PITCH / 2 + 5
+
     def _paint_complex_block(self, painter):
         rect = QRectF(0, 0, self.width, self.height)
         shapes.draw_complex_shape(painter, rect)
@@ -613,20 +596,17 @@ class BlockItem(QGraphicsItem):
             if "count" in state:
                 sim_text = f"CV={state['count']}"
 
-        # These used to sit at a fixed (2, 15)/(2, 28) offset — exactly
-        # where the first/second pin ROW's own label lands (PORT_MARGIN,
-        # PORT_MARGIN + PORT_PITCH), so a counter/timer's "CU"/"CD"/"IN"
-        # label rendered right on top of "PV=.../T=...[s]". Centering
-        # helped but wasn't enough on its own — TON/TOF's longer
-        # "T=1.00[s]" still reached both the left input-label column and
-        # the right output-label column on a 100px-wide block. Placed below
-        # every pin row instead (however many a given block has), which the
-        # already-generous per-category block heights always leave room
-        # for — this can never land on a pin's own row again, regardless of
-        # pin count or how long the readout string is.
+        # These used to sit at a fixed (2, 15)/(2, 28) offset, which
+        # happened to be exactly where a pin row's own label landed under
+        # the OLD "anchored below the top edge" port layout, so a counter/
+        # timer's "CU"/"CD"/"IN" label rendered right on top of
+        # "PV=.../T=...[s]". Placed below the LOWEST pin row instead
+        # (§1.4's ports are symmetric around the block's own center now, so
+        # "lowest" isn't simply a function of pin count alone any more —
+        # see _complex_readout_y()), which the already-generous per-category
+        # block heights always leave room for.
         if param_text or sim_text:
-            pins_count = max(len(self.logic_block.inputs), len(self.logic_block.outputs))
-            y = _complex_readout_y(pins_count)
+            y = self._complex_readout_y()
             line_rect = QRectF(2, y, self.width - 4, 13)
 
             if param_text:
@@ -841,7 +821,7 @@ class BlockItem(QGraphicsItem):
     def mouseMoveEvent(self, event):
         if self._resizing:
             delta = event.scenePos() - self._resize_start_scene_pos
-            min_size = style.GRID_SIZE * 2
+            min_size = style.GATE_BODY
             new_w = max(min_size, self._resize_start_size[0] + delta.x())
             new_h = max(min_size, self._resize_start_size[1] + delta.y())
             if self.scene() is None or getattr(self.scene(), 'snap_enabled', True):
@@ -876,7 +856,7 @@ class BlockItem(QGraphicsItem):
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemPositionChange and self.scene() is not None:
             if getattr(self.scene(), 'snap_enabled', True):
-                grid = getattr(self.scene(), 'grid_size', style.GRID_SIZE)
+                grid = getattr(self.scene(), 'grid_size', style.GRID_SNAP)
                 return QPointF(round(value.x() / grid) * grid, round(value.y() / grid) * grid)
             return value
 

@@ -68,19 +68,18 @@ def test_non_negated_gate_output_port_flush_with_body(type_id):
     """Non-negated gates must be unaffected by the bubble fix: the output
     port stays flush with the body's right edge, at exactly `width` — no
     layout shift for the sixteen minus four gates that never had a bubble.
-    Its y is the body's vertical center rounded to the nearest PORT_PITCH
-    (feat/block-rendering-library §4.2) — exactly height/2 only when that's
-    already a grid multiple (odd input counts); otherwise the nearest one."""
+    Its y is exactly height/2 (feat/editor-modes-and-geometry §1 — no
+    rounding needed any more, since ports are no longer anchored from the
+    top edge; height/2 always lands exactly on the block's own center by
+    construction)."""
     _app()
-    from logic_studio.ui.canvas.block_item import _round_half_up_to_pitch
-    from logic_studio.ui.canvas import style as canvas_style
 
     block = BlockRegistry.create_block(type_id)
     item = BlockItem(block)
 
     port_pos = _output_port(item).pos()
     assert port_pos.x() == item.width
-    assert port_pos.y() == _round_half_up_to_pitch(item.height / 2, canvas_style.PORT_PITCH)
+    assert port_pos.y() == item.height / 2
 
 def test_buffer_has_its_own_shape_and_no_pin_labels():
     """§2.4: logic.buffer must not fall back to GATE_GENERIC, and (like every
@@ -207,22 +206,24 @@ def test_complex_readout_clears_every_pin_row(type_id):
     drawn at a fixed (2, 15)/(2, 28) offset — exactly where the first/second
     pin row's own label lands — so e.g. TON's "IN" pin label rendered right
     on top of "T=1.00[s]". The readout's top must now sit at or below the
-    bottom of the LAST pin row's reserved label band, for every pin count
-    this category actually uses (2 for timers, 3-5 for counters) — not just
+    bottom of the LOWEST pin row's reserved label band (§1.4: ports are
+    symmetric around the block's own center now, so "lowest" needs the
+    actual port positions, not pin count alone) — for every pin count this
+    category actually uses (2 for timers, 3-5 for counters), not just
     coincidentally clear for whichever pin count happened to be tested."""
     _app()
-    from logic_studio.ui.canvas.block_item import _complex_readout_y
 
     block = BlockRegistry.create_block(type_id)
-    pins_count = max(len(block.inputs), len(block.outputs))
-    last_pin_label_bottom = style.PORT_MARGIN + max(0, pins_count - 1) * style.PORT_PITCH + 10
+    item = BlockItem(block)
 
-    readout_y = _complex_readout_y(pins_count)
+    all_pin_ys = [c.pos().y() for c in item.childItems() if isinstance(c, PortItem)]
+    last_pin_label_bottom = max(all_pin_ys) + 10
+
+    readout_y = item._complex_readout_y()
     assert readout_y >= last_pin_label_bottom, \
         f"{type_id}: readout top ({readout_y}) must clear the last pin row's label ({last_pin_label_bottom})"
 
     # And it must still fit inside the block's own body.
-    item = BlockItem(block)
     assert readout_y + 13 <= item.height, f"{type_id}: readout must not spill past the block's bottom edge"
 
 def test_io_block_output_do_address_text_no_longer_shares_a_row_with_a_pin_label():
@@ -252,13 +253,18 @@ ALL_GATE_TYPE_IDS = [
     "logic.xor", "logic.xnor",
 ]
 
-def test_gate_output_y_shared_by_block_item_and_shapes():
-    """block_item.py's actual output PortItem and shapes.py's output lead
-    line must use the exact same y — computed in one place
-    (shapes.gate_output_y) — or the lead line and the port it's supposed to
-    connect to could silently drift apart for some input count."""
-    from logic_studio.ui.canvas.block_item import _round_half_up_to_pitch
-    assert _round_half_up_to_pitch is shapes.round_half_up_to_pitch
+def test_gate_output_y_needs_no_shared_rounding_function_any_more():
+    """feat/editor-modes-and-geometry §1 removed gate_output_y()/
+    round_half_up_to_pitch() entirely — both block_item.py's actual output
+    PortItem and shapes.py's output lead line now just use height/2
+    directly (both always land exactly on a GRID_SNAP multiple by
+    construction), so there's no rounding step left that the two could
+    silently drift apart on. Confirms both functions are really gone,
+    not just unused."""
+    assert not hasattr(shapes, "gate_output_y")
+    assert not hasattr(shapes, "round_half_up_to_pitch")
+    from logic_studio.ui.canvas import block_item
+    assert not hasattr(block_item, "_round_half_up_to_pitch")
 
 @pytest.mark.parametrize("type_id", ALL_GATE_TYPE_IDS)
 def test_gate_input_leads_stay_within_the_block_bounding_box(type_id):

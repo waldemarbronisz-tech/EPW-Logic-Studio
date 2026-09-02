@@ -13,23 +13,29 @@ class LogicScene(QGraphicsScene):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setSceneRect(-5000, -5000, 10000, 10000)
-        self.grid_size = style.GRID_SIZE
+        # Block placement / port-grid snap unit (feat/editor-modes-and-
+        # geometry §1.1) — equal to GRID_MINOR, the finer of the two
+        # background dot spacings below.
+        self.grid_size = style.GRID_SNAP
         self.grid_visible = True
         self.snap_enabled = True
 
-        # Industrial visual style for grid
+        # Industrial visual style for grid: fine dots everywhere at
+        # GRID_MINOR (== the snap unit blocks/ports actually align to),
+        # with a stronger dot every GRID_MAJOR (every other fine one) purely
+        # as a visual rhythm aid — GRID_MAJOR itself is NOT a separate snap
+        # unit, unlike the old (pre-§1) two-tier grid where the coarser
+        # value doubled as both.
+        self.minor_grid_size = style.GRID_MINOR
+        self.minor_grid_pen = QPen(style.COLOR_GRID_MINOR)
+        self.minor_grid_pen.setWidth(style.GRID_LINE_WIDTH)
+        self.minor_grid_pen.setStyle(Qt.DotLine)
+
+        self.major_grid_size = style.GRID_MAJOR
         self.grid_color = style.COLOR_GRID
         self.grid_pen = QPen(self.grid_color)
         self.grid_pen.setWidth(style.GRID_LINE_WIDTH)
         self.grid_pen.setStyle(Qt.DotLine)
-
-        # Finer sub-grid at PORT_PITCH — the actual pin-spacing unit since
-        # the grid-density redesign — drawn fainter than the major
-        # GRID_SIZE grid above, purely as a placement aid.
-        self.minor_grid_size = style.PORT_PITCH
-        self.minor_grid_pen = QPen(style.COLOR_GRID_MINOR)
-        self.minor_grid_pen.setWidth(style.GRID_LINE_WIDTH)
-        self.minor_grid_pen.setStyle(Qt.DotLine)
 
         # Wiring State
         self.current_wire = None
@@ -146,37 +152,36 @@ class LogicScene(QGraphicsScene):
         self.block_added.emit(type_id)
 
     def drawBackground(self, painter, rect):
-        """Draws an industrial engineering dot grid background: the major
-        GRID_SIZE grid blocks snap to, plus a fainter PORT_PITCH sub-grid —
-        the actual pin-spacing unit — so the finer grid pins land on is
-        visible on the canvas, not just implicit in the geometry."""
+        """Draws an industrial engineering dot grid background: fine dots
+        every GRID_MINOR (the actual block-placement/port-alignment unit),
+        with a stronger dot every GRID_MAJOR (every other fine one, §1.1) —
+        a visual rhythm aid only; GRID_MAJOR is not itself a snap unit."""
         super().drawBackground(painter, rect)
 
         if not self.grid_visible:
             return
 
-        if self.minor_grid_size < self.grid_size:
-            minor_left = int(rect.left()) - (int(rect.left()) % self.minor_grid_size)
-            minor_top = int(rect.top()) - (int(rect.top()) % self.minor_grid_size)
+        minor_left = int(rect.left()) - (int(rect.left()) % self.minor_grid_size)
+        minor_top = int(rect.top()) - (int(rect.top()) % self.minor_grid_size)
 
-            minor_lines = []
-            for x in range(minor_left, int(rect.right()), self.minor_grid_size):
-                if x % self.grid_size != 0:
-                    minor_lines.append(QLineF(x, rect.top(), x, rect.bottom()))
-            for y in range(minor_top, int(rect.bottom()), self.minor_grid_size):
-                if y % self.grid_size != 0:
-                    minor_lines.append(QLineF(rect.left(), y, rect.right(), y))
+        minor_lines = []
+        for x in range(minor_left, int(rect.right()), self.minor_grid_size):
+            if x % self.major_grid_size != 0:
+                minor_lines.append(QLineF(x, rect.top(), x, rect.bottom()))
+        for y in range(minor_top, int(rect.bottom()), self.minor_grid_size):
+            if y % self.major_grid_size != 0:
+                minor_lines.append(QLineF(rect.left(), y, rect.right(), y))
 
-            painter.setPen(self.minor_grid_pen)
-            painter.drawLines(minor_lines)
+        painter.setPen(self.minor_grid_pen)
+        painter.drawLines(minor_lines)
 
-        left = int(rect.left()) - (int(rect.left()) % self.grid_size)
-        top = int(rect.top()) - (int(rect.top()) % self.grid_size)
+        major_left = int(rect.left()) - (int(rect.left()) % self.major_grid_size)
+        major_top = int(rect.top()) - (int(rect.top()) % self.major_grid_size)
 
         lines = []
-        for x in range(left, int(rect.right()), self.grid_size):
+        for x in range(major_left, int(rect.right()), self.major_grid_size):
             lines.append(QLineF(x, rect.top(), x, rect.bottom()))
-        for y in range(top, int(rect.bottom()), self.grid_size):
+        for y in range(major_top, int(rect.bottom()), self.major_grid_size):
             lines.append(QLineF(rect.left(), y, rect.right(), y))
 
         painter.setPen(self.grid_pen)

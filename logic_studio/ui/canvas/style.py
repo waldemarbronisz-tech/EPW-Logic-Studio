@@ -70,36 +70,42 @@ XOR_ACCENT_OFFSET = 6        # gap between the XOR/XNOR extra curve and the shie
 GRID_LINE_WIDTH = 1
 WIRE_THICKNESS = 2
 
-# Port geometry (feat/block-rendering-library §4 — "the most important
-# section of this PR"): every port, on every block type, must land on a
-# deterministic grid intersection in scene coordinates. Two tiers:
-#   - GRID_SIZE (20) is the coarse BLOCK-placement grid — block origins snap
-#     to it (drag-and-drop, snap-on-move), and it's the background's major
-#     grid line spacing.
-#   - PORT_PITCH (10, a divisor of GRID_SIZE) is the finer PIN-spacing
-#     sub-grid — the distance between consecutive ports within a multi-pin
-#     block. A grid-aligned block origin combined with PORT_MARGIN/PORT_PITCH
-#     both being GRID_SIZE divisors is still enough to put every port on a
-#     deterministic grid line in scene coordinates — just the finer one.
-# PORT_PITCH used to equal GRID_SIZE (both 20): a 4-input gate's height then
-# grew by a full 20px per extra input, needlessly tall relative to its fixed
-# width and — combined with the D-shape's curve, whose vertical extent
-# follows the body's height — visibly flattening the curve for anything past
-# 2 inputs ("bramki są spłaszczone... zagęścisz siatkę... rozmieścić
-# przyłącza symetrycznie"). PORT_MARGIN stays at GRID_SIZE (the outer margin
-# before the first/after the last port doesn't need to shrink, only the
-# spacing between consecutive pins does).
-PORT_PITCH = 10
-PORT_MARGIN = GRID_SIZE
+# Port/body geometry (feat/editor-modes-and-geometry §1 — supersedes the
+# earlier "denser pin-pitch grid" fix from feat/block-rendering-library,
+# which made multi-input gates less flattened but never fully square: a
+# 4-input gate was still 40x80, its D-shape curve stretched over that full
+# 80px height. This redesign fixes the ROOT cause instead: the gate BODY is
+# now a fixed GATE_BODY x GATE_BODY square, period, regardless of input
+# count — the D-shape/shield curve is therefore always drawn at the exact
+# same proportions. Inputs beyond what fits inside that fixed body spread
+# out symmetrically above/below it and are collected by a vertical "rail"
+# entering the body's own left edge (§1.3) — the standard multi-input-gate
+# convention in protection/relay schematics (e²TANGO-Studio among them).
+#
+# Two independent constants now, not one two-tier system:
+#   - GRID_SNAP (10) is the block-PLACEMENT grid — block origins snap to it
+#     (drag-and-drop, snap-on-move), and it's the finer of the two
+#     background dot spacings (GRID_MINOR below).
+#   - PORT_PITCH (20) is the spacing between a gate's/COMPLEX block's own
+#     consecutive ports, and GATE_BODY (40) is the gate body's fixed size —
+#     both independent of GRID_SNAP; a port position is `PORT_PITCH * k`
+#     from the block's own center, and since PORT_PITCH is a GRID_SNAP
+#     multiple, every port still lands on the placement grid in scene
+#     coordinates once a grid-aligned block origin is added — same
+#     invariant as before, just no longer requiring the same NUMBER for
+#     both purposes.
+GATE_BODY = 40    # gate body, always GATE_BODY x GATE_BODY — see above
+PORT_PITCH = 20   # spacing between a block's own consecutive ports
+GRID_SNAP = GRID_SIZE   # block placement / port-grid alignment unit (10)
+GRID_MINOR = GRID_SNAP  # background dot grid — fine dots, same unit ports align to
+GRID_MAJOR = 2 * GRID_SNAP  # background dot grid — a stronger dot every other fine one
 
 DOC_NOTE_RESIZE_HANDLE = 10
 
 # Wire selection uses a different accent (cyan) than block selection (blue) —
 # kept as its own constant rather than unified, to not change either's
 # existing on-screen appearance while still centralizing the value.
-COLOR_GRID = QColor(200, 200, 200)
-COLOR_GRID_MINOR = QColor(228, 228, 228)  # fainter PORT_PITCH sub-grid, drawn
-                                            # between the major GRID_SIZE dots
-                                            # so the finer pin-pitch grid is
-                                            # visible on the canvas too
+COLOR_GRID = QColor(160, 160, 160)         # GRID_MAJOR dots — stronger
+COLOR_GRID_MINOR = QColor(220, 220, 220)   # GRID_MINOR dots — fainter, drawn
+                                            # between the major ones
 COLOR_WIRE_SELECTED = QColor(0, 255, 255)

@@ -265,6 +265,15 @@ class Project:
             # only thing that can put a port off-grid in scene coordinates
             # is an off-grid block origin — round it here, once, on every
             # load. A no-op for anything already on-grid.
+            #
+            # feat/editor-modes-and-geometry §1.6: this pass is UNCONDITIONAL
+            # (runs on every load, not gated by schema_version) and always
+            # rounds against whatever GRID_SIZE currently is — so when §1
+            # dropped GRID_SIZE from 20 to 10, every position already
+            # aligned to the old, coarser 20-grid stayed exactly where it
+            # was (20 is itself a multiple of 10) with no separate migration
+            # step needed. Verified empirically against all ten
+            # examples/*.epwlogic fixtures: zero position corrections.
             block.set_position(
                 round(block.x / GRID_SIZE) * GRID_SIZE,
                 round(block.y / GRID_SIZE) * GRID_SIZE,
