@@ -66,6 +66,17 @@ class LogicScene(QGraphicsScene):
         self.current_wire = None
         self.wiring_start_port = None
 
+        # feat/clipboard-and-align §3.1: selected blocks' positions AT
+        # PRESS TIME, set in mousePressEvent and consumed in
+        # mouseReleaseEvent — lets release tell an actual drag from a mere
+        # click on an already-selected block (which used to push_state()
+        # unconditionally, flooding the undo stack with no-op entries).
+        self._press_positions = {}
+        # §3.2: the project's full serialized state AT PRESS TIME, pushed
+        # instead of a post-mutation snapshot when a drag or wire-connect
+        # actually happens — see mousePressEvent/mouseReleaseEvent.
+        self._press_state_snapshot = None
+
     def delete_selected_items(self):
         from logic_studio.ui.canvas.block_item import BlockItem
         from logic_studio.ui.canvas.wire_item import WireItem
@@ -445,6 +456,21 @@ class LogicScene(QGraphicsScene):
         from logic_studio.ui.canvas.port_item import PortItem
         from logic_studio.ui.canvas.wire_item import WireItem
 
+        # feat/clipboard-and-align §3.1/§3.2: snapshot the project's state
+        # BEFORE any live mutation this press might lead to (a block drag,
+        # applied live by BlockItem.itemChange() as the mouse moves; or a
+        # successful wire connection, applied live by Pin.connect() below)
+        # — mouseReleaseEvent pushes THIS pre-mutation snapshot rather than
+        # a fresh one taken after the fact, so undo actually restores the
+        # pre-drag/pre-connect state. Left-button only, matching the same
+        # gesture the release side already restricts itself to.
+        if event.button() == Qt.LeftButton:
+            window = self.views()[0].window()
+            project = getattr(window, 'project', None)
+            self._press_state_snapshot = project.serialize() if project else None
+        else:
+            self._press_state_snapshot = None
+
         if event.button() == Qt.LeftButton and isinstance(item, PortItem):
             self.wiring_start_port = item
             self.current_wire = WireItem(source_port=item)
@@ -454,6 +480,16 @@ class LogicScene(QGraphicsScene):
             return
 
         super().mousePressEvent(event)
+
+        # snapshot AFTER Qt's own default click-to-select handling above
+        # has run, so this reflects the set of blocks that will actually
+        # be dragged (or merely clicked) — compared against their
+        # positions again in mouseReleaseEvent.
+        from logic_studio.ui.canvas.block_item import BlockItem
+        self._press_positions = {
+            i: (i.pos().x(), i.pos().y())
+            for i in self.selectedItems() if isinstance(i, BlockItem)
+        }
 
     def mouseMoveEvent(self, event):
         if self.current_wire:
@@ -476,19 +512,30 @@ class LogicScene(QGraphicsScene):
 
     def mouseReleaseEvent(self, event):
         # Handle Block Move Dirty State
-        # If the user released the mouse after moving an item, we should push state.
-        # This is a basic catch-all for mouse release on moved items.
+        # feat/clipboard-and-align §3.1: push_state() only when a selected
+        # block's position ACTUALLY changed between press and release —
+        # this used to fire on EVERY release over a selected block
+        # (comment used to read "for MVP forcing state on release if
+        # selected works"), flooding the undo stack with a no-op entry on
+        # every plain click. _press_positions is set in mousePressEvent.
         window = self.views()[0].window()
         project = getattr(window, 'project', None)
 
         from logic_studio.ui.canvas.block_item import BlockItem
         moved_items = [i for i in self.selectedItems() if isinstance(i, BlockItem)]
-        # We ideally track actual drag deltas, but for MVP forcing state on release if selected works
-        if project and len(moved_items) > 0 and event.button() == Qt.LeftButton:
-            # We don't want to flood the undo stack, so only if it actually moved.
-            # Assume itemChange already updated logic_block pos.
-            project.push_state()
+        actually_moved = any(
+            self._press_positions.get(i) != (i.pos().x(), i.pos().y())
+            for i in moved_items
+        )
+        if project and actually_moved and event.button() == Qt.LeftButton:
+            # §3.2: push the snapshot taken BEFORE the drag (in
+            # mousePressEvent), not project.serialize() taken now — by
+            # release time BlockItem.itemChange() has already applied the
+            # move live, so serializing now would push the POST-move
+            # state and make undo() a no-op.
+            project.push_state(self._press_state_snapshot)
             window.set_dirty()
+        self._press_positions = {}
 
         if self.current_wire:
             item = self.itemAt(event.scenePos(), self.views()[0].transform())
@@ -502,7 +549,10 @@ class LogicScene(QGraphicsScene):
                     self.current_wire.dest_port = item
                     self.current_wire.update_path()
                     if project:
-                        project.push_state()
+                        # §3.2: same reasoning as the drag case above —
+                        # pin.connect() just mutated the pins live, so
+                        # push the pre-connect snapshot from press time.
+                        project.push_state(self._press_state_snapshot)
                         window.set_dirty()
                 else:
                     self.removeItem(self.current_wire)
@@ -511,8 +561,11 @@ class LogicScene(QGraphicsScene):
 
             self.current_wire = None
             self.wiring_start_port = None
+            self._press_state_snapshot = None
             event.accept()
             return
+
+        self._press_state_snapshot = None
 
         super().mouseReleaseEvent(event)
 

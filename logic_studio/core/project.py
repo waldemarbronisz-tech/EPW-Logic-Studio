@@ -176,11 +176,21 @@ class Project:
         self.redo_stack = []
         self.is_recording = False
 
-    def push_state(self):
-        """Take a snapshot of the current project state for undo."""
+    def push_state(self, state: dict = None):
+        """Take a snapshot of the current project state for undo. Pass an
+        already-serialized `state` (feat/clipboard-and-align §3.1/§3.2) to
+        push a state captured BEFORE a since-applied live mutation instead
+        of the project's current (already-mutated) one — needed by
+        scene.py's block-drag and click-to-wire handling, both of which
+        apply their change live (via BlockItem.itemChange() / Pin.connect())
+        during the mouse gesture, before mouseReleaseEvent gets a chance to
+        call this; pushing self.serialize() at that point would push the
+        POST-change state, making undo() a no-op. Every other call site
+        keeps calling this with no argument, exactly as before."""
         if self.is_recording:
             return
-        state = self.serialize()
+        if state is None:
+            state = self.serialize()
         self.undo_stack.append(state)
         # Keep stack size manageable
         if len(self.undo_stack) > 50:
