@@ -38,6 +38,15 @@ class WireItem(QGraphicsPathItem):
         if not self.source_port:
             return
 
+        # feat/clipboard-and-align §4.3: a wire LEAVING a disabled block
+        # (i.e. this wire's SOURCE pin belongs to one) is dimmed right
+        # along with the block itself — recomputed on every path update, so
+        # toggling a block's enabled state (scene.set_blocks_enabled())
+        # takes effect immediately without needing a fresh connection.
+        source_block = self.source_port.parentItem()
+        source_logic_block = getattr(source_block, 'logic_block', None)
+        self.setOpacity(0.35 if source_logic_block is not None and not source_logic_block.enabled else 1.0)
+
         start_pos = self.source_port.scenePos()
         end_pos = self.dest_port.scenePos() if self.dest_port else self.temp_end_point
 

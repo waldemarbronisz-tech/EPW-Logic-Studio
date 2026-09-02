@@ -708,6 +708,51 @@ class LogicScene(QGraphicsScene):
     def distribute_vertical(self):
         self._run_distribute("y")
 
+    # ---- Enable / disable blocks (§4) --------------------------------------
+
+    def set_blocks_enabled(self, block_items, enabled: bool):
+        """feat/clipboard-and-align §4.1: sets every given BlockItem's
+        logic_block.enabled to `enabled`, as exactly ONE undo entry
+        regardless of how many blocks are given — the block's own
+        context-menu toggle ("Wyłącz blok"/"Włącz blok", block_item.py)
+        calls this with a single-item list; the Edit menu's "Wyłącz/Włącz
+        zaznaczone bloki" calls it with the whole selection. Both are
+        force-to-a-direction, not a per-block flip, so a mixed-state
+        selection ends up uniformly enabled/disabled rather than each
+        block independently inverting its own prior state."""
+        block_items = list(block_items)
+        if not block_items or not self.views():
+            return
+        window = self.views()[0].window()
+        project = getattr(window, 'project', None)
+        if project is None:
+            return
+        project.push_state()
+        window.set_dirty()
+        for item in block_items:
+            item.logic_block.enabled = enabled
+            item.prepareGeometryChange()
+            item.update()
+        self._update_wires_for_blocks(block_items)
+        if hasattr(window, '_update_disabled_blocks_status'):
+            window._update_disabled_blocks_status()
+
+    def _update_wires_for_blocks(self, block_items):
+        """Re-runs update_path() (not just update()) on every WireItem
+        attached to any of `block_items` — its own opacity-vs-source-
+        enabled check (§4.3: wires leaving a disabled block are dimmed
+        too) only re-evaluates there, so toggling enabled state needs
+        this to be visible immediately rather than on the next unrelated
+        repaint."""
+        from logic_studio.ui.canvas.wire_item import WireItem
+        block_set = set(block_items)
+        for scene_item in self.items():
+            if isinstance(scene_item, WireItem):
+                src_block = scene_item.source_port.parentItem() if scene_item.source_port else None
+                dst_block = scene_item.dest_port.parentItem() if scene_item.dest_port else None
+                if src_block in block_set or dst_block in block_set:
+                    scene_item.update_path()
+
 
 # feat/clipboard-and-align §2.1/§2.3: the 8 operations, shared between the
 # Edit menu ("Wyrównaj" submenu, main_window.py) and the canvas/block

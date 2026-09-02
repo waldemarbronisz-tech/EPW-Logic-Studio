@@ -27,6 +27,28 @@ class Pin:
         "TIME": TYPE_INTEGER,  # We treat time as ms int internally for now
     }
 
+    # feat/clipboard-and-align §4.2: the value a DISABLED block's output pin
+    # is forced to every scan (ExecutionEngine.step()) — defined and type-
+    # appropriate, never None, so anything still reading it (a connection
+    # left over from before the block was disabled) sees a sane value
+    # instead of crashing or propagating an undefined state downstream.
+    # False/0.0 for the two types §4.2 names explicitly (BOOL/REAL); the
+    # remaining pin types get the same "falsy, defined" treatment for
+    # consistency, and anything unrecognized falls back to False.
+    _SAFE_DISABLED_DEFAULTS = {
+        TYPE_BOOLEAN: False,
+        TYPE_DIGITAL: False,
+        TYPE_FLOAT: 0.0,
+        TYPE_ANALOG: 0.0,
+        TYPE_INTEGER: 0,
+        TYPE_STRING: "",
+    }
+
+    def safe_default_value(self):
+        """The value this pin should present while its owning block is
+        disabled — see _SAFE_DISABLED_DEFAULTS above."""
+        return self._SAFE_DISABLED_DEFAULTS.get(self.data_type, False)
+
     # feat/wire-modes-and-labels §0.1 — STRUCTURAL FIX for a bug that has now
     # bitten twice: serialize() gained a new field (first `connections`,
     # aliased instead of copied; then `disabled`, dropped entirely) and the

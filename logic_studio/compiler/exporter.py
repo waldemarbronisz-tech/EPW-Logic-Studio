@@ -25,6 +25,7 @@ CHECKSUM_FIELDS = (
     "execution_order", "blocks", "generated_at", "generated_by",
     "project_name", "block_count", "contains_forced_io", "analog_points",
     "internal_bits", "system_catalog_version", "io_labels",
+    "contains_disabled_blocks",
 )
 
 
@@ -40,8 +41,20 @@ class Exporter:
         # We store the runtime graph structure, discarding UI position/color data
         runtime_blocks = {}
         forced_block_names = []
+        disabled_block_names = []
 
         for block in self.project.blocks:
+            # feat/clipboard-and-align §4.2: a disabled block does NOT enter
+            # the runtime export at all — equivalent to commenting it out.
+            # Its own uuid/pins are simply absent from "blocks" below; it
+            # never appears in execution_order either (GraphBuilder), so
+            # EPW-OS never has to know it existed. Collected here (by
+            # short_id, matching the forced-IO warning below) purely for the
+            # compiler warning and the contains_disabled_blocks flag.
+            if not block.enabled:
+                disabled_block_names.append(block.short_id or block.display_name)
+                continue
+
             # "disabled" (feat/editor-modes-and-geometry §2.5): EPW-OS must
             # know an input was explicitly excluded from this block's own
             # logic, or it will evaluate the gate differently than the
@@ -95,6 +108,18 @@ class Exporter:
                 "Eksport zawiera aktywne wymuszenia wejść: " + ", ".join(forced_block_names)
             )
 
+        # feat/clipboard-and-align §4.3: modeled exactly on contains_forced_io
+        # above — a disabled block sitting in safety logic is a real hazard
+        # (someone disables an interlock during commissioning and forgets to
+        # re-enable it), so this must be hard to miss: a compiler WARNING
+        # naming every disabled block by short_id, plus a flag in the
+        # exported metadata itself for EPW-OS/any downstream tooling.
+        contains_disabled_blocks = len(disabled_block_names) > 0
+        if contains_disabled_blocks:
+            self.warnings.append(
+                "Projekt zawiera wyłączone bloki (pominięte w eksporcie): " + ", ".join(disabled_block_names)
+            )
+
         # Full copy of every analog point the project declares — not just the
         # ones a block currently references. A point may be defined for the
         # future, or used only by an HMI layer with no logic block behind it
@@ -129,6 +154,7 @@ class Exporter:
             "project_name": self.project.settings.get("name", "New Project"),
             "block_count": len(self.execution_order),
             "contains_forced_io": contains_forced_io,
+            "contains_disabled_blocks": contains_disabled_blocks,
             "analog_points": analog_points,
             "internal_bits": internal_bits,
             # §8.1: the system-signal catalog version this logic was

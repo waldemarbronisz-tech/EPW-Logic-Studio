@@ -28,7 +28,17 @@ class GraphBuilder:
         return (block.execution_priority, block.uuid)
 
     def build_and_sort(self, errors: list) -> list:
-        executable_blocks = [b for b in self.project.blocks if b.category != "Dokumentacja"]
+        # feat/clipboard-and-align §4.2: a disabled block never enters
+        # execution_order, exactly like a Documentation block — it's
+        # simply absent from the graph, so it can neither be waited on
+        # (its outputs are forced to a safe default value every scan
+        # instead, see ExecutionEngine.step()) nor gate anything else
+        # (an edge FROM it is never created below, so a downstream block
+        # that only depended on a disabled one becomes ready immediately).
+        executable_blocks = [
+            b for b in self.project.blocks
+            if b.category != "Dokumentacja" and b.enabled
+        ]
         block_by_uuid = {b.uuid: b for b in executable_blocks}
 
         pin_to_block = {}
