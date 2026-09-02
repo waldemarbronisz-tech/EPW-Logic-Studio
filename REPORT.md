@@ -313,3 +313,92 @@ editor-interaction or simulation-behavior changes).
 - **`Execution State`**: set once to `"Idle"` in `__init__`, never updated
   anywhere during simulation — permanently displayed a constant, misleading
   value. REMOVED entirely.
+
+## PHASE 7 — SIGNAL CROSS-REFERENCE PANEL
+
+Branch `feat/signal-crossref`, all sections closed, no stop-and-report
+checkpoint required (read-only panel + one new data-model file — no
+compiler/engine/editor-interaction changes).
+
+### §0 — FIELD-AUDIT TEST COVERAGE CHECK (mandatory per the task)
+- [X] Confirmed: the field-round-trip audit test
+  (`test_every_serializable_pin_attribute_is_listed_in_serialized_fields`,
+  tests/test_pin_serialization.py) covered ONLY `Pin`, despite
+  `BaseLogicBlock` getting the identical `SERIALIZED_FIELDS` treatment
+  earlier — and despite that class having ALREADY shown the exact bug the
+  audit exists to catch (`visibility`/`execution_state`, found and removed
+  in Phase 6 §5.6). Extended: `BaseLogicBlock._STRUCTURED_FIELDS` /
+  `_TRANSIENT_FIELDS` (new class-level tuples, base.py) plus
+  `test_every_serializable_block_attribute_is_accounted_for()`, the same
+  audit shape as Pin's. A future block attribute added without being
+  classified into SERIALIZED_FIELDS/_STRUCTURED_FIELDS/_TRANSIENT_FIELDS
+  now fails immediately instead of silently losing its persistence a
+  fourth time.
+
+### §1 — CROSS-REFERENCE DATA MODEL (`core/crossref.py`)
+- [X] `build_crossref(project)`/`find_issues(crossref)` — pure logic, no
+  Qt, across all four signal namespaces (ARCHITECTURE.md §14). Reader/
+  writer role from pin shape, not `type_id` — a future block type with an
+  Address/Bit/Sygnał property is picked up automatically.
+- [X] Deliberately duplicates a subset of `compiler/validator.py`'s rules
+  — documented at length in both the module's own docstring and
+  ARCHITECTURE.md §14, since it's easy to mistake for an oversight rather
+  than the deliberate "this has to work without compiling" design it is.
+
+### §2 — READ-ONLY "SYGNAŁY" PANEL (`ui/panels/signals.py`)
+- [X] New tab, table (Stan/Sygnał/Typ/Etykieta/Zapisuje/Czyta), search +
+  kind filters + "tylko problemy" (persisted), debounced (200ms) rebuild
+  wired through `MainWindow.set_dirty()` — the one choke point every
+  project mutation already passes through, so no other file needed
+  touching to know when to refresh. Empty-state placeholder.
+
+### §3 — NAVIGATION
+- [X] Double-click jumps to the writer (or first reader) and pulses an
+  outline around the block for ~1s — built entirely from signals.py via a
+  temporary scene overlay, without touching block_item.py. Right-click
+  lists every reader when there's more than one. Canvas selection
+  highlights (never scrolls) the matching row(s).
+- [ ] No existing navigation-history mechanism was found in the repo — none
+  added, per the task's explicit instruction not to.
+
+### §4 — BLOCK CONTEXT MENU
+- [X] "Pokaż użycia sygnału" — enabled only for a block with an assigned
+  Address/Bit/Sygnał, switches to the Sygnały tab and focuses that
+  signal's row (resetting any stale filter that would otherwise hide it).
+  The one change to block_item.py this PR permits.
+
+### §5 — CSV EXPORT
+- [X] "Project → Eksportuj listę sygnałów..." — stdlib `csv` module,
+  UTF-8 BOM, `;` delimiter, exports exactly the currently-visible
+  (filtered) rows read straight off the table's own rendered text, plus a
+  "Problemy" column and a leading "#" comment line (project/date/filter
+  flag).
+
+### BUGS FOUND AND FIXED DURING THIS PR (not hypothetical — all caught by
+tests actually failing)
+- `_SEVERITY_RANK` (§2) had no "info" entry — KeyError the first time any
+  signal got an info-level issue populated into the table. Fixed, and
+  aligned the Stan-column icon / "tylko problemy" filter to the task's own
+  literal wording (both explicitly error/warning only — info still gets a
+  tooltip, just no color/icon and doesn't count as "a problem").
+- `_pulse_highlight()`'s `QTimer` kept firing after its overlay/scene had
+  already been destroyed (closing the window mid-animation) — wrapped in
+  try/except RuntimeError, a real defensive fix (a user closing a project
+  mid-pulse hits the same path a test does).
+- `tests/test_signals_csv_export.py` originally constructed every
+  `SignalsPanel()` with no injected `settings`, silently falling back to
+  the REAL `QSettings("BroniszLabs", "EPW Logic Studio")` (Windows
+  registry-backed) — the exact class of mistake the project's own standing
+  rule warns about, and the direct cause of real, observed test-order
+  flakiness (a stale filter value the buggy run itself wrote into the real
+  registry broke unrelated later tests depending on run order). Fixed
+  every construction site, and removed the leaked key from the real
+  registry before re-verifying the suite was stable across repeated runs.
+
+### Świadomie pominięte / poza zakresem tego PR
+- Żadna zmiana w `compiler/validator.py`, `engine/`, ani sposobie pracy
+  edytora — panel jest wyłącznie do odczytu, zgodnie z poleceniem.
+- Poza nowymi plikami, testami i dokumentacją, jedyne dotknięte pliki to
+  `main_window.py` (rejestracja zakładki/menu/hooków odświeżania) i
+  `block_item.py` (wyłącznie §4's nowa pozycja menu kontekstowego +
+  dwie małe metody pomocnicze) — potwierdzone `git diff --stat`.

@@ -435,3 +435,54 @@ przypisanym adresem mającym etykietę (§12), referencja jest wzbogacona:
 własnych komunikatach diagnostycznych. Osobny wpis w `CHECKSUM_FIELDS` nie
 jest potrzebny: `"blocks"` jest już na liście i niesie cały ten słownik per
 blok, `short_id` włącznie.
+
+## 14. Cross-reference sygnałów (feat/signal-crossref)
+
+**Model**: `core/crossref.py`, zero zależności od Qt — `build_crossref(project)
+-> dict[str, SignalUsage]`. `SignalUsage`: `signal_id`, `kind` (`physical_di`
+/`physical_do`/`analog_in`/`analog_out`/`internal_bit`/`internal_reg`/
+`system`), `data_type` (`BOOL`/`REAL`), `label`, `readers`/`writers` (listy
+`(block_uuid, short_id, pin_name)`), `defined`. `find_issues(crossref) ->
+list[Issue]` — reguły opisane w §1.4 zadania, w pełni w module.
+
+**Źródła — te same cztery przestrzenie nazw co §10**: fizyczne DI/DO
+(`DeviceModel`), punkty analogowe (`project.settings["analog_points"]`),
+rejestr bitów/rejestrów wewnętrznych (`project.settings["internal_bits"]`),
+katalog sygnałów systemowych (`core/system_signals_catalog.json`). Indeks
+zasiewany jest z rejestrów punktów analogowych i bitów wewnętrznych z góry
+(te dwie przestrzenie mają regułę "zdefiniowany, ale nieużywany" — muszą
+więc pojawić się w indeksie nawet bez żadnego bloku), fizyczne DI/DO
+i katalog systemowy — nie (stałe kontrakty platformowe, nie mają takiej
+reguły) — wchodzą do indeksu dopiero, gdy realnie odwołuje się do nich
+jakiś blok. Rola czytelnik/zapisujący wyprowadzana jest z KSZTAŁTU pinów
+bloku (źródło = same wyjścia = czytelnik zewnętrznego sygnału; ujście =
+same wejścia = zapisujący), nie z `type_id` — nowy typ bloku z właściwością
+`Address`/`Bit`/`Sygnał` wlicza się automatycznie, bez zmiany w tym module.
+
+**Świadome zduplikowanie części reguł walidatora — i dlaczego to nie jest
+błąd**: `find_issues()` powtarza podzbiór reguł z `compiler/validator.py`
+(zły adres, wiele zapisujących, sygnał nieużywany...). Panel Sygnały ma
+działać NA BIEŻĄCO, w trakcie rysowania schematu, bez kompilowania projektu
+— `Validator.run()` jest częścią pełnego pipeline'u kompilacji (razem
+z budową grafu, sortowaniem topologicznym, itd.) i nie jest pomyślany do
+wywoływania po każdej pojedynczej zmianie właściwości. `core/crossref.py`
+jest więc CELOWO niezależnym, drugim źródłem tych samych faktów — nie
+refaktoryzuj go do współdzielenia kodu z walidatorem w tym PR; to dwa
+różne narzędzia dla dwóch różnych chwil w cyklu pracy inżyniera (bieżący
+podgląd vs. bramka przed eksportem/uruchomieniem), a walidator pozostaje
+JEDYNYM autorytetem co do tego, co faktycznie blokuje kompilację.
+
+**Panel** (`ui/panels/signals.py`) jest WYŁĄCZNIE DO ODCZYTU — nigdy nie
+zapisuje do projektu, nie woła kompilatora ani silnika. Odświeżanie
+indeksu jest odroczone (`QTimer`, 200 ms, `SignalsPanel.request_refresh()`)
+i podpięte pod `MainWindow.set_dirty()` — jedyny punkt, przez który
+przechodzi już KAŻDA mutacja projektu (dodanie/usunięcie/duplikacja bloku,
+każda edycja właściwości, Ustawienia projektu) — więc panel nie wymagał
+żadnej zmiany w `property_grid.py`/`dialogs.py`/`scene.py`, by wiedzieć,
+kiedy przebudować się na nowo.
+
+**Eksport CSV** (`SignalsPanel.export_csv()`) czyta bezpośrednio z
+WYRENDEROWANYCH komórek tabeli dla wierszy aktualnie widocznych (po
+filtrach) — nigdy nie odtwarza wyniku z `crossref`/`find_issues()` od nowa
+— więc eksport z zasady nie może się rozjechać z tym, co inżynier widzi na
+ekranie w chwili eksportu.

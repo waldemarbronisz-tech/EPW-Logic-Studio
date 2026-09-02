@@ -467,3 +467,54 @@ inną część aplikacji.
   pokazuje dwa wiersze, nie osiem) — zgłoszone wprost w raporcie końcowym,
   nie pominięte po cichu, na wypadek gdyby edycja nazwy bloku miała
   pozostać dostępna gdzie indziej.
+
+## 17. Status napraw (branch `feat/signal-crossref`)
+
+Panel cross-reference sygnałów, wyłącznie do odczytu — tabela wszystkich
+adresów/sygnałów użytych w projekcie z odnośnikami do bloków, wykrywaniem
+typowych problemów i eksportem do CSV. Wszystkie punkty pokryte testami w
+`QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` (652 na starcie
+gałęzi, PASS na 720 na koniec).
+
+| # | Punkt | Status |
+|---|---|---|
+| 0 | Zasięg testu audytującego pola serializacji | Sprawdzone: pokrywał wyłącznie `Pin`, mimo że `BaseLogicBlock` ma tę samą klasę ryzyka i już raz na nią trafiła (§5.6 poprzedniej gałęzi). Rozszerzone o `BaseLogicBlock._STRUCTURED_FIELDS`/`_TRANSIENT_FIELDS` i `test_every_serializable_block_attribute_is_accounted_for()`. |
+| 1 | Model danych cross-reference (`core/crossref.py`) | Naprawione — `build_crossref()`/`find_issues()`, cztery przestrzenie nazw, rola czytelnik/zapisujący z kształtu pinów (nie `type_id`), świadome zduplikowanie podzbioru reguł walidatora (uzasadnione w kodzie i ARCHITECTURE.md §14). |
+| 2 | Panel "Sygnały" (`ui/panels/signals.py`) | Naprawione — tabela, filtry (wyszukiwanie/rodzaj/tylko problemy, zapamiętane), odświeżanie odroczone przez `QTimer` (200 ms) podpięte pod `MainWindow.set_dirty()`, stan pusty. |
+| 3 | Nawigacja panel <-> kanwa | Naprawione — dwuklik (skok do zapisującego/pierwszego czytelnika, pulsowanie ~1s bez dotykania `block_item.py`), prawy przycisk (menu czytelników, budowane bez modalnego `.exec()` dla testowalności), podświetlenie wierszy przy zaznaczeniu na kanwie (bez przewijania — zweryfikowane testem grepującym własne źródło metody). Brak istniejącego mechanizmu historii nawigacji w repozytorium — nie dodano nowego, zgodnie z poleceniem. |
+| 4 | Menu kontekstowe bloku: "Pokaż użycia sygnału" | Naprawione — jedyna dopuszczalna zmiana w `block_item.py` poza rejestracją panelu; aktywna wyłącznie dla bloku z przypisanym adresem/bitem/sygnałem. |
+| 5 | Eksport CSV | Naprawione — moduł `csv` z biblioteki standardowej, UTF-8 z BOM, separator `;`, wiersze aktualnie widoczne (po filtrach), kolumna "Problemy", komentarz w pierwszym wierszu. |
+
+**Rzeczywisty błąd znaleziony i naprawiony podczas pisania testów §2/§3**
+(nie hipotetyczny): `_SEVERITY_RANK` nie miało wpisu dla severity `"info"`
+— pierwszy sygnał z problemem tego poziomu (np. adres czytany przez kilka
+bloków) wywoływał `KeyError` w momencie wypełniania tabeli. Naprawione,
+a przy okazji dopracowana zgodność ikony statusu i przełącznika "tylko
+problemy" z dosłownym brzmieniem zadania (oba explicite tylko błąd/
+ostrzeżenie — `info` nie dostaje ikony/koloru i nie liczy się jako
+"problem", ale nadal ma tooltip).
+
+**Drugi rzeczywisty błąd**: `_pulse_highlight()`'s `QTimer` odpalał się
+dalej po zniszczeniu swojej nakładki/sceny (np. zamknięcie okna w trakcie
+animacji) — `RuntimeError` z martwego obiektu C++. Opakowane w
+try/except, prawdziwa naprawa defensywna, nie tylko obejście testu.
+
+**Trzeci rzeczywisty błąd — naruszenie własnej zasady projektu**:
+`tests/test_signals_csv_export.py` w pierwszej wersji konstruował każdy
+`SignalsPanel()` bez wstrzykniętego `settings`, co po cichu trafiało
+w PRAWDZIWY `QSettings("BroniszLabs", "EPW Logic Studio")` (rejestr
+Windows) — dokładnie klasa błędu, przed którą ostrzega stała zasada tego
+repozytorium ("skrypty weryfikacyjne nie mogą dotykać prawdziwych plików
+konfiguracyjnych"). Spowodowało to realną, odtworzoną niestabilność
+kolejności testów (osierocona wartość filtra zapisana przez wadliwe
+uruchomienie łamała niepowiązane, późniejsze testy zależnie od kolejności
+uruchomienia). Naprawione we wszystkich miejscach konstrukcji,
+zanieczyszczony klucz usunięty z prawdziwego rejestru, stabilność
+zweryfikowana wielokrotnym uruchomieniem całej suity.
+
+### Świadomie pominięte / poza zakresem tego PR
+- Żadna zmiana w `compiler/validator.py` — cross-reference celowo
+  pozostaje drugim, niezależnym źródłem tych samych faktów, nie
+  refaktoryzacją walidatora.
+- Mechanizm historii nawigacji (Alt+strzałka) — nie istniał w repo przed
+  tym PR, nie dodany, zgodnie z jawnym poleceniem §3.4.
