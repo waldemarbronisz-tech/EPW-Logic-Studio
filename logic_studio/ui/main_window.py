@@ -10,6 +10,7 @@ from logic_studio.ui.panels.property_grid import PropertyGridPanel
 from logic_studio.ui.panels.compiler_output import CompilerOutputPanel
 from logic_studio.ui.panels.simulation import SimulationPanel
 from logic_studio.ui.panels.element_preview import ElementPreviewPanel
+from logic_studio.ui.panels.signals import SignalsPanel
 from logic_studio.ui.icons import action_icon
 
 
@@ -247,8 +248,14 @@ class MainWindow(QMainWindow):
         library_splitter.setSizes([600, 200])  # ~3:1 (§6)
 
         self.device_panel = DeviceExplorerPanel()
+        # feat/signal-crossref §2.1: new "Sygnały" tab alongside Library/
+        # Device Explorer — kept as self.left_tabs (not a local variable)
+        # so the block context menu (§4) can switch to it programmatically.
+        self.signals_panel = SignalsPanel(settings=self.settings)
         left_tabs.addTab(library_splitter, "Library")
         left_tabs.addTab(self.device_panel, "Device Explorer")
+        left_tabs.addTab(self.signals_panel, "Sygnały")
+        self.left_tabs = left_tabs
 
         # 2. Center Panel (Canvas and Bottom Output)
         center_splitter = QSplitter(Qt.Vertical)
@@ -259,6 +266,10 @@ class MainWindow(QMainWindow):
         # on every project change a block-add/delete can cause — see
         # SimulationPanel.refresh().
         self.scene.block_added.connect(lambda _type_id: self.simulation_panel.refresh())
+        # feat/signal-crossref §2.4: rebuild the cross-reference index
+        # (debounced — see SignalsPanel.request_refresh()) on every block
+        # placement, same trigger simulation_panel.refresh() already uses.
+        self.scene.block_added.connect(lambda _type_id: self.signals_panel.request_refresh())
         self.view = LogicView(self.scene)
         self.view.cursor_moved.connect(self._on_cursor_moved)
         self.view.zoom_changed.connect(self._on_zoom_changed)
@@ -338,6 +349,16 @@ class MainWindow(QMainWindow):
         if not self.is_dirty:
             self.is_dirty = True
             self.update_title()
+        # feat/signal-crossref §2.4: set_dirty() is the one choke point
+        # EVERY project mutation already passes through — block add/
+        # delete/duplicate, every property edit (property_grid.py),
+        # Project Settings (io_labels/analog_points/internal_bits). Kept
+        # OUTSIDE the `if not self.is_dirty` guard above on purpose: that
+        # guard exists so the title bar's "*" only updates once, but the
+        # signals panel must re-request a rebuild on EVERY edit, not just
+        # the first one after a clean state — request_refresh() itself is
+        # what debounces a burst of these into one actual rebuild.
+        self.signals_panel.request_refresh()
 
     def _refresh_project_dependent_panels(self):
         """Rebuild every panel whose content is derived from the current
@@ -345,6 +366,9 @@ class MainWindow(QMainWindow):
         project is swapped, or its analog point list changes."""
         self.device_panel.set_project(self.project)
         self.simulation_panel.set_project(self.project)
+        # feat/signal-crossref §2.4: covers load/undo/redo/Project Settings
+        # — set_dirty() above covers everything else.
+        self.signals_panel.set_project(self.project)
 
     def _update_step_buttons(self):
         """Manual step (§6.3) is only meaningful when the engine is not
