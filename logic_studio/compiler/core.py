@@ -152,8 +152,10 @@ class Compiler:
             for reader_block, reader_idx in readers:
                 if writer_idx > reader_idx:
                     delayed_reader_uuids.append(reader_block.uuid)
+                    # feat/io-labels-and-ids §4.3: short_id, not display_name.
+                    reader_ref = reader_block.short_id or reader_block.display_name
                     info_messages.append(
-                        f"[{signal_label}] Odczyt w bloku {reader_block.display_name} wyprzedza zapis — "
+                        f"[{signal_label}] Odczyt w bloku {reader_ref} wyprzedza zapis — "
                         f"wartość z poprzedniego cyklu."
                     )
         return delayed_reader_uuids, info_messages
