@@ -1,6 +1,32 @@
 import uuid
 
 class BaseLogicBlock:
+    # feat/wire-modes-and-labels §0.1: the same structural fix as Pin's
+    # SERIALIZED_FIELDS, applied here because serialize()/deserialize()
+    # already had the identical fragile shape — a hand-written dict literal
+    # on one side, a hand-written set of assignments on the other, free to
+    # silently drift apart. Auditing this class while building that fix
+    # turned up a real (if currently latent) instance of exactly that drift:
+    # `visibility` and `enabled` were written by serialize() but never read
+    # back by deserialize() — a saved hidden/disabled block would silently
+    # come back visible/enabled. Latent today because nothing in the UI
+    # actually sets either to False yet, but `enabled` already has a
+    # validate()-early-exit consumer (see validate() below) clearly meant
+    # for a future toggle, and the save format has claimed to persist both
+    # values since day one regardless.
+    #
+    # Only the flat, directly-comparable fields live in this list — not
+    # every serialize() key. `type_id`/`category`/`description` are
+    # deliberately excluded: they're determined by the block's own CLASS
+    # (cls() already sets them correctly), and restoring them from a file
+    # would risk overwriting current code's definition with stale data
+    # instead of catching a mismatch. `execution_state` is deliberately
+    # excluded too: it's runtime/session state ("Idle" at every fresh
+    # load is correct, not a bug — nothing has executed yet). `position`/
+    # `size`/`properties`/`inputs`/`outputs` are structured, not flat
+    # scalars, and keep their own explicit handling in deserialize().
+    SERIALIZED_FIELDS = ("uuid", "display_name", "execution_priority", "color", "visibility", "enabled")
+
     def __init__(self, type_id: str, default_name: str, category: str, description: str = ""):
         self.uuid: str = str(uuid.uuid4())
         self.type_id: str = type_id
@@ -90,10 +116,9 @@ class BaseLogicBlock:
 
     def serialize(self) -> dict:
         """Serialize block to a dictionary for JSON."""
-        return {
-            "uuid": self.uuid,
+        data = {field: getattr(self, field) for field in self.SERIALIZED_FIELDS}
+        data.update({
             "type_id": self.type_id,
-            "display_name": self.display_name, # instance_name
             "category": self.category,
             "description": self.description,
             "position": {"x": self.x, "y": self.y},
@@ -101,29 +126,33 @@ class BaseLogicBlock:
             "inputs": [pin.serialize() for pin in self.inputs],
             "outputs": [pin.serialize() for pin in self.outputs],
             "execution_state": self.execution_state,
-            "execution_priority": self.execution_priority,
-            "color": self.color,
-            "visibility": self.visibility,
-            "enabled": self.enabled,
-            "properties": self.properties
-        }
+            "properties": self.properties,
+        })
+        return data
 
     @classmethod
     def deserialize(cls, data: dict):
         """Reconstruct block from JSON dict. Overridden by subclasses."""
-        # type_id must match the class definition. display_name handles instance_name loading.
-        block = cls() # Subclasses handle their own static type_id, category, description
-        if "display_name" in data:
-            block.display_name = data["display_name"]
+        # type_id/category/description must match the class definition —
+        # cls() (Subclasses handle their own static type_id/category/
+        # description) already set them correctly; never overwritten from
+        # `data` here (see SERIALIZED_FIELDS' docstring above for why).
+        block = cls()
 
-        block.uuid = data.get("uuid", block.uuid)
+        # §0.1: every flat SERIALIZED_FIELDS value present in `data` is
+        # restored generically — including visibility/enabled, which a
+        # hand-written version of this loop had silently dropped (see the
+        # comment on SERIALIZED_FIELDS). Absent -> whatever cls() already
+        # set, same back-compat behavior as before this refactor.
+        for field in cls.SERIALIZED_FIELDS:
+            if field in data:
+                setattr(block, field, data[field])
+
         pos = data.get("position", {"x": 0.0, "y": 0.0})
         block.set_position(pos["x"], pos["y"])
         size = data.get("size", {"width": 120.0, "height": 80.0})
         block.width = size["width"]
         block.height = size["height"]
-        block.execution_priority = data.get("execution_priority", 1)
-        block.color = data.get("color", "#E0E0E0")
         block.properties = data.get("properties", {}).copy() # Ensure copy
         # Pin deserialization is handled by the project loader
         return block

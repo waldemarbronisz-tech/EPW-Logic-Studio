@@ -255,6 +255,10 @@ class MainWindow(QMainWindow):
 
         self.scene = LogicScene()
         self.scene.block_added.connect(self.library_panel.record_recently_used)
+        # feat/wire-modes-and-labels §0A.2: the "only used" filter recomputes
+        # on every project change a block-add/delete can cause — see
+        # SimulationPanel.refresh().
+        self.scene.block_added.connect(lambda _type_id: self.simulation_panel.refresh())
         self.view = LogicView(self.scene)
         self.view.cursor_moved.connect(self._on_cursor_moved)
         self.view.zoom_changed.connect(self._on_zoom_changed)
@@ -269,7 +273,7 @@ class MainWindow(QMainWindow):
         # 3. Right Panel (Properties & Simulation)
         right_splitter = QSplitter(Qt.Vertical)
         self.property_panel = PropertyGridPanel()
-        self.simulation_panel = SimulationPanel()
+        self.simulation_panel = SimulationPanel(settings=self.settings)
         self.simulation_panel.step_requested.connect(self._on_step_requested)
         right_splitter.addWidget(self.property_panel)
         right_splitter.addWidget(self.simulation_panel)
@@ -381,6 +385,7 @@ class MainWindow(QMainWindow):
 
     def _delete_selected(self):
         self.scene.delete_selected_items()
+        self.simulation_panel.refresh()  # §0A.2: a deleted DI/DO block may change the "used" set
 
     # ---- Project Settings / About --------------------------------------------
 
