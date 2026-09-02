@@ -1,6 +1,16 @@
 name: Pytest
 
-on: [push, pull_request]
+# feat/clipboard-and-align CI-flake fix: `on: [push, pull_request]` ran
+# this workflow TWICE per commit on a branch with an open PR — once for
+# `push` (any branch) and once for `pull_request` (synchronize) — the
+# exact same job definition both times, just two independent, and
+# therefore independently flaky, chances for a timing-sensitive test to
+# fail. main is protected by `push`; every other branch is covered once,
+# via its PR.
+on:
+  push:
+    branches: [main]
+  pull_request:
 
 jobs:
   test:
@@ -23,5 +33,16 @@ jobs:
     - name: Run Pytest Headless
       env:
         QT_QPA_PLATFORM: offscreen
+        # feat/clipboard-and-align §6: QSettings("BroniszLabs", "EPW Logic
+        # Studio") falls back to a native, HOME-rooted config location on
+        # any test that forgets to inject the `qsettings` fixture (the
+        # exact bug class tests/conftest.py's own fixture exists to avoid
+        # — see MEMORY.md). Pointing HOME/XDG_CONFIG_HOME at a fresh
+        # per-run temp directory means even a future instance of that
+        # mistake can't leave state for a later CI run (or a later test
+        # within the same run) to trip over — defense in depth on top of
+        # the fixture itself, not a replacement for it.
+        HOME: ${{ runner.temp }}
+        XDG_CONFIG_HOME: ${{ runner.temp }}/.config
       run: |
         pytest tests/

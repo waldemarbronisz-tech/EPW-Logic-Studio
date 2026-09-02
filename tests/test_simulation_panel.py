@@ -155,10 +155,10 @@ def test_channel_order_within_groups_is_stable_across_widths(qsettings):
     assert narrow_order == wide_order  # channel order inside each group never changes
     assert wide_columns >= narrow_columns  # only the GROUP arrangement (columns) changed
 
-def test_first_group_is_di01_through_di08_in_order():
+def test_first_group_is_di01_through_di08_in_order(qsettings):
     _app()
     from logic_studio.core.device_model import DeviceModel
-    panel = SimulationPanel()
+    panel = SimulationPanel(settings=qsettings)
     first_group = panel._di_group_widgets[0]
     rows = [first_group.layout().itemAt(i).widget() for i in range(1, first_group.layout().count())]
     assert [r.short_address for r in rows] == [f"DI{n:02d}" for n in range(1, 9)]

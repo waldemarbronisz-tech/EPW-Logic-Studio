@@ -72,19 +72,48 @@ class MainWindow(QMainWindow):
         self.act_redo = self._make_action("Redo", self._redo, "Ctrl+Y", icon_name="redo")
         self.act_delete = self._make_action("Delete", self._delete_selected, "Del")
 
+        # feat/clipboard-and-align §1: an in-app clipboard (LogicScene.
+        # clipboard_data), not QClipboard — see scene.py's own docstring.
+        self.act_cut = self._make_action("Cut", lambda: self.scene.cut_selected_items(), "Ctrl+X")
+        self.act_copy = self._make_action("Copy", lambda: self.scene.copy_selected_items(), "Ctrl+C")
+        self.act_paste = self._make_action("Paste", lambda: self.scene.paste_clipboard(), "Ctrl+V")
+        # §1.5: Cut/Copy need a selection, Paste needs a non-empty
+        # clipboard — both start disabled and stay in sync via
+        # _update_clipboard_actions()/_update_paste_action() below.
+        self.act_cut.setEnabled(False)
+        self.act_copy.setEnabled(False)
+        self.act_paste.setEnabled(False)
+
         edit_menu = menubar.addMenu("Edit")
         edit_menu.addAction(self.act_undo)
         edit_menu.addAction(self.act_redo)
         edit_menu.addSeparator()
-        # Cut/Copy/Paste have no implementation behind them yet — left disabled
-        # rather than wired to a fake action, and not on the toolbar.
-        act_cut = edit_menu.addAction("Cut")
-        act_copy = edit_menu.addAction("Copy")
-        act_paste = edit_menu.addAction("Paste")
-        act_cut.setEnabled(False)
-        act_copy.setEnabled(False)
-        act_paste.setEnabled(False)
+        edit_menu.addAction(self.act_cut)
+        edit_menu.addAction(self.act_copy)
+        edit_menu.addAction(self.act_paste)
         edit_menu.addAction(self.act_delete)
+        edit_menu.addSeparator()
+        # feat/clipboard-and-align §2.3: rebuilt on every open
+        # (aboutToShow) rather than kept as persistent QActions — the
+        # enabled state of all 8 operations depends on the CURRENT
+        # selection size, and populate_align_menu() (scene.py, shared with
+        # the block/canvas context menu) already does exactly that.
+        self.align_menu = edit_menu.addMenu("Wyrównaj")
+        self.align_menu.aboutToShow.connect(self._rebuild_align_menu)
+
+        # feat/clipboard-and-align §4.1: "the same action" as the block's
+        # own context-menu toggle (block_item.py), applied to the whole
+        # selection — force-to-a-direction (two items) rather than a
+        # per-block flip, since a mixed-state selection has no single
+        # obvious "opposite". Both call LogicScene.set_blocks_enabled()
+        # as exactly one undo entry regardless of how many blocks.
+        edit_menu.addSeparator()
+        self.act_disable_selected = self._make_action("Wyłącz zaznaczone bloki", self._disable_selected_blocks)
+        self.act_enable_selected = self._make_action("Włącz zaznaczone bloki", self._enable_selected_blocks)
+        self.act_disable_selected.setEnabled(False)
+        self.act_enable_selected.setEnabled(False)
+        edit_menu.addAction(self.act_disable_selected)
+        edit_menu.addAction(self.act_enable_selected)
 
         # --- View ---
         self.act_zoom_in = self._make_action("Zoom In", self._zoom_in, icon_name="zoom_in")
@@ -220,9 +249,16 @@ class MainWindow(QMainWindow):
         self.lbl_selected = QLabel("Selected: None")
         self.lbl_modified = QLabel("")
         self.lbl_scan = QLabel("Scan: -")
+        # feat/clipboard-and-align §4.3: hidden (empty text, same pattern
+        # as lbl_modified above) whenever there are none — kept updated by
+        # _update_disabled_blocks_status(), called from set_dirty() (every
+        # live edit) and _refresh_project_dependent_panels() (project
+        # load/undo/redo).
+        self.lbl_disabled_blocks = QLabel("")
 
         status.addWidget(self.lbl_ready, 1)
         status.addPermanentWidget(self.lbl_selected)
+        status.addPermanentWidget(self.lbl_disabled_blocks)
         status.addPermanentWidget(self.lbl_modified)
         status.addPermanentWidget(self.lbl_grid)
         status.addPermanentWidget(self.lbl_snap)
@@ -332,6 +368,12 @@ class MainWindow(QMainWindow):
         self.scene.selectionChanged.connect(
             lambda: self.signals_panel.highlight_blocks(self.scene.selectedItems())
         )
+        # feat/clipboard-and-align §1.5: Cut/Copy track selection, Paste
+        # tracks the clipboard itself.
+        self.scene.selectionChanged.connect(self._update_clipboard_actions)
+        self.scene.clipboard_changed.connect(self._update_paste_action)
+        # feat/clipboard-and-align §4.1: same gating as Cut/Copy above.
+        self.scene.selectionChanged.connect(self._update_block_toggle_actions)
 
     def closeEvent(self, event):
         if not self.check_dirty_prompt():
@@ -371,6 +413,7 @@ class MainWindow(QMainWindow):
         # the first one after a clean state — request_refresh() itself is
         # what debounces a burst of these into one actual rebuild.
         self.signals_panel.request_refresh()
+        self._update_disabled_blocks_status()
 
     def _refresh_project_dependent_panels(self):
         """Rebuild every panel whose content is derived from the current
@@ -381,6 +424,16 @@ class MainWindow(QMainWindow):
         # feat/signal-crossref §2.4: covers load/undo/redo/Project Settings
         # — set_dirty() above covers everything else.
         self.signals_panel.set_project(self.project)
+        self._update_disabled_blocks_status()
+
+    def _update_disabled_blocks_status(self):
+        """feat/clipboard-and-align §4.3: "Wyłączone bloki: N" in the
+        status bar, shown only when N > 0 (same empty-string-when-clean
+        pattern as lbl_modified) — a disabled block sitting unnoticed in
+        safety logic is a real hazard, so this has to be visible without
+        having to go looking for it."""
+        n = sum(1 for b in self.project.blocks if not b.enabled)
+        self.lbl_disabled_blocks.setText(f"Wyłączone bloki: {n}" if n > 0 else "")
 
     def _update_step_buttons(self):
         """Manual step (§6.3) is only meaningful when the engine is not
@@ -798,3 +851,37 @@ class MainWindow(QMainWindow):
             self.property_panel._set_empty_state()
             self.lbl_selected.setText("Selected: None")
             self.element_preview.clear_canvas_selection()
+
+    def _update_clipboard_actions(self):
+        """feat/clipboard-and-align §1.5."""
+        has_selection = len(self.scene.selectedItems()) > 0
+        self.act_cut.setEnabled(has_selection)
+        self.act_copy.setEnabled(has_selection)
+
+    def _update_paste_action(self):
+        self.act_paste.setEnabled(not self.scene.clipboard_is_empty())
+
+    def _rebuild_align_menu(self):
+        """feat/clipboard-and-align §2.3: Edit -> Wyrównaj."""
+        from logic_studio.ui.canvas.scene import populate_align_menu
+        self.align_menu.clear()
+        populate_align_menu(self.align_menu, self.scene)
+
+    def _selected_block_items(self):
+        from logic_studio.ui.canvas.block_item import BlockItem
+        return [i for i in self.scene.selectedItems() if isinstance(i, BlockItem)]
+
+    def _disable_selected_blocks(self):
+        """feat/clipboard-and-align §4.1: Edit menu equivalent of the
+        block's own context-menu toggle, for the whole selection."""
+        self.scene.set_blocks_enabled(self._selected_block_items(), False)
+
+    def _enable_selected_blocks(self):
+        self.scene.set_blocks_enabled(self._selected_block_items(), True)
+
+    def _update_block_toggle_actions(self):
+        """feat/clipboard-and-align §4.1: same has-a-selection gating as
+        Cut/Copy (_update_clipboard_actions above)."""
+        has_selection = len(self._selected_block_items()) > 0
+        self.act_disable_selected.setEnabled(has_selection)
+        self.act_enable_selected.setEnabled(has_selection)

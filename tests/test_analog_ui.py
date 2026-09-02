@@ -205,7 +205,7 @@ def test_view_drop_event_splits_type_id_and_address_payload():
     assert item.logic_block.type_id == "input.di"
     assert item.logic_block.properties["Address"] == "ELA01.DI06"
 
-def test_simulation_panel_analog_widgets_rebuild_on_set_project():
+def test_simulation_panel_analog_widgets_rebuild_on_set_project(qsettings):
     _app()
     from logic_studio.ui.panels.simulation import SimulationPanel
 
@@ -215,7 +215,7 @@ def test_simulation_panel_analog_widgets_rebuild_on_set_project():
         {"address": "AO.B", "name": "B", "unit": "", "min": 0.0, "max": 10.0, "direction": "output"},
     ]
 
-    panel = SimulationPanel()
+    panel = SimulationPanel(settings=qsettings)
     # feat/wire-modes-and-labels §0A.2/§0A.6: "only used" defaults ON and no
     # block here actually references these addresses — turn it off so this
     # test can exercise the analog widgets themselves, which is what it's
@@ -240,7 +240,7 @@ def test_simulation_panel_analog_widgets_rebuild_on_set_project():
     assert panel.ai_spinboxes == {}
     assert panel.ao_labels == {}
 
-def test_simulation_panel_slider_spinbox_sync():
+def test_simulation_panel_slider_spinbox_sync(qsettings):
     _app()
     from logic_studio.ui.panels.simulation import SimulationPanel
 
@@ -248,7 +248,7 @@ def test_simulation_panel_slider_spinbox_sync():
     p.settings["analog_points"] = [
         {"address": "AI.A", "name": "A", "unit": "", "min": -10.0, "max": 10.0, "direction": "input"},
     ]
-    panel = SimulationPanel()
+    panel = SimulationPanel(settings=qsettings)
     panel.only_used_btn.setChecked(False)  # §0A.2/§0A.6: no block "uses" AI.A here
     panel.set_project(p)
 
@@ -352,7 +352,7 @@ def test_step_requested_ignored_while_running(qsettings):
     m.is_dirty = False
     m.close()
 
-def test_property_grid_analog_address_combobox():
+def test_property_grid_analog_address_combobox(qsettings):
     _app()
     from PySide6.QtWidgets import QComboBox
     from logic_studio.ui.panels.property_grid import PropertyGridPanel
@@ -364,7 +364,7 @@ def test_property_grid_analog_address_combobox():
         {"address": "AI.B", "name": "B", "unit": "", "min": 0.0, "max": 1.0, "direction": "input"},
     ]
 
-    panel = PropertyGridPanel()
+    panel = PropertyGridPanel(settings=qsettings)
     ai = AnalogInputBlock()
     panel.load_block_properties(ai, p)
 

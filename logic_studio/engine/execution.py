@@ -175,6 +175,18 @@ class ExecutionEngine:
         block_map = self.program.block_map
         pin_map = self.program.pin_map
 
+        # 0. Disabled blocks (feat/clipboard-and-align §4.2): excluded from
+        # execution_order by GraphBuilder, so they're never evaluate()'d —
+        # but anything still wired to one of their outputs (a connection
+        # left over from before it was disabled) must still see a defined,
+        # type-appropriate value, never None. Forced every scan, not just
+        # once, since ExecutionEngine.stop() wipes every pin's .value to
+        # None (see stop() above) and start() never re-establishes it.
+        for b in self.program.blocks:
+            if not getattr(b, 'enabled', True):
+                for p in b.outputs:
+                    p.value = p.safe_default_value()
+
         # 1. Acquire: evaluate source blocks (no logic inputs) once, up front,
         # so their output is available to the rest of the graph this scan.
         acquired = set()

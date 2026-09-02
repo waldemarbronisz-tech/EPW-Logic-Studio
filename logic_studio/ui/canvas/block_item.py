@@ -302,6 +302,15 @@ class BlockItem(QGraphicsItem):
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget=None):
         painter.setRenderHint(QPainter.Antialiasing)
 
+        # feat/clipboard-and-align §4.3: a disabled block MUST be hard to
+        # miss — a disabled interlock left that way past commissioning is a
+        # safety hazard. Fades the block's own drawing (opacity, restored
+        # before the dashed-outline/strikethrough marker below so THAT
+        # stays crisp even though the block underneath is dim).
+        disabled = not self.logic_block.enabled
+        if disabled:
+            painter.setOpacity(0.4)
+
         if self.shape_style in GATE_SHAPES:
             self._paint_logic_gate(painter)
         elif self.shape_style == "IO":
@@ -311,11 +320,17 @@ class BlockItem(QGraphicsItem):
         else:
             self._paint_complex_block(painter)
 
+        if disabled:
+            painter.setOpacity(1.0)
+
         if self.shape_style != "DOC":
             # Documentation blocks are annotations, not "functional blocks" —
             # they don't get the Tag/Comment/"???" treatment from §7/§1.
             self._paint_tag_and_comment(painter)
             self._paint_unconnected_warning(painter)
+
+        if disabled:
+            self._paint_disabled_overlay(painter)
 
         if self.isSelected():
             rect = QRectF(0, 0, self.width, self.height)
@@ -324,6 +339,18 @@ class BlockItem(QGraphicsItem):
             painter.setBrush(Qt.NoBrush)
             m = style.BLOCK_SELECTION_MARGIN
             painter.drawRect(rect.adjusted(-m, -m, m, m))
+
+    def _paint_disabled_overlay(self, painter):
+        """feat/clipboard-and-align §4.3: dashed red outline + diagonal
+        strikethrough over the block body, drawn at full opacity (the body
+        itself was already dimmed in paint() above) — the "commented out"
+        marker has to survive at a glance even in a busy schematic."""
+        rect = QRectF(0, 0, self.width, self.height)
+        pen = QPen(QColor(200, 40, 40), 2, Qt.DashLine)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRect(rect)
+        painter.drawLine(rect.topLeft(), rect.bottomRight())
 
     def _paint_logic_gate(self, painter):
         body_rect = QRectF(0, 0, self.width, self.height)
@@ -836,6 +863,15 @@ class BlockItem(QGraphicsItem):
         dup_action = menu.addAction("Duplicate")
         del_action = menu.addAction("Delete")
 
+        # feat/clipboard-and-align §4.1: label reflects THIS block's own
+        # current state (a toggle, like a mute button) — Edit menu's
+        # equivalent for a whole selection (main_window.py) calls the same
+        # scene.set_blocks_enabled(), just force-directed instead.
+        menu.addSeparator()
+        toggle_enabled_action = menu.addAction(
+            "Włącz blok" if not self.logic_block.enabled else "Wyłącz blok"
+        )
+
         # feat/signal-crossref §4: "gdzie jeszcze jest używany ELA01.DI07"
         # — jumps to the Sygnały panel, pre-filtered to this block's own
         # signal. Always shown so it's discoverable, but only ENABLED for a
@@ -844,6 +880,16 @@ class BlockItem(QGraphicsItem):
         signal_ref = self._current_signal_reference()
         show_usage_action = menu.addAction("Pokaż użycia sygnału")
         show_usage_action.setEnabled(bool(signal_ref))
+
+        # feat/clipboard-and-align §2.3: canvas context menu, when 2+
+        # blocks are selected — populate_align_menu() (scene.py) wires its
+        # own actions straight to the scene, so nothing further is needed
+        # in the action-dispatch chain below for these.
+        scene = self.scene()
+        if scene is not None and len(scene.selectedItems()) >= 2:
+            menu.addSeparator()
+            from logic_studio.ui.canvas.scene import populate_align_menu
+            populate_align_menu(menu.addMenu("Wyrównaj"), scene)
 
         action = menu.exec(QCursor.pos())
         if action == del_action:
@@ -856,6 +902,9 @@ class BlockItem(QGraphicsItem):
             self.setSelected(True)
         elif action == show_usage_action:
             self._show_signal_usage(signal_ref)
+        elif action == toggle_enabled_action:
+            if self.scene():
+                self.scene().set_blocks_enabled([self], not self.logic_block.enabled)
 
     def _current_signal_reference(self) -> str:
         """feat/signal-crossref §4: the signal_id "Pokaż użycia sygnału"
@@ -935,6 +984,15 @@ class BlockItem(QGraphicsItem):
         super().mouseDoubleClickEvent(event)
 
     def itemChange(self, change, value):
+        # feat/clipboard-and-align §2.2: alignment operates on the FIRST-
+        # SELECTED block, not an extreme of the selection — the order
+        # isn't tracked anywhere else, so it's tracked here, the one place
+        # every selection state change already passes through.
+        if change == QGraphicsItem.ItemSelectedHasChanged and self.scene() is not None:
+            on_selected_changed = getattr(self.scene(), '_on_item_selected_changed', None)
+            if on_selected_changed is not None:
+                on_selected_changed(self, bool(value))
+
         if change == QGraphicsItem.ItemPositionChange and self.scene() is not None:
             if getattr(self.scene(), 'snap_enabled', True):
                 grid = getattr(self.scene(), 'grid_size', style.GRID_SNAP)
