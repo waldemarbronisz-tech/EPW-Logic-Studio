@@ -35,20 +35,28 @@ def test_library_tree_lists_every_registered_block(qsettings):
     expected = sum(len(BlockRegistry.get_blocks_in_category(c)) for c in BlockRegistry.get_categories())
     assert total == expected
 
-def test_placeholder_categories_shown_disabled_with_no_children(qsettings):
+_REMOVED_PLACEHOLDER_CATEGORIES = [
+    "Zabezpieczenia Analogowe", "Zabezpieczenia Dwustanowe",
+    "Zabezpieczenia Technologiczne", "Łączniki", "Banki Nastaw",
+    "Zabezpieczenia silnikowe",
+]
+
+def test_empty_placeholder_categories_are_not_shown_at_all(qsettings):
+    """feat/editor-modes-and-geometry §3: these six categories used to
+    appear grayed out, labeled "(w przygotowaniu)" — a UI element declaring
+    a feature that doesn't exist yet, the same class of problem as
+    displaying a fabricated value. They're gone from the tree entirely now
+    (the roadmap lives in REPORT.md instead) and return only once real
+    blocks are registered under them."""
     _app()
-    from logic_studio.ui.panels.library import LibraryPanel, PLACEHOLDER_CATEGORIES
+    from logic_studio.ui.panels.library import LibraryPanel
 
     panel = LibraryPanel(settings=qsettings)
-    found = 0
-    for i in range(panel.tree.topLevelItemCount()):
-        item = panel.tree.topLevelItem(i)
-        for cat in PLACEHOLDER_CATEGORIES:
-            if item.text(0) == f"{cat} (w przygotowaniu)":
-                found += 1
-                assert item.isDisabled()
-                assert item.childCount() == 0
-    assert found == len(PLACEHOLDER_CATEGORIES)
+    top_level_labels = [panel.tree.topLevelItem(i).text(0) for i in range(panel.tree.topLevelItemCount())]
+
+    for cat in _REMOVED_PLACEHOLDER_CATEGORIES:
+        assert cat not in top_level_labels
+        assert f"{cat} (w przygotowaniu)" not in top_level_labels
 
 def test_search_matches_by_alias(qsettings):
     _app()
