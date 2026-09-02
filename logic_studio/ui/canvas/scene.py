@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import QGraphicsScene
-from PySide6.QtGui import QPen, QColor
-from PySide6.QtCore import Qt, QLineF, Signal
+from PySide6.QtGui import QPen, QColor, QCursor
+from PySide6.QtCore import Qt, QLineF, QPointF, Signal
 
 from logic_studio.ui.canvas import style
 
@@ -9,10 +9,28 @@ class LogicScene(QGraphicsScene):
     # — MainWindow connects this to LibraryPanel.record_recently_used() (§4.7)
     # so "recently used" reflects every insertion path, not just one of them.
     block_added = Signal(str)
+    # feat/clipboard-and-align §1.5: emitted whenever copy/cut/paste changes
+    # whether the clipboard is empty — MainWindow updates the Paste action's
+    # enabled state from this instead of polling.
+    clipboard_changed = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setSceneRect(-5000, -5000, 10000, 10000)
+
+        # feat/clipboard-and-align §1.1: an IN-APP clipboard, not QClipboard
+        # — exchanging schematic fragments between separate instances of
+        # the program is out of scope. Shaped like the project file's own
+        # "blocks" section (each block's serialize() dict, pin connections
+        # embedded exactly as project.py stores them) — there is no
+        # separate top-level "wires" key in the current .epwlogic format to
+        # mirror; see ARCHITECTURE.md's clipboard section for why this
+        # shape was chosen anyway.
+        self.clipboard_data = None
+        # §1.4: repeated Ctrl+V without a fresh copy/cut cascades so copies
+        # don't stack — reset to 0 on every copy_selected_items()/
+        # cut_selected_items() call, incremented on every paste.
+        self._paste_cascade = 0
         # Block placement / port-grid snap unit (feat/editor-modes-and-
         # geometry §1.1) — equal to GRID_MINOR, the finer of the two
         # background dot spacings below.
@@ -78,32 +96,259 @@ class LogicScene(QGraphicsScene):
                 self.removeItem(item)
 
     def duplicate_selected_items(self):
+        """feat/clipboard-and-align §1.6: shares its implementation with
+        copy+paste instead of keeping a second, connection-losing
+        duplication path — the old body cloned each block independently
+        with no attempt to preserve wires between them at all. Shortcut
+        (Ctrl+D, keyPressEvent below) and user-visible behavior (the
+        duplicate lands near the original, already selected) are
+        unchanged; connections between duplicated blocks now survive,
+        which they never did before."""
+        if self.copy_selected_items():
+            self.paste_clipboard()
+
+    # ---- Clipboard: copy / cut / paste (§1) ------------------------------------
+
+    def copy_selected_items(self) -> bool:
+        """§1.2: serializes every selected block, keeping only the
+        connections that land INSIDE the selection (a connection to a pin
+        outside it is silently dropped — expected, not an error). Returns
+        False (clipboard left untouched) when nothing was selected."""
+        from logic_studio.ui.canvas.block_item import BlockItem
+
+        blocks = [item.logic_block for item in self.selectedItems() if isinstance(item, BlockItem)]
+        if not blocks:
+            return False
+
+        selected_pin_uuids = {p.uuid for b in blocks for p in (b.inputs + b.outputs)}
+
+        blocks_data = []
+        for block in blocks:
+            data = block.serialize()
+            # serialize() returns a FRESH dict/lists each call — safe to
+            # mutate here without touching the live block's own pins.
+            for key in ("inputs", "outputs"):
+                for pin_data in data[key]:
+                    pin_data["connections"] = [c for c in pin_data["connections"] if c in selected_pin_uuids]
+            blocks_data.append(data)
+
+        # §1.2: relative positions, counted from the top-left corner of the
+        # rectangle bounding the selection — block.x/y is already each
+        # block's own top-left in scene coordinates.
+        origin_x = min(b.x for b in blocks)
+        origin_y = min(b.y for b in blocks)
+
+        self.clipboard_data = {"blocks": blocks_data, "origin": (origin_x, origin_y)}
+        self._paste_cascade = 0
+        self.clipboard_changed.emit()
+        return True
+
+    def cut_selected_items(self):
+        """§1.3: copy, then delete the selection AND every wire touching
+        it — including ones leaving the selection, which delete_selected_
+        items() already removes regardless of copy's own internal-only
+        filtering. delete_selected_items() pushes exactly one undo
+        snapshot; copy itself pushes none, so cut is one undo entry."""
+        if self.copy_selected_items():
+            self.delete_selected_items()
+
+    def clipboard_is_empty(self) -> bool:
+        return not self.clipboard_data
+
+    def paste_clipboard(self):
+        """§1.4. Fresh UUIDs for every block and pin; new short_id per
+        Project.add_block()'s existing rules (never re-densified — see
+        core/short_id.py); internal connections remapped to the new pin
+        UUIDs; properties (Address/Bit/Tag/Comment/...) copied unchanged.
+        One undo entry regardless of how many blocks are in the
+        clipboard."""
+        if not self.clipboard_data or not self.views():
+            return
+
+        from logic_studio.blocks.registry import BlockRegistry
+        from logic_studio.blocks.pin import Pin
         from logic_studio.ui.canvas.block_item import BlockItem
 
         window = self.views()[0].window()
         project = getattr(window, 'project', None)
+        if project is None:
+            return
 
-        if project and len(self.selectedItems()) > 0:
-            project.push_state()
-            window.set_dirty()
+        anchor = self._paste_anchor()
+        origin_x, origin_y = self.clipboard_data["origin"]
+        delta_x = anchor.x() - origin_x
+        delta_y = anchor.y() - origin_y
 
-        new_items = []
-        for item in self.selectedItems():
-            if isinstance(item, BlockItem):
-                new_block = item.logic_block.clone()
-                # Offset position slightly
-                new_block.set_position(new_block.x + 20, new_block.y + 20)
+        project.push_state()
+        window.set_dirty()
 
-                if project:
-                    project.add_block(new_block)
+        # Fields restored per-pin from the copied data, deliberately
+        # EXCLUDING uuid/direction/name/data_type (the pin's own identity,
+        # already correct — freshly minted by the new block's own
+        # constructor) and connections (remapped separately, below, since
+        # they still point at the ORIGINAL pins' now-stale UUIDs).
+        pin_copy_fields = tuple(
+            f for f in Pin.SERIALIZED_FIELDS
+            if f not in Pin._IDENTITY_FIELDS and f != "uuid" and f != "connections"
+        )
 
-                new_item = BlockItem(new_block)
-                new_items.append(new_item)
+        uuid_map = {}   # old pin uuid -> new pin uuid
+        new_blocks = []
+        for b_data in self.clipboard_data["blocks"]:
+            block_class = BlockRegistry.get_block_class(b_data.get("type_id"))
+            if block_class is None:
+                continue  # defensive: shouldn't happen, the type existed when copied
+
+            new_block = block_class.deserialize(b_data)
+            # deserialize() restores SERIALIZED_FIELDS values PRESENT in
+            # b_data — including the ORIGINAL's uuid and short_id. Both
+            # must be fresh for a paste (§1.4): a new uuid so the pasted
+            # block is a genuinely distinct object, and short_id cleared so
+            # Project.add_block() below mints the next free one instead of
+            # colliding with the block it was copied from (core/short_id.py
+            # §4.2's same rule clone() already follows).
+            import uuid as uuid_module
+            new_block.uuid = str(uuid_module.uuid4())
+            new_block.short_id = ""
+
+            # Pass 1 (per block): copy the non-identity pin fields, and
+            # seed `connections` with the COPIED (still stale, still
+            # pointing at the ORIGINAL pins') UUIDs — pass 2, after every
+            # block in the clipboard has been through this loop and
+            # uuid_map is complete, rewrites them onto the new pins.
+            # Forgetting this seed step (and just letting the new pin's own
+            # constructor-default empty `connections` stand) was a real bug
+            # caught by test_copy_paste_two_connected_blocks: the remap
+            # loop below has nothing to remap if connections was never
+            # populated from pin_data in the first place.
+            for i, pin_data in enumerate(b_data.get("inputs", [])):
+                if i < len(new_block.inputs):
+                    uuid_map[pin_data["uuid"]] = new_block.inputs[i].uuid
+                    new_block.inputs[i].connections = list(pin_data.get("connections", []))
+                    for field in pin_copy_fields:
+                        if field in pin_data:
+                            setattr(new_block.inputs[i], field, pin_data[field])
+            for i, pin_data in enumerate(b_data.get("outputs", [])):
+                if i < len(new_block.outputs):
+                    uuid_map[pin_data["uuid"]] = new_block.outputs[i].uuid
+                    new_block.outputs[i].connections = list(pin_data.get("connections", []))
+                    for field in pin_copy_fields:
+                        if field in pin_data:
+                            setattr(new_block.outputs[i], field, pin_data[field])
+
+            new_x = new_block.x + delta_x
+            new_y = new_block.y + delta_y
+            if self.snap_enabled:
+                new_x = round(new_x / self.grid_size) * self.grid_size
+                new_y = round(new_y / self.grid_size) * self.grid_size
+            new_block.set_position(new_x, new_y)
+
+            project.add_block(new_block)  # assigns the fresh short_id
+            new_blocks.append(new_block)
+
+        # Remap connections onto the new pin UUIDs. copy() already limited
+        # every connection to pins inside the selection, so every UUID here
+        # is expected to be in uuid_map — the extra membership check is
+        # defensive, not load-bearing.
+        for block in new_blocks:
+            for pin in block.inputs + block.outputs:
+                pin.connections = [uuid_map[c] for c in pin.connections if c in uuid_map]
+
+        self._warn_about_duplicate_output_addresses(new_blocks, project, window)
 
         self.clearSelection()
-        for new_item in new_items:
-            self.addItem(new_item)
-            new_item.setSelected(True)
+        new_items = []
+        for block in new_blocks:
+            item = BlockItem(block)
+            self.addItem(item)
+            new_items.append(item)
+        self._create_wire_items(new_items)
+        for item in new_items:
+            item.setSelected(True)
+
+        self._paste_cascade += 1
+
+    def _paste_anchor(self) -> QPointF:
+        """§1.4 paste position: the selection's top-left lands at the
+        cursor (snapped) when it's over the canvas; otherwise one grid
+        cell past the copied origin. Either way, repeated pastes without a
+        fresh copy/cut cascade by one more grid cell each time so copies
+        don't stack."""
+        grid = self.grid_size
+        cascade = self._paste_cascade * grid if self.snap_enabled else self._paste_cascade * 10
+
+        view = self.views()[0]
+        local_pos = view.mapFromGlobal(QCursor.pos())
+        if view.viewport().rect().contains(local_pos):
+            scene_pos = view.mapToScene(local_pos)
+            if self.snap_enabled:
+                x = round(scene_pos.x() / grid) * grid
+                y = round(scene_pos.y() / grid) * grid
+            else:
+                x, y = scene_pos.x(), scene_pos.y()
+            return QPointF(x + cascade, y + cascade)
+
+        origin_x, origin_y = self.clipboard_data["origin"]
+        step = grid if self.snap_enabled else 10
+        return QPointF(origin_x + step + cascade, origin_y + step + cascade)
+
+    def _create_wire_items(self, new_items):
+        """Recreates WireItem graphics for connections between the given
+        (freshly pasted) BlockItems — copy_selected_items() already
+        limited every connection to pins inside the selection, so every
+        connection here is between two of these same new blocks."""
+        from logic_studio.ui.canvas.wire_item import WireItem
+        from logic_studio.ui.canvas.port_item import PortItem
+
+        port_by_pin_uuid = {}
+        for item in new_items:
+            for child in item.childItems():
+                if isinstance(child, PortItem):
+                    port_by_pin_uuid[child.pin.uuid] = child
+
+        for item in new_items:
+            for out_pin in item.logic_block.outputs:
+                for conn_uuid in out_pin.connections:
+                    source_port = port_by_pin_uuid.get(out_pin.uuid)
+                    dest_port = port_by_pin_uuid.get(conn_uuid)
+                    if source_port and dest_port:
+                        self.addItem(WireItem(source_port, dest_port))
+
+    # type_id -> the property naming its address/signal, for output-shaped
+    # blocks only (§1.4's duplicate-source warning). "virtual.output" is
+    # "Wyjście bitowe" in the library.
+    _OUTPUT_ADDRESS_PROPERTY = {
+        "output.do": "Address",
+        "output.ao": "Address",
+        "virtual.output": "Bit",
+    }
+
+    def _warn_about_duplicate_output_addresses(self, new_blocks, project, window):
+        """§1.4: pasting an output block (DO/AO/Wyjście bitowe) creates a
+        second source for its address — a compile error. Deliberately NOT
+        cleared silently and NOT blocked here: the address is very often
+        exactly what the engineer is about to edit next, and clearing it
+        would force retyping it from scratch. Instead: paste it as-is and
+        say so on the status bar."""
+        count = 0
+        for new_block in new_blocks:
+            prop = self._OUTPUT_ADDRESS_PROPERTY.get(new_block.type_id)
+            if prop is None:
+                continue
+            value = new_block.properties.get(prop, "")
+            if not value:
+                continue
+            collides = any(
+                b.uuid != new_block.uuid and b.type_id == new_block.type_id and b.properties.get(prop, "") == value
+                for b in project.blocks
+            )
+            if collides:
+                count += 1
+
+        if count and hasattr(window, 'statusBar'):
+            window.statusBar().showMessage(
+                f"Wklejono {count} bloków wyjściowych z powielonymi adresami — popraw je przed kompilacją."
+            )
 
     def refresh_live_states(self):
         """Called by ExecutionEngine after a cycle to repaint dynamic values."""

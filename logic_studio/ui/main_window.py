@@ -72,18 +72,25 @@ class MainWindow(QMainWindow):
         self.act_redo = self._make_action("Redo", self._redo, "Ctrl+Y", icon_name="redo")
         self.act_delete = self._make_action("Delete", self._delete_selected, "Del")
 
+        # feat/clipboard-and-align §1: an in-app clipboard (LogicScene.
+        # clipboard_data), not QClipboard — see scene.py's own docstring.
+        self.act_cut = self._make_action("Cut", lambda: self.scene.cut_selected_items(), "Ctrl+X")
+        self.act_copy = self._make_action("Copy", lambda: self.scene.copy_selected_items(), "Ctrl+C")
+        self.act_paste = self._make_action("Paste", lambda: self.scene.paste_clipboard(), "Ctrl+V")
+        # §1.5: Cut/Copy need a selection, Paste needs a non-empty
+        # clipboard — both start disabled and stay in sync via
+        # _update_clipboard_actions()/_update_paste_action() below.
+        self.act_cut.setEnabled(False)
+        self.act_copy.setEnabled(False)
+        self.act_paste.setEnabled(False)
+
         edit_menu = menubar.addMenu("Edit")
         edit_menu.addAction(self.act_undo)
         edit_menu.addAction(self.act_redo)
         edit_menu.addSeparator()
-        # Cut/Copy/Paste have no implementation behind them yet — left disabled
-        # rather than wired to a fake action, and not on the toolbar.
-        act_cut = edit_menu.addAction("Cut")
-        act_copy = edit_menu.addAction("Copy")
-        act_paste = edit_menu.addAction("Paste")
-        act_cut.setEnabled(False)
-        act_copy.setEnabled(False)
-        act_paste.setEnabled(False)
+        edit_menu.addAction(self.act_cut)
+        edit_menu.addAction(self.act_copy)
+        edit_menu.addAction(self.act_paste)
         edit_menu.addAction(self.act_delete)
 
         # --- View ---
@@ -332,6 +339,10 @@ class MainWindow(QMainWindow):
         self.scene.selectionChanged.connect(
             lambda: self.signals_panel.highlight_blocks(self.scene.selectedItems())
         )
+        # feat/clipboard-and-align §1.5: Cut/Copy track selection, Paste
+        # tracks the clipboard itself.
+        self.scene.selectionChanged.connect(self._update_clipboard_actions)
+        self.scene.clipboard_changed.connect(self._update_paste_action)
 
     def closeEvent(self, event):
         if not self.check_dirty_prompt():
@@ -798,3 +809,12 @@ class MainWindow(QMainWindow):
             self.property_panel._set_empty_state()
             self.lbl_selected.setText("Selected: None")
             self.element_preview.clear_canvas_selection()
+
+    def _update_clipboard_actions(self):
+        """feat/clipboard-and-align §1.5."""
+        has_selection = len(self.scene.selectedItems()) > 0
+        self.act_cut.setEnabled(has_selection)
+        self.act_copy.setEnabled(has_selection)
+
+    def _update_paste_action(self):
+        self.act_paste.setEnabled(not self.scene.clipboard_is_empty())
