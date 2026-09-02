@@ -1,6 +1,8 @@
 """feat/signal-crossref §3 — navigation from the Sygnały panel to the
 canvas, and back (canvas selection highlighting rows).
 """
+import time
+
 import pytest
 from PySide6.QtWidgets import QApplication
 from PySide6.QtTest import QTest
@@ -214,7 +216,22 @@ def test_pulse_highlight_overlay_is_added_then_removed(qsettings):
     during = len([i for i in window.scene.items() if isinstance(i, QGraphicsRectItem)])
     assert during == before + 1
 
-    QTest.qWait(150)  # > 2 * 20ms
-    after = len([i for i in window.scene.items() if isinstance(i, QGraphicsRectItem)])
+    # CI flake fix (feat/clipboard-and-align, diagnosed from a real CI
+    # failure — the SAME commit passed on `pull_request` and failed on
+    # `push` 39 minutes later): a single fixed QTest.qWait(150) then one
+    # check is exactly the shape of test that goes flaky under runner
+    # contention — the ~40ms animation (cycles=2 * interval_ms=20) is
+    # normally done well within 150ms, but a stalled/throttled CI runner
+    # can occasionally miss even a 3.75x margin. Poll instead, with a much
+    # larger ceiling than the animation could plausibly need, breaking out
+    # the moment the overlay is actually gone rather than waiting a fixed
+    # span and checking exactly once.
+    deadline = time.monotonic() + 2.0
+    after = during
+    while time.monotonic() < deadline:
+        QTest.qWait(20)
+        after = len([i for i in window.scene.items() if isinstance(i, QGraphicsRectItem)])
+        if after == before:
+            break
     assert after == before
     _close(window)

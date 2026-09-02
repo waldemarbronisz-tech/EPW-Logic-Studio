@@ -341,14 +341,14 @@ def test_editing_finished_with_a_real_change_pushes_exactly_one_undo_state(qsett
     window.is_dirty = False  # avoid the real Unsaved-Changes modal on close()
     window.close()
 
-def test_spinbox_does_not_fire_on_every_keystroke():
+def test_spinbox_does_not_fire_on_every_keystroke(qsettings):
     """§5.4: keyboardTracking must be off, or valueChanged (and therefore
     any commit wired to it) fires on every digit typed."""
     _app()
     p = Project()
     ton = BlockRegistry.create_block("timer.ton")
     p.add_block(ton)
-    panel = PropertyGridPanel()
+    panel = PropertyGridPanel(settings=qsettings)
     panel.load_block_properties(ton, p)
 
     field = panel.field_widget("Preset")
