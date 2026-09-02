@@ -146,3 +146,18 @@ paused for a scheduled report/confirmation checkpoint per the task).
   - Łączniki
   - Banki Nastaw
   - Zabezpieczenia silnikowe
+
+### SIMULATION PANEL — UNREACHABLE DI/DO CHANNELS FIXED (§4)
+- [X] Bug: the ELA (DI) and ADA (DO) channel grids were laid out in a
+  hardcoded 4 columns, but the panel's typical docked width was really only
+  wide enough for ~2 — DI03/DI04/DI07/DI08/... and the equivalent ADA
+  channels were squeezed out of the visible area with no horizontal
+  scrollbar available to reach them (`QScrollArea(widgetResizable=True)`
+  never offers one). Half of all 32+32 channels were silently unreachable.
+- [X] Column count is now computed from the panel's actual current width
+  (`ELA_ADA_COLUMN_WIDTH`) and recalculated on every `resizeEvent`, so both
+  docking wider/narrower and the initial docked width itself keep every
+  channel reachable. A vertical scrollbar remains available whenever the
+  now-taller (fewer-columns) content overflows.
+- [X] Added a filter/search field above both grids (`io_filter`) — 32 inputs
+  + 32 outputs is faster to search than to scroll for.
