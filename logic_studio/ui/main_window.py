@@ -272,7 +272,7 @@ class MainWindow(QMainWindow):
 
         # 3. Right Panel (Properties & Simulation)
         right_splitter = QSplitter(Qt.Vertical)
-        self.property_panel = PropertyGridPanel()
+        self.property_panel = PropertyGridPanel(settings=self.settings)
         self.simulation_panel = SimulationPanel(settings=self.settings)
         self.simulation_panel.step_requested.connect(self._on_step_requested)
         right_splitter.addWidget(self.property_panel)
