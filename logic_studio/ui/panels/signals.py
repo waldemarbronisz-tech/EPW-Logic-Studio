@@ -8,7 +8,7 @@ from datetime import datetime
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QLabel,
     QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView, QMenu,
-    QGraphicsRectItem, QFileDialog
+    QGraphicsRectItem, QFileDialog, QToolButton, QWidgetAction, QCheckBox
 )
 from PySide6.QtCore import Qt, QSettings, QTimer, Signal
 from PySide6.QtGui import QFont, QColor, QBrush, QPen, QPixmap, QPainter, QIcon
@@ -121,13 +121,41 @@ class SignalsPanel(QWidget):
         layout.addLayout(search_row)
 
         filter_row = QHBoxLayout()
-        self.filter_buttons = {}
+
+        # feat/signals-panel-narrow-filter: one compact button opening a
+        # checklist menu — MULTI-select (several categories can be shown
+        # at once, which the old 5 exclusive buttons never allowed) —
+        # instead of a row of buttons whose summed minimum width made the
+        # whole side panel impossible to narrow below it (the panel docks
+        # at 300px by default; "Wewnętrzne"/"Systemowe" alone already
+        # pushed past that). Each category is a QCheckBox wrapped in a
+        # QWidgetAction, not a plain checkable QAction — a real widget
+        # inside the menu, so clicking it toggles without closing the
+        # menu, letting several boxes be checked in one open/close cycle.
+        # A plain checkable QAction closes the menu on every click, which
+        # would make picking 2+ categories require reopening the menu
+        # each time.
+        self.kind_filter_button = QToolButton()
+        self.kind_filter_button.setPopupMode(QToolButton.InstantPopup)
+        self.kind_filter_menu = QMenu(self.kind_filter_button)
+        self.kind_filter_checks = {}
         for label, kinds in _FILTER_GROUPS:
-            btn = QPushButton(label)
-            btn.setCheckable(True)
-            filter_row.addWidget(btn)
-            self.filter_buttons[label] = btn
-        self.only_issues_check = QPushButton("Tylko problemy")
+            if kinds is None:
+                continue  # "Wszystkie" is implicit: no box checked (see _apply_filters)
+            checkbox = QCheckBox(label, self.kind_filter_menu)
+            action = QWidgetAction(self.kind_filter_menu)
+            action.setDefaultWidget(checkbox)
+            self.kind_filter_menu.addAction(action)
+            self.kind_filter_checks[label] = checkbox
+        self.kind_filter_button.setMenu(self.kind_filter_menu)
+        filter_row.addWidget(self.kind_filter_button)
+
+        # "Problemy", not "Tylko problemy" — shorter label, same meaning
+        # via the tooltip, so this doesn't become the next thing setting
+        # the panel's minimum width now that the category filter no
+        # longer does.
+        self.only_issues_check = QPushButton("Problemy")
+        self.only_issues_check.setToolTip("Pokaż tylko sygnały z błędem lub ostrzeżeniem.")
         self.only_issues_check.setCheckable(True)
         filter_row.addWidget(self.only_issues_check)
         filter_row.addStretch()
@@ -152,15 +180,25 @@ class SignalsPanel(QWidget):
         layout.addWidget(self.empty_label)
 
         # ---- Initial filter state, THEN wire signals ----
-        self._active_kind_filter = self._read_setting("kind_filter", "Wszystkie")
-        if self._active_kind_filter not in self.filter_buttons:
-            self._active_kind_filter = "Wszystkie"
-        self.filter_buttons[self._active_kind_filter].setChecked(True)
+        # Persisted as a comma-joined list of checked category labels
+        # ("Fizyczne,Systemowe") — empty/absent means nothing checked,
+        # i.e. "Wszystkie". blockSignals() while setting the initial
+        # checked state for the same chicken-and-egg reason the old
+        # button code guarded against: a checkbox's toggled signal fires
+        # immediately on setChecked(), and the handler below reaches into
+        # self.table, which doesn't exist yet at this point.
+        saved = self._read_setting("kind_filter", "") or ""
+        self._selected_kinds = {l for l in saved.split(",") if l in self.kind_filter_checks}
+        for label, checkbox in self.kind_filter_checks.items():
+            checkbox.blockSignals(True)
+            checkbox.setChecked(label in self._selected_kinds)
+            checkbox.blockSignals(False)
+        self._update_kind_filter_button_text()
         self.only_issues_check.setChecked(self._read_bool_setting("only_issues", False))
 
         self.search_edit.textChanged.connect(self._on_search_changed)
-        for label, btn in self.filter_buttons.items():
-            btn.clicked.connect(lambda checked, l=label: self._on_kind_filter_changed(l))
+        for label, checkbox in self.kind_filter_checks.items():
+            checkbox.toggled.connect(lambda checked, l=label: self._on_kind_filter_changed(l, checked))
         self.only_issues_check.toggled.connect(self._on_only_issues_toggled)
 
         # §3.1/§3.2: navigation.
@@ -295,12 +333,43 @@ class SignalsPanel(QWidget):
     def _on_search_changed(self, _text):
         self._apply_filters()
 
-    def _on_kind_filter_changed(self, label):
-        self._active_kind_filter = label
-        for l, btn in self.filter_buttons.items():
-            btn.setChecked(l == label)
-        self.settings.setValue(self._setting_key("kind_filter"), label)
+    def _on_kind_filter_changed(self, label, checked):
+        if checked:
+            self._selected_kinds.add(label)
+        else:
+            self._selected_kinds.discard(label)
+        self._update_kind_filter_button_text()
+        self.settings.setValue(self._setting_key("kind_filter"), ",".join(sorted(self._selected_kinds)))
         self._apply_filters()
+
+    def _clear_kind_filter(self):
+        """Unchecks every category box (-> "Wszystkie", nothing excluded)
+        — used by focus_signal() below, which must guarantee its target
+        row ends up visible regardless of whatever was filtered before."""
+        self._selected_kinds = set()
+        for checkbox in self.kind_filter_checks.values():
+            checkbox.blockSignals(True)
+            checkbox.setChecked(False)
+            checkbox.blockSignals(False)
+        self._update_kind_filter_button_text()
+        self.settings.setValue(self._setting_key("kind_filter"), "")
+        self._apply_filters()
+
+    def _update_kind_filter_button_text(self):
+        """Button caption stays a near-constant width ("Filtruj" or
+        "Filtruj (n)") on purpose — the whole point of this control is to
+        stop a variable-length label from setting the panel's minimum
+        width the way the 5 old buttons' full category names did. The
+        actual selection goes in the tooltip instead, where its length
+        costs nothing."""
+        n = len(self._selected_kinds)
+        if n == 0 or n == len(self.kind_filter_checks):
+            self.kind_filter_button.setText("Filtruj")
+            self.kind_filter_button.setToolTip("Pokazywane wszystkie kategorie sygnałów.")
+        else:
+            self.kind_filter_button.setText(f"Filtruj ({n})")
+            shown = ", ".join(sorted(self._selected_kinds))
+            self.kind_filter_button.setToolTip(f"Pokazywane tylko: {shown}")
 
     def _on_only_issues_toggled(self, checked):
         self.settings.setValue(self._setting_key("only_issues"), checked)
@@ -308,7 +377,16 @@ class SignalsPanel(QWidget):
 
     def _apply_filters(self):
         text = self.search_edit.text().strip().lower()
-        kinds = dict(_FILTER_GROUPS)[self._active_kind_filter]
+        # §2.3-style exclusive single kind became a multi-select union
+        # (feat/signals-panel-narrow-filter) — an empty selection means
+        # "Wszystkie", exactly like `kinds=None` did for the old
+        # "Wszystkie" button.
+        if self._selected_kinds:
+            kinds = set()
+            for label in self._selected_kinds:
+                kinds.update(dict(_FILTER_GROUPS)[label])
+        else:
+            kinds = None
         only_issues = self.only_issues_check.isChecked()
 
         for row in range(self.table.rowCount()):
@@ -476,9 +554,11 @@ class SignalsPanel(QWidget):
     # ---- §5: CSV export -------------------------------------------------------
 
     def _is_filter_applied(self) -> bool:
+        n = len(self._selected_kinds)
+        kind_restricted = 0 < n < len(self.kind_filter_checks)  # all checked == none checked, see _apply_filters
         return (
             bool(self.search_edit.text().strip())
-            or self._active_kind_filter != "Wszystkie"
+            or kind_restricted
             or self.only_issues_check.isChecked()
         )
 
@@ -535,7 +615,7 @@ class SignalsPanel(QWidget):
         browsing could otherwise hide the very row this is supposed to
         reveal), sets the search filter to this signal's id, and selects
         + scrolls to its row, if found."""
-        self._on_kind_filter_changed("Wszystkie")
+        self._clear_kind_filter()
         self.only_issues_check.setChecked(False)
         self.search_edit.setText(signal_id)
         for row in range(self.table.rowCount()):

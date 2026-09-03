@@ -140,7 +140,7 @@ def test_focus_signal_resets_stale_filters_so_the_row_stays_visible(qsettings):
     window.project.blocks[0].properties["Address"] = "ELA01.DI01"
     window.signals_panel.set_project(window.project)
     window.signals_panel.only_issues_check.setChecked(True)  # this DI has no issue -> would hide it
-    window.signals_panel._on_kind_filter_changed("Systemowe")  # wrong kind too
+    window.signals_panel.kind_filter_checks["Systemowe"].setChecked(True)  # wrong kind too
 
     from logic_studio.ui.canvas.block_item import BlockItem as BI
     item = next(i for i in window.scene.items() if isinstance(i, BI))

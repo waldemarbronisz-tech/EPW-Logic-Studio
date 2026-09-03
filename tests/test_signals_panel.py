@@ -173,7 +173,7 @@ def test_kind_filter_physical_hides_internal_signals(qsettings):
     p.settings["internal_bits"] = [{"name": "X", "type": "BOOL", "retentive": False}]
     panel = SignalsPanel(settings=qsettings)
     panel.set_project(p)
-    panel._on_kind_filter_changed("Fizyczne")
+    panel.kind_filter_checks["Fizyczne"].setChecked(True)
 
     assert panel.table.isRowHidden(_row_of(panel, "ELA01.DI01")) is False
     assert panel.table.isRowHidden(_row_of(panel, "M.X")) is True
@@ -195,12 +195,66 @@ def test_only_issues_toggle_hides_clean_rows(qsettings):
 def test_filter_state_persists_via_settings(qsettings):
     _app()
     panel = SignalsPanel(settings=qsettings)
-    panel._on_kind_filter_changed("Systemowe")
+    panel.kind_filter_checks["Systemowe"].setChecked(True)
     panel.only_issues_check.setChecked(True)
 
     panel2 = SignalsPanel(settings=qsettings)
-    assert panel2._active_kind_filter == "Systemowe"
+    assert panel2._selected_kinds == {"Systemowe"}
+    assert panel2.kind_filter_checks["Systemowe"].isChecked() is True
     assert panel2.only_issues_check.isChecked() is True
+
+def test_multiple_kind_filters_can_be_selected_at_once(qsettings):
+    """feat/signals-panel-narrow-filter: the old exclusive buttons could
+    only ever show ONE category; the checklist menu is a real multi-
+    select — Fizyczne + Systemowe together, Analogowe/Wewnętrzne still
+    hidden."""
+    _app()
+    p = Project()
+    p.add_block(_di("ELA01.DI01"))
+    p.settings["internal_bits"] = [{"name": "X", "type": "BOOL", "retentive": False}]
+    panel = SignalsPanel(settings=qsettings)
+    panel.set_project(p)
+
+    panel.kind_filter_checks["Fizyczne"].setChecked(True)
+    panel.kind_filter_checks["Systemowe"].setChecked(True)
+
+    assert panel.table.isRowHidden(_row_of(panel, "ELA01.DI01")) is False
+    assert panel.table.isRowHidden(_row_of(panel, "M.X")) is True
+
+def test_kind_filter_button_label_reflects_selection(qsettings):
+    """The button's own caption stays a near-constant width (never grows
+    to embed a category name) — that's the whole point of this control —
+    so state is checked via the tooltip and the "(n)" count, not a
+    category name in the label itself."""
+    _app()
+    panel = SignalsPanel(settings=qsettings)
+    assert panel.kind_filter_button.text() == "Filtruj"
+
+    panel.kind_filter_checks["Fizyczne"].setChecked(True)
+    assert panel.kind_filter_button.text() == "Filtruj (1)"
+    assert "Fizyczne" in panel.kind_filter_button.toolTip()
+
+    panel.kind_filter_checks["Systemowe"].setChecked(True)
+    assert panel.kind_filter_button.text() == "Filtruj (2)"
+    assert "Fizyczne" in panel.kind_filter_button.toolTip()
+    assert "Systemowe" in panel.kind_filter_button.toolTip()
+
+    panel.kind_filter_checks["Fizyczne"].setChecked(False)
+    panel.kind_filter_checks["Systemowe"].setChecked(False)
+    assert panel.kind_filter_button.text() == "Filtruj"
+
+def test_checking_every_kind_is_equivalent_to_wszystkie(qsettings):
+    """Selecting all 4 categories shows exactly what no selection shows —
+    both mean "no restriction", so the caption collapses back to the
+    unrestricted "Filtruj" and no filter is reported as applied (§5 CSV
+    export's "Filtr zastosowany" comment line)."""
+    _app()
+    panel = SignalsPanel(settings=qsettings)
+    for checkbox in panel.kind_filter_checks.values():
+        checkbox.setChecked(True)
+
+    assert panel.kind_filter_button.text() == "Filtruj"
+    assert panel._is_filter_applied() is False
 
 
 # ---- refresh debounce (§2.4) ---------------------------------------------
