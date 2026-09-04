@@ -760,3 +760,107 @@ drodze, obie realne, żadna cicho nie zignorowana:
   odpowiadających sygnałów diagnostycznych automatycznie. Wymagałoby
   zamiany statycznego pliku JSON na generowanie części katalogu
   programowo, z listy urządzeń projektu — osobna zmiana architektoniczna.
+
+## 17. Router przewodów z omijaniem przeszkód (feat/wire-routing-obstacle-avoidance)
+
+`fix/wire-routing-direction` (§13) naprawił KIERUNEK, w którym przewód
+opuszcza/wchodzi w pin (zawsze zgodnie ze stroną, na której faktycznie
+jest zamontowany — `_port_facing()`), ale nie zajmował się tym, co
+przewód robi PO drodze: prosty 1-2-załamaniowy Manhattan path między
+dwoma "stubami" mógł wizualnie przeciąć ciało innego bloku stojącego na
+drodze — najczęściej przy połączeniu "wstecznym" (blok źródłowy fizycznie
+za blokiem docelowym) w ciasnym układzie. Właściciel produktu wprost
+oznaczył to jako priorytet do jakości profesjonalnego narzędzia
+(§10 poprzedniej migawki, pkt 4) — ten branch to zamyka.
+
+**Nowy moduł `ui/canvas/routing.py`**, całkowicie oddzielony od Qt-owej
+`WireItem` (operuje wyłącznie na `QPointF`/`QRectF`, testowalny bez sceny):
+
+- `candidate_path(start, end)` — dokładnie ten sam prosty 1-2-załamaniowy
+  path co przed tym modułem (linia prosta gdy `start`/`end` są na tym
+  samym Y, jedno pionowe załamanie w połowie odległości poziomej
+  inaczej). To CAŁY algorytm routingu sprzed tej zmiany — zostaje
+  domyślną, najtańszą ścieżką, używaną tak jak dawniej, ilekroć akurat
+  nic nie blokuje.
+- `path_intersects_obstacles(waypoints, obstacles, margin=6.0)` — test
+  przecięcia odcinka z prostokątem, wyłącznie dla odcinków osiowo
+  wyrównanych (jedyny rodzaj, jaki ten moduł kiedykolwiek produkuje);
+  każda przeszkoda jest napompowana o `margin`, żeby przewód nie
+  "ocierał się" wizualnie o krawędź bloku nawet gdy technicznie go nie
+  dotyka.
+- `astar_route(start, end, obstacles, cell_size=10.0)` — siatkowe
+  wyszukiwanie A* w 4 kierunkach (bez ukosów — przewody są ortogonalne),
+  z karą za skręt (`_TURN_PENALTY=4`, żeby preferować prosty odcinek nad
+  zygzakiem tej samej długości, ale nie na tyle dużą, żeby odrzucić
+  naprawdę konieczny objazd). Stan przeszukiwania to `(komórka,
+  kierunek_wejścia)` — nie sama komórka — właśnie po to, żeby kara za
+  skręt w ogóle miała sens. Region przeszukiwania jest ograniczony do
+  prostokąta rozpiętego między `start`/`end` plus `_PAD_CELLS=14` komórek
+  marginesu na każdą stronę, z twardym limitem `_MAX_CELLS=60000`
+  komórek — dwa bardzo odległe końce nie mogą wywołać przeszukania
+  całej sceny.
+  - **Punkt precyzyjny**: siatka ma początek w `start` samym w sobie (na
+    obu osiach), NIE w jakimś zewnętrznym min-x/min-y. Każdy "stub" ma
+    offset ±15px od pozycji pinu w jednej osi (`wire_item.py`), więc
+    różnica między dowolnymi dwoma takimi punktami zawsze jest
+    wielokrotnością kroku siatki 10px (15+15=30, 15-15=0, itd.) — dzięki
+    temu `end` też trafia w siatkę DOKŁADNIE, zero błędu zaokrąglenia na
+    żadnym końcu, bez potrzeby "doklejania" wyniku wyszukiwania do
+    właściwego punktu na siłę. Pokryte dedykowanym testem
+    (`test_astar_endpoints_are_exact_no_rounding_drift`) z realistycznymi,
+    nie-siatkowymi współrzędnymi stuba.
+  - Brak ścieżki w ograniczonym regionie → `None`, nie wyjątek/zawieszenie
+    — wołający ma się wtedy cofnąć do prostszej ścieżki.
+- `route(start, end, obstacles)` — jedyny punkt wejścia, którego używa
+  `wire_item.py`: próbuje `candidate_path()` jako pierwszy (tani,
+  wspólny przypadek), dopiero gdy TA konkretna ścieżka faktycznie
+  przecina przeszkodę, sięga po `astar_route()`; jeśli A* też nic nie
+  znajdzie (region za duży/zablokowany), wraca do `candidate_path()` po
+  raz drugi jako ostateczność — przewód wizualnie przecinający blok jest
+  wciąż lepszy niż przewód, który po cichu nie zostaje narysowany albo
+  wysadza aplikację.
+
+**Integracja w `WireItem.update_path()`** (`ui/canvas/wire_item.py`):
+`_obstacle_rects()` zbiera `sceneBoundingRect()` KAŻDEGO innego bloku na
+scenie, jawnie wykluczając własny blok źródłowy i docelowy przewodu (te
+dwa bloki przewód z definicji dotyka — nigdy nie są dla niego
+przeszkodą). Lista przeszkód liczona jest wyłącznie gdy `dest_port`
+istnieje (przewód w trakcie ciągnięcia nowego połączenia, bez
+prawdziwego pinu na końcu, nadal po prostu podąża za kursorem — bez
+żadnego omijania, jak wcześniej).
+
+**Wydajność — decyzja architektoniczna**: A* NIE biegnie na każde
+wywołanie `update_path()` (a więc na każdą klatkę przeciągania myszą) dla
+KAŻDEGO przewodu w projekcie — kosztowałoby to zauważalny lag przy
+przeciąganiu bloku w większym projekcie. Zamiast tego tani
+`candidate_path()` jest zawsze próbowany pierwszy, a A* uruchamia się
+WYŁĄCZNIE dla przewodu, którego akurat ta konkretna prosta ścieżka
+faktycznie przecina przeszkodę — w typowym projekcie to mniejszość
+przewodów (głównie połączenia "wsteczne"/sprzężenia zwrotnego w ciasnym
+układzie). Zmierzone na syntetycznym scenariuszu 50 bloków w siatce +
+49 kolejnych połączeń (część z nich zawijająca się między wierszami
+siatki, więc realnie krzyżująca inne bloki i uruchamiająca A*):
+**~6 ms/przewód średnio** dla `update_path()` w całości (nie tylko A*) —
+w pełni akceptowalne dla liczby przewodów, jaką dzisiejsze projekty
+realnie mają; przewody z czystą ścieżką (większość) kosztują dokładnie
+tyle, co przed tym modułem.
+
+**Świadomie NIE zrobione w tym PR**: A* wciąż przelicza się OD ZERA przy
+każdym wywołaniu `update_path()` dla przewodu, który akurat go
+potrzebuje — żadnego cache'owania wyniku między klatkami przeciągania
+tego samego bloku. Dla pojedynczego przewodu w ciasnym układzie to wciąż
+pojedyncze ~kilka ms, niezauważalne, ale przy przeciąganiu bloku, od
+którego zależy WIELE takich "trudnych" przewodów jednocześnie, mogłoby
+się to zsumować — nie zmierzone jako realny problem dzisiaj, zostawione
+jako punkt obserwacji, nie zaimplementowany na wyrost.
+
+Testy: `tests/test_wire_routing_obstacles.py` (15) — `candidate_path()`,
+`path_intersects_obstacles()`, `astar_route()` (w tym precyzja
+zaokrąglenia i graceful giveup na zbyt dużym regionie),
+`route()` (wybór ścieżki prostej vs A* vs fallback) w pełnej izolacji od
+Qt-owej sceny. `tests/test_wire_item_obstacle_avoidance.py` (4) —
+integracja z prawdziwymi `BlockItem`/`LogicScene`: omijanie realnego
+bloku-przeszkody, regresja "ścieżka bez przeszkód renderuje się
+DOKŁADNIE tak samo jak przed tym modułem" (punkt-po-punkcie), własny
+blok źródłowy/docelowy nigdy nie jest przeszkodą, przeciąganie nowego
+przewodu nigdy nie próbuje omijania.

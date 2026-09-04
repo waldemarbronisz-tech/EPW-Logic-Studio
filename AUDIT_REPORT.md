@@ -1,10 +1,11 @@
 # EPW Logic Studio — Pełny raport audytowy (dla Claude.ai)
 
 **Data:** 2026-09-04 (migawka §1-§10 odświeżona do stanu na branchu
-`feat/multi-device-io`, zbudowanym na `main` commit `c9e5c86` — po
-scaleniu PR #13/#14/#15/#16; wszystkie liczby poniżej wyliczone
-bezpośrednio z repozytorium na tym branchu, nie przepisane z poprzedniej
-wersji — polecenia użyte do ich wyliczenia podane w każdej sekcji).
+`feat/wire-routing-obstacle-avoidance`, zbudowanym na `main` commit
+`1468c7c` — po scaleniu PR #17 `feat/multi-device-io`; wszystkie liczby
+poniżej wyliczone bezpośrednio z repozytorium na tym branchu, nie
+przepisane z poprzedniej wersji — polecenia użyte do ich wyliczenia
+podane w każdej sekcji).
 **Zakres:** wyłącznie warstwa logiki — `EPW-Logic-Studio/` (moduł `logic_studio`, testy, przykłady `.epwlogic`). Pozostałe moduły platformy (`EPW-OS`, `EPW-Synoptic-Editor`) celowo pominięte.
 **Cel dokumentu:** dać modelowi bez dostępu do repo pełny, samodzielny obraz architektury, stanu i znanych problemów, żeby mógł doradzać / kontynuować pracę bez dodatkowych pytań.
 **Struktura dokumentu:** §1-§10 to opisowa migawka BIEŻĄCEGO stanu — ma być
@@ -27,21 +28,21 @@ Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) 
 
 ## 2. Status repozytorium
 
-- Gałąź: `feat/multi-device-io` (na `main` commit `c9e5c86`, merge PR #16 `docs/refresh-audit-report`), jeszcze niescalona.
-- **Testy: 810/810 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~9-11s.
-- **36 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **9164 linie** testów — `find tests -name "test_*.py" | xargs wc -l`.
-- **Kod produkcyjny (`logic_studio/`): 11905 linii w 59 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
+- Gałąź: `feat/wire-routing-obstacle-avoidance` (na `main` commit `1468c7c`, merge PR #17 `feat/multi-device-io`), jeszcze niescalona.
+- **Testy: 829/829 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~7-8s.
+- **38 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **9449 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
+- **Kod produkcyjny (`logic_studio/`): 12129 linii w 60 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
   - `blocks/`: 2278
-  - `ui/`: 7130
+  - `ui/`: 7354
   - `core/`: 1125
   - `compiler/`: 694
   - `engine/`: 458
   - `app.py`/`__init__.py` (top-level): 220
-- **69 zarejestrowanych typów bloków w 12 kategoriach** — patrz §5 (polecenie i pełna lista tam).
+- **69 zarejestrowanych typów bloków w 12 kategoriach** — patrz §5 (polecenie i pełna lista tam), bez zmian w tym PR.
 - **10 przykładowych projektów** w `examples/*.epwlogic` — wszystkie otwierają się, kompilują i eksportują z bieżącym kodem (zweryfikowane przy każdym PR, patrz dziennik).
-- **91 commitów** w historii (`git log --oneline | wc -l`) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
+- **94 commity** w historii (`git log --oneline | wc -l`) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
 
-Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §16), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
+Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §17), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
 
 ## 3. Struktura katalogów
 
@@ -53,7 +54,7 @@ EPW-Logic-Studio/
 ├── README.md / ARCHITECTURE.md / REPORT.md / AUDIT_REPORT.md
 ├── .github/workflows/pytest.yml    # CI — patrz §19 dziennika
 ├── examples/                       # 10 przykładowych projektów .epwlogic
-├── tests/                          # 36 plików test_*.py, 810 testów
+├── tests/                          # 38 plików test_*.py, 829 testów
 └── logic_studio/
     ├── app.py                      # bootstrap Qt, main window wiring
     ├── blocks/                     # definicje bloków logicznych (17 plików)
@@ -230,9 +231,9 @@ Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyśc
 ### 7.3 `RuntimeSnapshot` / `RuntimeBlockState` / `RuntimePinState`
 Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 
-## 8. Testy ([tests/](tests/)) — 810/810 PASS
+## 8. Testy ([tests/](tests/)) — 829/829 PASS
 
-36 plików `test_*.py`, 9164 linie. Kilka największych/najbardziej reprezentatywnych plików:
+38 plików `test_*.py`, 9449 linii. Kilka największych/najbardziej reprezentatywnych plików:
 
 | Plik | Zakres |
 |---|---|
@@ -247,12 +248,14 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_crossref.py` | cross-reference sygnałów — 21 testów |
 | `test_align.py` | wyrównywanie/rozkładanie bloków — 20 testów |
 | `test_multi_device_io.py` | wiele urządzeń ELA/ADA (§23 dziennika) — 20 testów |
+| `test_wire_routing_obstacles.py` | router A* z omijaniem przeszkód, w izolacji od sceny (§24 dziennika) — 15 testów |
 | `test_block_disable.py` | tymczasowe wyłączanie bloku — 16 testów |
 | `test_clipboard.py` | schowek kopiuj/wytnij/wklej — 14 testów |
+| `test_wire_item_obstacle_avoidance.py` | integracja routera A* z `WireItem`/`BlockItem` realnym (§24 dziennika) — 4 testy |
 | `test_wire_routing.py` | kierunek wejścia/wyjścia przewodu z pinu — 6 testów |
 | `test_e2e.py`, `test_isolation.py`, `test_compiler.py`, `test_project.py`, `test_acceptance.py`, ... | pipeline end-to-end, izolacja `CompiledProgram`, kompilator, (de)serializacja projektu, scenariusze akceptacyjne |
 
-Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **810 passed w ~9-11s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
+Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **829 passed w ~7-8s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
 
 ## 9. Znane problemy i uwagi z audytu (wyłącznie OTWARTE)
 
@@ -268,7 +271,9 @@ punkty (§9.2/§9.3 poniżej). Duplikat adresu na `input.di` ZAMKNIĘTY
 implementacją innej formy niż pierwotnie rozważana — hiperłącze między
 blokami, nie błąd walidacji (branch `feat/duplicate-address-hyperlink`,
 PR otwarty, jeszcze bez własnego wpisu w tym dzienniku — dopisze się przy
-scaleniu).
+scaleniu). Router przewodów bez omijania przeszkód (poprzedni §10, pkt 4)
+ZAMKNIĘTY implementacją (§24 dziennika, branch
+`feat/wire-routing-obstacle-avoidance`).
 
 ### 9.1 Undo/redo pełnym snapshotem, nie różnicowo (PRIORYTET — zmieniony status)
 `Project.push_state()` serializuje CAŁY projekt do JSON przy każdej realnej
@@ -314,13 +319,12 @@ poprawka.
    obie mniejsze niż §23's oryginalny zakres, ale osobne od niego.
 3. Dodać w `Validator` walidację zakresów właściwości `const.*` (§6,
    "Nadal otwarte braki").
-4. Routing przewodów (`ui/canvas/wire_item.py`) poprawnie wybiera dziś
-   kierunek wyjścia/wejścia względem strony pinu (`_port_facing()`), ale
-   nie unika kolizji z ciałem innego bloku przy ciasnym układzie
-   (przewód "wsteczny" może wizualnie przeciąć blok stojący na drodze).
-   Właściciel produktu chce to doprowadzić do jakości profesjonalnego
-   narzędzia (pełny router z omijaniem przeszkód) — osobna sesja
-   projektowa, nie incrementalna poprawka.
+4. A* router (§17 ARCHITECTURE.md, §24 dziennika) przelicza się od zera
+   przy każdym `update_path()` dla przewodu, który go potrzebuje — brak
+   cache'owania wyniku między klatkami przeciągania tego samego bloku.
+   Nie zmierzone jako realny problem dzisiaj (pojedynczy przewód: ~kilka
+   ms), ale warto obserwować przy projekcie, gdzie przeciągane bloki mają
+   wiele "trudnych" przewodów jednocześnie.
 
 ---
 
@@ -851,6 +855,48 @@ liczba niż §22's 826 na tamtej gałęzi), stabilne pod `pytest-randomly`.
 Wszystkie `examples/*.epwlogic` nadal się otwierają i kompilują
 (migrują v1/v4→v5 w locie, każdy dostaje domyślną listę
 jednoelementową).
+
+---
+
+## 24. Status napraw (branch `feat/wire-routing-obstacle-avoidance`)
+
+Router przewodów "doskonały" — właściciel produktu wybrał to wprost jako
+kolejny priorytet z listy §10 poprzedniej migawki (pkt 4). `_port_facing()`
+(§20 dziennika, `fix/wire-routing-direction`) już poprawnie wybierał
+KIERUNEK wyjścia/wejścia z pinu; ten branch dodaje omijanie ciała innego
+bloku stojącego NA DRODZE między dwoma już poprawnie skierowanymi
+"stubami".
+
+| # | Punkt | Status |
+|---|---|---|
+| 1 | Nowy moduł `ui/canvas/routing.py` | Zrobione — `candidate_path()` (dokładnie stary algorytm, bez zmian), `path_intersects_obstacles()`, `astar_route()` (siatkowe 4-kierunkowe A* z karą za skręt, region ograniczony, limit komórek), `route()` jako jedyny punkt wejścia (próbuje tanią ścieżkę, sięga po A* tylko gdy ta konkretna ścieżka faktycznie coś przecina, wraca do niej jako ostateczność gdy A* nic nie znajdzie). |
+| 2 | Integracja z `WireItem.update_path()` | Zrobione — `_obstacle_rects()` zbiera `sceneBoundingRect()` każdego INNEGO bloku (własny blok źródłowy/docelowy jawnie wykluczony), przeszkody liczone tylko gdy `dest_port` istnieje (przeciąganie nowego przewodu bez celu — bez zmian, jak wcześniej). |
+| 3 | Precyzja siatki A* | Zrobione i pokryte dedykowanym testem — siatka zakotwiczona w `start`, nie w zewnętrznym min-x/min-y, żeby `end` (zawsze `start` + wielokrotność kroku 10px, bo stuby to zawsze ±15px) trafiał w nią BEZ błędu zaokrąglenia. |
+| 4 | Wydajność | Zweryfikowane, nie zoptymalizowane na wyrost — tania ścieżka jest zawsze próbowana pierwsza, A* uruchamia się wyłącznie dla przewodów, których akurat ta ścieżka nie jest wolna. Syntetyczny test 50 bloków/49 przewodów (część zawijająca się między wierszami siatki, więc realnie wywołująca A*): ~6 ms/przewód średnio dla całego `update_path()`. |
+
+### Świadomie odłożone (poza zakresem tego PR)
+- Brak cache'owania wyniku A* między klatkami przeciągania tego samego
+  bloku — przelicza się od zera przy każdym `update_path()`. Nowy otwarty
+  punkt §10, pkt 4 tej migawki.
+
+Testy: `tests/test_wire_routing_obstacles.py` (15 nowych) — `candidate_path()`,
+`path_intersects_obstacles()` (poziomy/pionowy odcinek, margines, brak
+przeszkód), `astar_route()` (omija blokadę, tylko ortogonalne odcinki,
+precyzja końców bez zaokrąglenia, graceful giveup na zbyt dużym
+regionie), `route()` (ścieżka prosta gdy wolna, omijanie gdy zablokowana,
+fallback na ścieżkę prostą gdy A* zawiedzie) — w pełnej izolacji od
+Qt-owej sceny. `tests/test_wire_item_obstacle_avoidance.py` (4 nowe) —
+integracja z prawdziwymi `BlockItem`/`LogicScene`: omijanie realnego
+bloku-przeszkody, regresja ścieżki bez przeszkód (identyczna
+punkt-po-punkcie z tym, co dawał kod sprzed tego modułu), własny blok
+źródłowy/docelowy nigdy nie jest przeszkodą, przeciąganie nowego
+przewodu nigdy nie próbuje omijania.
+
+Pełny zestaw: 829 passed — §23's 810 (na `main` po scaleniu PR #17,
+bez commitu `feat/duplicate-address-hyperlink`, jeszcze niescalonego)
+plus 19 nowych testów tego PR — stabilne pod `pytest-randomly`
+(zweryfikowane na trzech ziarnach: 1, 42, 777). Wszystkie
+`examples/*.epwlogic` nadal się otwierają i kompilują bez zmian.
 
 ---
 
