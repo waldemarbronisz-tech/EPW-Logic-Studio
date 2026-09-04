@@ -134,10 +134,10 @@ class SignalPickerDialog(QDialog):
             # (_filter_subtree), so this alone makes label text searchable
             # too — no separate search-path change needed.
             if self.value_type in (None, "BOOL"):
-                for addr in DeviceModel.get_ela_addresses():
+                for addr in DeviceModel.get_ela_addresses(self.project):
                     desc = DeviceModel.get_io_label(self.project, addr) or "Wejście cyfrowe (ELA)"
                     self._add_leaf(phys_root, desc, addr, "", addr, "physical")
-                for addr in DeviceModel.get_ada_addresses():
+                for addr in DeviceModel.get_ada_addresses(self.project):
                     desc = DeviceModel.get_io_label(self.project, addr) or "Wyjście cyfrowe (ADA)"
                     self._add_leaf(phys_root, desc, addr, "", addr, "physical")
             if self.value_type in (None, "REAL"):

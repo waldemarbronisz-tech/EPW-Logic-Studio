@@ -1,28 +1,119 @@
 class DeviceModel:
-    """Centralized definition of EPW Controller IO topology."""
+    """Centralized definition of EPW Controller IO topology.
 
-    # In the future this should be dynamic configuration, but we provide standard defaults
-    ELA_DEVICES = ["ELA01"]
-    ADA_DEVICES = ["ADA01"]
+    feat/multi-device-io: the DEVICE LIST (how many ELA/ADA modules a
+    project addresses) is project-defined — project.settings["ela_devices"]/
+    ["ada_devices"], defaulting to the single-device ["ELA01"]/["ADA01"]
+    every project used to be permanently fixed to (Project.__init__,
+    core/project.py's v4->v5 migration). The CHANNEL COUNT per device
+    (ELA_CHANNELS/ADA_CHANNELS) stays a fixed platform constant, not
+    project-defined — every module of a given kind has the same number of
+    channels; only how many modules exist varies.
+
+    Every method below accepts an OPTIONAL `project` — omitted (or None),
+    it falls back to the single-device default, so a call site that
+    genuinely has no project handy (or hasn't been updated yet) degrades
+    to exactly today's pre-multi-device behavior rather than raising."""
 
     ELA_CHANNELS = 32
     ADA_CHANNELS = 32
 
+    _DEFAULT_ELA_DEVICES = ["ELA01"]
+    _DEFAULT_ADA_DEVICES = ["ADA01"]
+
     @classmethod
-    def get_ela_addresses(cls):
-        """Returns device-qualified zero-padded ELA inputs."""
+    def get_ela_devices(cls, project=None) -> list:
+        if project is None:
+            return list(cls._DEFAULT_ELA_DEVICES)
+        return list(project.settings.get("ela_devices", cls._DEFAULT_ELA_DEVICES))
+
+    @classmethod
+    def get_ada_devices(cls, project=None) -> list:
+        if project is None:
+            return list(cls._DEFAULT_ADA_DEVICES)
+        return list(project.settings.get("ada_devices", cls._DEFAULT_ADA_DEVICES))
+
+    @classmethod
+    def get_ela_addresses(cls, project=None):
+        """Returns device-qualified zero-padded ELA inputs, across EVERY
+        ELA device the project defines."""
         addrs = []
-        for dev in cls.ELA_DEVICES:
+        for dev in cls.get_ela_devices(project):
             addrs.extend([f"{dev}.DI{i:02d}" for i in range(1, cls.ELA_CHANNELS + 1)])
         return addrs
 
     @classmethod
-    def get_ada_addresses(cls):
-        """Returns device-qualified zero-padded ADA outputs."""
+    def get_ada_addresses(cls, project=None):
+        """Returns device-qualified zero-padded ADA outputs, across EVERY
+        ADA device the project defines."""
         addrs = []
-        for dev in cls.ADA_DEVICES:
+        for dev in cls.get_ada_devices(project):
             addrs.extend([f"{dev}.DO{i:02d}" for i in range(1, cls.ADA_CHANNELS + 1)])
         return addrs
+
+    _DEVICE_NAME_RE_CACHE = {}
+
+    @classmethod
+    def _device_name_pattern(cls, prefix: str):
+        """"ELA" -> ^ELA\\d{2}$, "ADA" -> ^ADA\\d{2}$ — the naming
+        convention every existing device name (and every reference to one
+        elsewhere in the app: system_signals_catalog.json's "ELA01.ONLINE"
+        etc., every doc/tooltip example) already assumes. Enforced on ADD
+        (set_ela_devices/set_ada_devices below), not just documented, so a
+        typo can't silently produce addresses like "ELA1.DI01" that would
+        never match anything a block's Address combobox offers."""
+        import re
+        pattern = cls._DEVICE_NAME_RE_CACHE.get(prefix)
+        if pattern is None:
+            pattern = re.compile(rf"^{prefix}\d{{2}}$")
+            cls._DEVICE_NAME_RE_CACHE[prefix] = pattern
+        return pattern
+
+    @classmethod
+    def is_valid_device_name(cls, prefix: str, name: str) -> bool:
+        return bool(cls._device_name_pattern(prefix).match(name or ""))
+
+    @classmethod
+    def set_ela_devices(cls, project, devices: list) -> list:
+        """Validates (§ is_valid_device_name), de-duplicates (order-
+        preserving) and stores `devices` as the project's ELA module list.
+        Returns the list actually stored (empty/invalid entries dropped) —
+        callers building an editor UI should re-read this back rather than
+        assume every entry they passed survived."""
+        return cls._set_devices(project, "ela_devices", "ELA", devices)
+
+    @classmethod
+    def set_ada_devices(cls, project, devices: list) -> list:
+        return cls._set_devices(project, "ada_devices", "ADA", devices)
+
+    @classmethod
+    def _set_devices(cls, project, settings_key: str, prefix: str, devices: list) -> list:
+        seen = set()
+        clean = []
+        for name in devices or []:
+            name = (name or "").strip().upper()
+            if name and cls.is_valid_device_name(prefix, name) and name not in seen:
+                seen.add(name)
+                clean.append(name)
+        if not clean:
+            clean = list(getattr(cls, f"_DEFAULT_{prefix}_DEVICES"))
+        project.settings[settings_key] = clean
+        return clean
+
+    @classmethod
+    def next_device_name(cls, prefix: str, existing: list) -> str:
+        """The next unused "<prefix><NN>" name — "ELA03" after
+        ["ELA01","ELA02"] — for an "Add device" button to prefill rather
+        than making the user invent a name by hand."""
+        used_numbers = set()
+        pattern = cls._device_name_pattern(prefix)
+        for name in existing:
+            if pattern.match(name or ""):
+                used_numbers.add(int(name[len(prefix):]))
+        n = 1
+        while n in used_numbers:
+            n += 1
+        return f"{prefix}{n:02d}"
 
     # ---- Analog points -------------------------------------------------------
     # Unlike DI/DO, analog points have no fixed hardware channel count — they
@@ -93,10 +184,10 @@ class DeviceModel:
     @classmethod
     def all_addresses(cls, project) -> list:
         """Every address a label (or the §2 editor table) could apply to:
-        the 32 fixed ELA + 32 fixed ADA channels, plus every analog point
-        the project currently defines."""
+        every ELA/ADA channel across every device the project defines,
+        plus every analog point the project currently defines."""
         return (
-            cls.get_ela_addresses() + cls.get_ada_addresses()
+            cls.get_ela_addresses(project) + cls.get_ada_addresses(project)
             + cls.get_analog_input_addresses(project) + cls.get_analog_output_addresses(project)
         )
 

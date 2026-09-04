@@ -162,9 +162,9 @@ def _scan_block(project, block, get_or_create):
 
 
 def _resolve_address(project, block, address, get_or_create):
-    if address in DeviceModel.get_ela_addresses():
+    if address in DeviceModel.get_ela_addresses(project):
         kind, data_type, defined = KIND_PHYSICAL_DI, "BOOL", True
-    elif address in DeviceModel.get_ada_addresses():
+    elif address in DeviceModel.get_ada_addresses(project):
         kind, data_type, defined = KIND_PHYSICAL_DO, "BOOL", True
     elif address in DeviceModel.get_analog_input_addresses(project):
         kind, data_type, defined = KIND_ANALOG_IN, "REAL", True

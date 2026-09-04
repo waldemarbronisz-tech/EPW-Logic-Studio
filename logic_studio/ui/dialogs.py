@@ -3,7 +3,8 @@ from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QLineEdit, QSpinBox, QDialogButtonBox,
     QTableWidget, QTableWidgetItem, QComboBox, QPushButton, QHBoxLayout,
-    QLabel, QMessageBox, QHeaderView, QTabWidget, QWidget, QCheckBox, QFileDialog
+    QLabel, QMessageBox, QHeaderView, QTabWidget, QWidget, QCheckBox, QFileDialog,
+    QListWidget
 )
 
 ORIGINAL_ENTRY_ROLE = Qt.UserRole
@@ -145,10 +146,111 @@ class ProjectSettingsDialog(QDialog):
         self._load_io_labels()
         tabs.addTab(io_labels_tab, "Etykiety wejść/wyjść")
 
+        # feat/multi-device-io: "Urządzenia" tab — the project's own
+        # ELA/ADA module list (previously fixed at one of each for every
+        # project, core/device_model.py). Add/remove only, no in-place
+        # rename: a freshly-added entry is always a valid, unused
+        # "<PREFIX><NN>" name (DeviceModel.next_device_name()), so this
+        # tab never has to validate arbitrary hand-typed text.
+        from logic_studio.core.device_model import DeviceModel
+        devices_tab = QWidget()
+        devices_layout = QVBoxLayout(devices_tab)
+
+        self._original_ela_devices = DeviceModel.get_ela_devices(project)
+        self._original_ada_devices = DeviceModel.get_ada_devices(project)
+        # Same "sane default before _on_accept() ever runs" reasoning as
+        # _result_points/_result_signals (`or []` in apply_to_project()) —
+        # here the safe default is the ORIGINAL list, not empty, since an
+        # empty device list would break every DI/DO address.
+        self._result_ela_devices = self._original_ela_devices
+        self._result_ada_devices = self._original_ada_devices
+
+        devices_layout.addWidget(QLabel(f"Moduły wejść cyfrowych ELA ({DeviceModel.ELA_CHANNELS} kanałów każdy)"))
+        ela_row = QHBoxLayout()
+        self.ela_list = QListWidget()
+        self.ela_list.addItems(self._original_ela_devices)
+        ela_row.addWidget(self.ela_list)
+        ela_btns = QVBoxLayout()
+        self.add_ela_btn = QPushButton("Dodaj")
+        self.remove_ela_btn = QPushButton("Usuń")
+        self.add_ela_btn.clicked.connect(lambda: self._add_device(self.ela_list, "ELA"))
+        self.remove_ela_btn.clicked.connect(lambda: self._remove_selected_devices(self.ela_list))
+        ela_btns.addWidget(self.add_ela_btn)
+        ela_btns.addWidget(self.remove_ela_btn)
+        ela_btns.addStretch()
+        ela_row.addLayout(ela_btns)
+        devices_layout.addLayout(ela_row)
+
+        devices_layout.addWidget(QLabel(f"Moduły wyjść cyfrowych ADA ({DeviceModel.ADA_CHANNELS} kanałów każdy)"))
+        ada_row = QHBoxLayout()
+        self.ada_list = QListWidget()
+        self.ada_list.addItems(self._original_ada_devices)
+        ada_row.addWidget(self.ada_list)
+        ada_btns = QVBoxLayout()
+        self.add_ada_btn = QPushButton("Dodaj")
+        self.remove_ada_btn = QPushButton("Usuń")
+        self.add_ada_btn.clicked.connect(lambda: self._add_device(self.ada_list, "ADA"))
+        self.remove_ada_btn.clicked.connect(lambda: self._remove_selected_devices(self.ada_list))
+        ada_btns.addWidget(self.add_ada_btn)
+        ada_btns.addWidget(self.remove_ada_btn)
+        ada_btns.addStretch()
+        ada_row.addLayout(ada_btns)
+        devices_layout.addLayout(ada_row)
+
+        devices_layout.addStretch()
+        tabs.addTab(devices_tab, "Urządzenia")
+
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    # ---- feat/multi-device-io: device list editing --------------------------
+
+    def _add_device(self, list_widget, prefix):
+        from logic_studio.core.device_model import DeviceModel
+        existing = [list_widget.item(i).text() for i in range(list_widget.count())]
+        list_widget.addItem(DeviceModel.next_device_name(prefix, existing))
+
+    def _remove_selected_devices(self, list_widget):
+        # A project must always have at least one device of each kind —
+        # every existing DI/DO block's Address depends on SOME device
+        # existing; removing the last one would make every physical block
+        # permanently invalid with no way to fix it from this same dialog.
+        for item in list_widget.selectedItems():
+            if list_widget.count() > 1:
+                list_widget.takeItem(list_widget.row(item))
+
+    def _current_devices(self, list_widget) -> list:
+        return [list_widget.item(i).text() for i in range(list_widget.count())]
+
+    def _blocks_using_device(self, dev: str) -> list:
+        prefix = f"{dev}."
+        return [b for b in self.project.blocks if b.properties.get("Address", "").startswith(prefix)]
+
+    def _confirm_removed_devices_not_in_use(self, original: list, current: list) -> bool:
+        """§ multi-device-io: removing a device that some block's Address
+        still points at would silently make that block invalid the next
+        time the project compiles, with no obvious reason why — same
+        "confirm, naming the blocks" pattern _on_accept() already uses for
+        deleting a used internal signal. Returns False (caller should
+        abort accept) if the user declines for any removed, still-used
+        device."""
+        for dev in original:
+            if dev in current:
+                continue
+            usage = self._blocks_using_device(dev)
+            if not usage:
+                continue
+            names = ", ".join(b.display_name for b in usage)
+            reply = QMessageBox.question(
+                self, "Usunięcie używanego urządzenia",
+                f"Urządzenie '{dev}' jest używane przez: {names}.\n"
+                "Usunięcie go pozostawi te bloki z nieprawidłowym adresem. Kontynuować?",
+            )
+            if reply != QMessageBox.Yes:
+                return False
+        return True
 
     def _load_points(self, points):
         self.table.setRowCount(0)
@@ -534,10 +636,22 @@ class ProjectSettingsDialog(QDialog):
                 if reply != QMessageBox.Yes:
                     return
 
+        # feat/multi-device-io: same "confirm, naming the blocks" pattern
+        # as the used-signal-deletion check above, for a removed ELA/ADA
+        # device that some block's Address still points at.
+        result_ela_devices = self._current_devices(self.ela_list)
+        result_ada_devices = self._current_devices(self.ada_list)
+        if not self._confirm_removed_devices_not_in_use(self._original_ela_devices, result_ela_devices):
+            return
+        if not self._confirm_removed_devices_not_in_use(self._original_ada_devices, result_ada_devices):
+            return
+
         self._result_points = points
         self._result_signals = signals
         self._bit_renames = renames
         self._result_io_labels = self._collect_io_labels()
+        self._result_ela_devices = result_ela_devices
+        self._result_ada_devices = result_ada_devices
         self.accept()
 
     def apply_to_project(self):
@@ -550,6 +664,12 @@ class ProjectSettingsDialog(QDialog):
         self.project.settings["cycle_time_ms"] = self.cycle_spin.value()
         self.project.settings["analog_points"] = self._result_points or []
         self.project.settings["internal_bits"] = self._result_signals or []
+        # Applied BEFORE the io_labels loop below (which calls
+        # DeviceModel.all_addresses(self.project)) so it already reflects
+        # this same accept's device-list changes, not the pre-edit list.
+        from logic_studio.core.device_model import DeviceModel
+        DeviceModel.set_ela_devices(self.project, self._result_ela_devices)
+        DeviceModel.set_ada_devices(self.project, self._result_ada_devices)
 
         # §7.3: a renamed registry entry must be propagated to every block
         # still pointing at its old name — a type/retentive change needs no
@@ -569,7 +689,6 @@ class ProjectSettingsDialog(QDialog):
         # a row the user cleared actually removes that address's entry via
         # DeviceModel.set_io_label()'s empty-label-removes-it rule, instead
         # of leaving a stale value behind.
-        from logic_studio.core.device_model import DeviceModel
         result_io_labels = self._result_io_labels or {}
         for address in DeviceModel.all_addresses(self.project):
             DeviceModel.set_io_label(self.project, address, result_io_labels.get(address, ""))
