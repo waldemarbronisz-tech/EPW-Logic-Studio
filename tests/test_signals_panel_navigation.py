@@ -8,7 +8,6 @@ from PySide6.QtWidgets import QApplication
 from PySide6.QtTest import QTest
 
 from logic_studio.blocks import register_builtin_blocks
-from logic_studio.ui.panels.signals import COL_SIGNAL, SIGNAL_ID_ROLE
 
 register_builtin_blocks()
 
@@ -21,9 +20,10 @@ def _app():
 
 
 def _row_of(panel, signal_id):
-    for row in range(panel.table.rowCount()):
-        if panel.table.item(row, COL_SIGNAL).data(SIGNAL_ID_ROLE) == signal_id:
-            return row
+    """The leaf QTreeWidgetItem for `signal_id`, or None."""
+    for leaf in panel._iter_leaves():
+        if panel._signal_id_of(leaf) == signal_id:
+            return leaf
     return None
 
 
@@ -53,7 +53,7 @@ def test_double_click_jumps_to_writer_and_selects_it(qsettings):
 
     row = _row_of(window.signals_panel, "ADA01.DO01")
     assert row is not None
-    window.signals_panel._on_cell_double_clicked(row, 0)
+    window.signals_panel._on_item_double_clicked(row, 0)
 
     from logic_studio.ui.canvas.block_item import BlockItem
     selected = [i for i in window.scene.selectedItems() if isinstance(i, BlockItem)]
@@ -72,7 +72,7 @@ def test_double_click_with_no_writer_jumps_to_first_reader(qsettings):
     window.signals_panel.set_project(window.project)
 
     row = _row_of(window.signals_panel, "ELA01.DI01")
-    window.signals_panel._on_cell_double_clicked(row, 0)
+    window.signals_panel._on_item_double_clicked(row, 0)
 
     from logic_studio.ui.canvas.block_item import BlockItem
     selected = [i for i in window.scene.selectedItems() if isinstance(i, BlockItem)]
@@ -88,7 +88,7 @@ def test_double_click_centers_the_view_on_the_block(qsettings):
     window.signals_panel.set_project(window.project)
 
     row = _row_of(window.signals_panel, "ADA01.DO01")
-    window.signals_panel._on_cell_double_clicked(row, 0)
+    window.signals_panel._on_item_double_clicked(row, 0)
 
     center = window.view.mapToScene(window.view.viewport().rect().center())
     # Roughly centered on the block (500,500 placement + block size) — a
@@ -179,11 +179,11 @@ def test_selecting_a_block_highlights_its_signal_row(qsettings):
     target = next(i for i in items if i.logic_block.properties["Address"] == "ADA01.DO01")
     target.setSelected(True)  # triggers scene.selectionChanged -> highlight_blocks wiring
 
-    row_hit = _row_of(window.signals_panel, "ADA01.DO01")
-    row_miss = _row_of(window.signals_panel, "ADA01.DO02")
+    leaf_hit = _row_of(window.signals_panel, "ADA01.DO01")
+    leaf_miss = _row_of(window.signals_panel, "ADA01.DO02")
     from PySide6.QtGui import QColor
-    assert window.signals_panel.table.item(row_hit, 0).background().color() == QColor(200, 220, 255)
-    assert window.signals_panel.table.item(row_miss, 0).background().color() != QColor(200, 220, 255)
+    assert leaf_hit.background(0).color() == QColor(200, 220, 255)
+    assert leaf_miss.background(0).color() != QColor(200, 220, 255)
     _close(window)
 
 def test_highlight_is_never_a_scroll():
