@@ -29,11 +29,11 @@ Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) 
 ## 2. Status repozytorium
 
 - Gałąź: `feat/signal-watch-panel` (na `main` commit `eb36719`), jeszcze niescalona.
-- **Testy: 942/942 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~17-18s.
-- **45 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **10920 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
-- **Kod produkcyjny (`logic_studio/`): 13121 linii w 64 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
+- **Testy: 944/944 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~17-18s.
+- **45 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **10959 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
+- **Kod produkcyjny (`logic_studio/`): 13145 linii w 64 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
   - `blocks/`: 2306
-  - `ui/`: 7848
+  - `ui/`: 7872
   - `core/`: 1537
   - `compiler/`: 752
   - `engine/`: 458
@@ -54,7 +54,7 @@ EPW-Logic-Studio/
 ├── README.md / ARCHITECTURE.md / REPORT.md / AUDIT_REPORT.md
 ├── .github/workflows/pytest.yml    # CI — patrz §19 dziennika
 ├── examples/                       # 10 przykładowych projektów .epwlogic
-├── tests/                          # 45 plików test_*.py, 942 testy
+├── tests/                          # 45 plików test_*.py, 944 testy
 └── logic_studio/
     ├── app.py                      # bootstrap Qt, main window wiring
     ├── blocks/                     # definicje bloków logicznych (17 plików)
@@ -235,9 +235,9 @@ Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyśc
 ### 7.3 `RuntimeSnapshot` / `RuntimeBlockState` / `RuntimePinState`
 Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 
-## 8. Testy ([tests/](tests/)) — 942/942 PASS
+## 8. Testy ([tests/](tests/)) — 944/944 PASS
 
-45 plików `test_*.py`, 10920 linii. Kilka największych/najbardziej reprezentatywnych plików:
+45 plików `test_*.py`, 10959 linii. Kilka największych/najbardziej reprezentatywnych plików:
 
 | Plik | Zakres |
 |---|---|
@@ -261,7 +261,7 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_clipboard.py` | schowek kopiuj/wytnij/wklej — 14 testów |
 | `test_duplicate_address_hyperlink.py` | hiperłącze do duplikatów adresu (§27 dziennika) — 10 testów |
 | `test_canvas_navigation.py` | `ui/canvas/navigation.py` (skok+pulsowanie), wydzielone z `SignalsPanel` (§27 dziennika) — 7 testów |
-| `test_watch_panel.py` | panel "Obserwowane" — tabela, sparkline, dodawanie przez `SignalPickerDialog` (§29 dziennika) — 11 testów |
+| `test_watch_panel.py` | panel "Obserwowane" — tabela, sparkline, dodawanie przez `SignalPickerDialog`, umiejscowienie w `output_panel` (§29 dziennika) — 13 testów |
 | `test_wire_item_obstacle_avoidance.py` | integracja routera A* z `WireItem`/`BlockItem` realnym (§24 dziennika) — 4 testy |
 | `test_wire_routing.py` | kierunek wejścia/wyjścia przewodu z pinu — 6 testów |
 | `test_e2e.py`, `test_isolation.py`, `test_compiler.py`, `test_project.py`, `test_acceptance.py`, ... | pipeline end-to-end, izolacja `CompiledProgram`, kompilator, (de)serializacja projektu, scenariusze akceptacyjne |
@@ -1059,8 +1059,9 @@ tylko status.
 |---|---|---|
 | 1 | Model danych (`core/watch.py`) | Zrobione — `project.settings["watched_signals"]` (lista `{"kind", "signal_id"}`, `kind` współdzielone z `core/crossref.py`'s `KIND_*`), jedyne sankcjonowane API `get_watches()`/`add_watch()`/`remove_watch()`/`describe_watch()`/`is_boolean_kind()`/`read_value()`. `EPWLOGIC_SCHEMA_VERSION` 5→6, migracja `_migrate_v5_to_v6` (pusta domyślnie, jak `io_labels` w v3→v4). |
 | 2 | `classify_signal_id()` w `core/crossref.py` + `SignalPickerDialog.selected_kind()` | Zrobione — mapuje grubszą klasyfikację `SignalPickerDialog`'a ("physical"/"internal"/"system") na drobniejsze `KIND_*`, potrzebne bo obserwowany sygnał nie musi być podłączony do żadnego bloku (w przeciwieństwie do tego, co skanuje `build_crossref()`). |
-| 3 | Panel (`ui/panels/watch.py`) | Zrobione — czwarta zakładka "Obserwowane" obok Library/Device Explorer/Sygnały. Tabela Typ/Sygnał/Opis/Wartość/Trend, "Dodaj..." przez `SignalPickerDialog` (ten sam wybór co każda właściwość `"Bit"`/`"Sygnał"`/`"Address"`), "Usuń" dla zaznaczenia — obie akcje `push_state()` PRZED mutacją, jeden wpis cofania niezależnie od liczby wierszy. |
+| 3 | Panel (`ui/panels/watch.py`) | Zrobione. Tabela Typ/Sygnał/Opis/Wartość/Trend, "Dodaj..." przez `SignalPickerDialog` (ten sam wybór co każda właściwość `"Bit"`/`"Sygnał"`/`"Address"`), "Usuń" dla zaznaczenia — obie akcje `push_state()` PRZED mutacją, jeden wpis cofania niezależnie od liczby wierszy. |
 | 4 | Trend na żywo | Zrobione — `_Sparkline`, proceduralnie rysowany `QPainter` (zero biblioteki wykresów), krok schodkowy dla boolowskich, skalowanie do zaobserwowanego min/max dla analogowych. `refresh_values()` wołane raz na skan z `MainWindow._run_scan()`, ten sam punkt zaczepienia co synchronizacja DI/DO/AI/AO `SimulationPanel`'a. |
+| 5 | Umiejscowienie — poprawione po weryfikacji w działającej aplikacji | Pierwsza wersja: piąta zakładka w lewym pasku bocznym (~300px) obok Library/Device Explorer/Sygnały — zgłoszone jako nieczytelne (tabela z wartością i trendem naraz w tak wąskim pasku). Naprawione: panel przeniesiony do `CompilerOutputPanel.tabs` (dolny pasek Compiler/Warnings/Errors/Messages/Runtime, rozciągnięty na szerokość kanwy — ok. 70% okna zamiast 15%); `_Sparkline` powiększony 110×22 → 240×32 skoro jest miejsce. |
 
 ### Świadomie pominięte / poza zakresem tego PR
 - Eksport `watched_signals` do `EPW_RUNTIME_LOGIC` — czysto inżynierska
@@ -1071,9 +1072,11 @@ tylko status.
   nie zgłoszony jako potrzeba na tym etapie.
 
 Testy: nowy `tests/test_watch.py` (28), nowy `tests/test_watch_panel.py`
-(11), rozszerzone `tests/test_crossref.py` (+6) i `tests/test_internal_bits.py`
-(+2). Pełny zestaw: 942 passed (895 + 47 nowych testów tego PR). Wszystkie
-10 `examples/*.epwlogic` nadal się kompilują (migracja v1→v6 w locie).
+(13, w tym umiejscowienie w `output_panel` i odświeżenie wartości przez
+`MainWindow._run_scan()` end-to-end), rozszerzone `tests/test_crossref.py`
+(+6) i `tests/test_internal_bits.py` (+2). Pełny zestaw: 944 passed
+(895 + 49 nowych testów tego PR). Wszystkie 10 `examples/*.epwlogic`
+nadal się kompilują (migracja v1→v6 w locie).
 
 ## Zasada utrzymania tego dokumentu
 

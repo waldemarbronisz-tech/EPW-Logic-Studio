@@ -47,9 +47,13 @@ class _Sparkline(QWidget):
     the min/max actually SEEN so far (not a declared range — a watch can
     point at any signal, most of which have no declared range at all)."""
 
-    WIDTH = 110
-    HEIGHT = 22
-    MAX_SAMPLES = 100
+    # feat/signal-watch: sized for the bottom output_panel strip (canvas-
+    # width, shared with Compiler/Warnings/Errors/Runtime), not the 300px
+    # left sidebar this panel originally lived in — see main_window.py's
+    # WatchPanel wiring comment.
+    WIDTH = 240
+    HEIGHT = 32
+    MAX_SAMPLES = 200
 
     def __init__(self, is_boolean: bool, parent=None):
         super().__init__(parent)
@@ -148,7 +152,22 @@ class WatchPanel(QWidget):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.table.horizontalHeader().setSectionResizeMode(_COL_DESC, QHeaderView.Stretch)
+        # feat/signal-watch: this panel lives in the bottom output_panel
+        # strip (canvas width), not a 300px sidebar — column widths sized
+        # accordingly: Typ/Wartość narrow-fixed, Sygnał a sensible fixed
+        # default (still user-resizable), Opis takes whatever's left, Trend
+        # fixed to the sparkline's own size plus a little breathing room.
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(_COL_KIND, QHeaderView.Fixed)
+        header.setSectionResizeMode(_COL_ID, QHeaderView.Interactive)
+        header.setSectionResizeMode(_COL_DESC, QHeaderView.Stretch)
+        header.setSectionResizeMode(_COL_VALUE, QHeaderView.Fixed)
+        header.setSectionResizeMode(_COL_TREND, QHeaderView.Fixed)
+        self.table.setColumnWidth(_COL_KIND, 48)
+        self.table.setColumnWidth(_COL_ID, 160)
+        self.table.setColumnWidth(_COL_VALUE, 90)
+        self.table.setColumnWidth(_COL_TREND, _Sparkline.WIDTH + 12)
+        self.table.verticalHeader().setDefaultSectionSize(_Sparkline.HEIGHT + 8)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
         layout.addWidget(self.table)
 

@@ -1283,11 +1283,30 @@ sekcję, z której wybór pochodzi.
 
 ### 23.2 Panel (`ui/panels/watch.py`)
 
-Nowa czwarta zakładka "Obserwowane" obok Library/Device Explorer/Sygnały.
+**Umiejscowienie — poprawione po pierwszej wersji**: pierwotnie nowa,
+piąta zakładka w lewym pasku bocznym obok Library/Device Explorer/Sygnały
+— zweryfikowane ręcznie w działającej aplikacji i uznane za nieczytelne:
+pasek boczny to ok. 300px, stanowczo za wąsko dla tabeli z kolumną
+wartości I wykresem trendu naraz. Przeniesione do `output_panel`
+(`CompilerOutputPanel.tabs`, `MainWindow._setup_layout()`) — jako kolejna
+zakładka obok Compiler/Warnings/Errors/Messages/Runtime, w dolnym pasku
+rozciągniętym na całą szerokość kanwy (środkowa kolumna
+`horizontal_splitter`, ok. 70% szerokości okna), nie tylko 15%. Sam
+`WatchPanel` (`ui/panels/watch.py`) nie wie i nie musi wiedzieć, W KTÓRYM
+`QTabWidget` się znajduje — `MainWindow` woła
+`self.output_panel.tabs.addTab(self.watch_panel, "Obserwowane")` zamiast
+`left_tabs.addTab(...)`, żadna zmiana w samym panelu nie była potrzebna
+poza rozmiarami (niżej).
+
 Tabela: Typ (skrócona etykieta — `DI`/`DO`/`AI`/`AO`/`M`/`MW`/`SYS`, ten
 sam duch co literowe prefiksy `short_id`, §13, zastosowany tu do
 przestrzeni sygnałów zamiast kategorii bloków), Sygnał, Opis, Wartość,
-Trend.
+Trend — szerokości kolumn dobrane pod szerokość kanwy, nie sidebaru:
+Typ/Wartość wąskie-stałe, Sygnał stały sensowny domyślny (wciąż
+przeciągalny przez użytkownika), Opis rozciąga się na resztę miejsca,
+Trend stały, dopasowany do rozmiaru `_Sparkline` (rozszerzonej przy tej
+samej okazji ze 110×22 do 240×32 — było czytelne przy szerokości
+sidebaru, teraz jest miejsce na więcej).
 
 **"Dodaj..."** otwiera `SignalPickerDialog` — TEN SAM wybór sygnału, z
 którego korzysta każda właściwość `"Bit"`/`"Sygnał"`/`"Address"` — więc
@@ -1338,12 +1357,14 @@ od Qt: dodawanie/usuwanie/idempotencja, kopia (nie żywa referencja) z
 `get_watches()`, przetrwanie serializacji, migracja v5→v6,
 `describe_watch()`/`is_boolean_kind()`/`read_value()` dla wszystkich
 czterech `kind`, wliczając wyprowadzenie id sygnału wewnętrznego i sygnał
-usunięty z rejestru. Nowy `tests/test_watch_panel.py` (11) — pusty stan,
+usunięty z rejestru. Nowy `tests/test_watch_panel.py` (13) — pusty stan,
 budowa wierszy, sparkline boolowski vs. analogowy, `refresh_values()`
 (w tym myślnik dla nierozwiązanej wartości i no-op bez projektu), dodanie
 przez zamockowany `SignalPickerDialog.exec()` (jeden wpis cofania,
 sygnał `changed`), anulowanie dialogu nic nie zmienia, usunięcie
-zaznaczenia (jeden wpis cofania), stan przycisku "Usuń". Rozszerzone
+zaznaczenia (jeden wpis cofania), stan przycisku "Usuń", umiejscowienie w
+`output_panel` (nie w `left_tabs`) i faktyczne odświeżenie wartości przez
+`MainWindow._run_scan()` end-to-end. Rozszerzone
 `tests/test_crossref.py` (6) — `classify_signal_id()` dla wszystkich
 czterech `kind` i nieznanej grubszej kategorii. Rozszerzone
 `tests/test_internal_bits.py` (2) — `SignalPickerDialog.selected_kind()`.

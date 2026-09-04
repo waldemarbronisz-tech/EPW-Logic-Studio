@@ -295,16 +295,20 @@ class MainWindow(QMainWindow):
         # Device Explorer — kept as self.left_tabs (not a local variable)
         # so the block context menu (§4) can switch to it programmatically.
         self.signals_panel = SignalsPanel(settings=self.settings)
-        # feat/signal-watch: pinned signals for continuous monitoring during
-        # simulation, independent of canvas/library selection — a fourth
-        # tab alongside Library/Device Explorer/Sygnały.
-        self.watch_panel = WatchPanel(settings=self.settings)
-        self.watch_panel.changed.connect(self.set_dirty)
         left_tabs.addTab(library_splitter, "Library")
         left_tabs.addTab(self.device_panel, "Device Explorer")
         left_tabs.addTab(self.signals_panel, "Sygnały")
-        left_tabs.addTab(self.watch_panel, "Obserwowane")
         self.left_tabs = left_tabs
+
+        # feat/signal-watch: pinned signals for continuous monitoring during
+        # simulation, independent of canvas/library selection. Lives in the
+        # bottom output_panel (Compiler/Warnings/Errors/Messages/Runtime),
+        # NOT the 300px-wide left sidebar — a table with a live-value column
+        # and a trend sparkline needs the canvas-width room the bottom strip
+        # already has, not a sixth of the window (see AUDIT_REPORT.md §30
+        # for the "put it in the sidebar first" attempt this replaced).
+        self.watch_panel = WatchPanel(settings=self.settings)
+        self.watch_panel.changed.connect(self.set_dirty)
 
         # 2. Center Panel (Canvas and Bottom Output)
         center_splitter = QSplitter(Qt.Vertical)
@@ -324,6 +328,7 @@ class MainWindow(QMainWindow):
         self.view.zoom_changed.connect(self._on_zoom_changed)
 
         self.output_panel = CompilerOutputPanel()
+        self.output_panel.tabs.addTab(self.watch_panel, "Obserwowane")
 
         center_splitter.addWidget(self.view)
         center_splitter.addWidget(self.output_panel)

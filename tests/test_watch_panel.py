@@ -11,6 +11,9 @@ from logic_studio.core.crossref import (
 )
 from logic_studio.engine.io_provider import SimulationIOProvider
 from logic_studio.ui.panels.watch import WatchPanel, _COL_KIND, _COL_ID, _COL_DESC, _COL_VALUE, _COL_TREND
+from logic_studio.blocks import register_builtin_blocks
+
+register_builtin_blocks()
 
 
 def _app():
@@ -181,3 +184,39 @@ def test_remove_button_disabled_without_selection(qsettings):
 
     panel.table.selectRow(0)
     assert panel.remove_btn.isEnabled() is True
+
+
+# ---- placement: bottom output_panel strip, not the 300px left sidebar -----
+# The panel briefly lived as a fifth tab in the narrow left sidebar (Library/
+# Device Explorer/Sygnały) — unreadable at that width for a table with a
+# live-value column and a trend sparkline. Moved to the bottom output_panel
+# (Compiler/Warnings/Errors/Messages/Runtime), which spans the canvas width.
+
+def test_watch_panel_lives_in_the_bottom_output_panel_not_the_sidebar(qsettings):
+    _app()
+    from logic_studio.ui.main_window import MainWindow
+
+    m = MainWindow(settings=qsettings)
+    assert m.output_panel.tabs.indexOf(m.watch_panel) >= 0
+    assert m.left_tabs.indexOf(m.watch_panel) == -1
+
+def test_run_scan_refreshes_the_watch_panel(qsettings):
+    _app()
+    from logic_studio.ui.main_window import MainWindow
+    from logic_studio.blocks.registry import BlockRegistry
+
+    m = MainWindow(settings=qsettings)
+    di = BlockRegistry.create_block("input.di")
+    di.properties["Address"] = "ELA01.DI01"
+    m.project.add_block(di)
+    watch.add_watch(m.project, KIND_PHYSICAL_DI, "ELA01.DI01")
+    m.watch_panel.set_project(m.project)
+
+    # Drive the input through SimulationPanel, exactly like a real engineer
+    # clicking the DI row — _run_scan()'s _push_inputs_to_io() overwrites
+    # io_provider from THIS state every scan, so setting io_provider
+    # directly would just be clobbered before the watch panel ever reads it.
+    m.simulation_panel._toggle_di("ELA01.DI01")
+    m._run_scan()
+
+    assert m.watch_panel.table.item(0, _COL_VALUE).text() == "1"
