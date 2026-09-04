@@ -3,6 +3,7 @@ from PySide6.QtGui import QPainterPath, QPen, QColor
 from PySide6.QtCore import Qt, QPointF
 
 from logic_studio.ui.canvas import style
+from logic_studio.ui.canvas import routing
 
 
 def _port_facing(port) -> int:
@@ -37,6 +38,28 @@ class WireItem(QGraphicsPathItem):
         self.thickness = style.WIRE_THICKNESS
 
         self.update_path()
+
+    def _obstacle_rects(self):
+        """Every OTHER block's scene bounding rect — never this wire's own
+        source/destination block, which the wire obviously has to touch.
+        feat/wire-routing-obstacle-avoidance."""
+        scene = self.scene()
+        if scene is None:
+            return []
+        from logic_studio.ui.canvas.block_item import BlockItem
+        own_blocks = set()
+        source_block = self.source_port.parentItem() if self.source_port else None
+        if source_block is not None:
+            own_blocks.add(source_block)
+        if self.dest_port is not None:
+            dest_block = self.dest_port.parentItem()
+            if dest_block is not None:
+                own_blocks.add(dest_block)
+        return [
+            item.sceneBoundingRect()
+            for item in scene.items()
+            if isinstance(item, BlockItem) and item not in own_blocks
+        ]
 
     def update_live_state(self):
         """Update wire color based on source port pin value."""
@@ -105,14 +128,19 @@ class WireItem(QGraphicsPathItem):
             # just follow the cursor directly, no padding to fake.
             end_stub = end_pos
 
-        path.lineTo(start_stub.x(), start_stub.y())
-        if abs(start_stub.y() - end_stub.y()) < 0.5:
-            path.lineTo(end_stub.x(), end_stub.y())
-        else:
-            mid_x = (start_stub.x() + end_stub.x()) / 2.0
-            path.lineTo(mid_x, start_stub.y())
-            path.lineTo(mid_x, end_stub.y())
-            path.lineTo(end_stub.x(), end_stub.y())
+        # feat/wire-routing-obstacle-avoidance: the stub-to-stub middle
+        # section — previously always the plain 1-2-bend path above — now
+        # goes through routing.route(), which tries that exact same cheap
+        # path FIRST and only reaches for a grid-based A* search around
+        # every other block when it actually crosses one. A wire between
+        # two blocks with a clear line between them (the common case)
+        # costs exactly what it did before this module existed; only a
+        # backward/crossing connection in a tight layout pays for the
+        # search.
+        obstacles = self._obstacle_rects() if self.dest_port is not None else []
+        middle = routing.route(start_stub, end_stub, obstacles)  # starts with start_stub itself
+        for point in middle:
+            path.lineTo(point.x(), point.y())
         if end_stub != end_pos:
             path.lineTo(end_pos.x(), end_pos.y())
 
