@@ -20,10 +20,10 @@ from datetime import datetime
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QLabel,
     QTreeWidget, QTreeWidgetItem, QAbstractItemView, QHeaderView, QMenu,
-    QGraphicsRectItem, QFileDialog
+    QFileDialog
 )
 from PySide6.QtCore import Qt, QSettings, QTimer, Signal
-from PySide6.QtGui import QFont, QColor, QBrush, QPen, QPixmap, QPainter, QIcon
+from PySide6.QtGui import QFont, QColor, QBrush, QPixmap, QPainter, QIcon
 
 from logic_studio.core.crossref import (
     build_crossref, find_issues,
@@ -488,65 +488,16 @@ class SignalsPanel(QWidget):
         return f"{short_id} — {extra}" if extra else short_id
 
     def _jump_to_block(self, block_uuid):
+        # feat/duplicate-address-hyperlink: this used to be implemented
+        # here directly — moved to ui/canvas/navigation.py so BlockItem's
+        # own context menu (jumping directly between blocks that share a
+        # signal reference) can call the exact same "select + center +
+        # pulse" behavior instead of duplicating it.
+        from logic_studio.ui.canvas.navigation import jump_to_block
         window = self.window()
         scene = getattr(window, "scene", None)
         view = getattr(window, "view", None)
-        if scene is None or view is None:
-            return
-        item = self._find_block_item(scene, block_uuid)
-        if item is None:
-            return
-        scene.clearSelection()
-        item.setSelected(True)
-        view.centerOn(item)
-        self._pulse_highlight(scene, item)
-
-    @staticmethod
-    def _find_block_item(scene, block_uuid):
-        from logic_studio.ui.canvas.block_item import BlockItem
-        for it in scene.items():
-            if isinstance(it, BlockItem) and it.logic_block.uuid == block_uuid:
-                return it
-        return None
-
-    @staticmethod
-    def _pulse_highlight(scene, item, cycles: int = 8, interval_ms: int = 125):
-        """§3.1: "podświetla pulsowaniem przez około sekundę" — a temporary
-        overlay rectangle flashed on/off `cycles` times (~1s total at the
-        default interval), added directly to the scene and removed at the
-        end. Deliberately does NOT touch BlockItem/block_item.py at all —
-        this PR's scope keeps that file untouched outside its one new
-        context-menu action (§4)."""
-        rect = item.sceneBoundingRect().adjusted(-4, -4, 4, 4)
-        overlay = QGraphicsRectItem(rect)
-        overlay.setPen(QPen(QColor(255, 180, 0), 3))
-        overlay.setBrush(Qt.NoBrush)
-        overlay.setZValue(1000)
-        scene.addItem(overlay)
-
-        timer = QTimer()
-        state = {"ticks": 0}
-
-        def _toggle():
-            try:
-                state["ticks"] += 1
-                overlay.setVisible(not overlay.isVisible())
-                if state["ticks"] >= cycles:
-                    timer.stop()
-                    scene.removeItem(overlay)
-            except RuntimeError:
-                # The overlay (or its scene) was already destroyed out from
-                # under this pulse — e.g. the project/window was closed
-                # before the ~1s animation finished. Nothing left to clean
-                # up; just stop ticking.
-                timer.stop()
-
-        timer.timeout.connect(_toggle)
-        # Kept alive on the overlay item itself — nothing else holds a
-        # reference to `timer`, and the overlay stays alive (owned by the
-        # scene) for exactly as long as the timer needs to keep firing.
-        overlay._pulse_timer = timer
-        timer.start(interval_ms)
+        jump_to_block(scene, view, block_uuid)
 
     def highlight_blocks(self, block_items):
         """§3.3: highlights (background color) — never scrolls to — every
