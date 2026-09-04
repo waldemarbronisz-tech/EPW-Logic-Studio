@@ -1,11 +1,17 @@
 # EPW Logic Studio — Pełny raport audytowy (dla Claude.ai)
 
-**Data:** 2026-09-01 (zaktualizowano do stanu po `feat/block-rendering-library` i
-`feat/internal-bits` — patrz §14/§15; §1-§13 poniżej odzwierciedlają stan
-sprzed tych dwóch gałęzi i pozostają jako historyczny zapis, nie bieżący stan
-repo — bieżące liczby: 500 testów, patrz §15)
+**Data:** 2026-09-03 (migawka §1-§10 odświeżona do stanu `main`, commit
+`65b06c9` — branch `docs/refresh-audit-report`, po scaleniu PR #13/#14/#15;
+wszystkie liczby poniżej wyliczone bezpośrednio z repozytorium, nie
+przepisane z poprzedniej wersji — polecenia użyte do ich wyliczenia podane
+w każdej sekcji).
 **Zakres:** wyłącznie warstwa logiki — `EPW-Logic-Studio/` (moduł `logic_studio`, testy, przykłady `.epwlogic`). Pozostałe moduły platformy (`EPW-OS`, `EPW-Synoptic-Editor`) celowo pominięte.
 **Cel dokumentu:** dać modelowi bez dostępu do repo pełny, samodzielny obraz architektury, stanu i znanych problemów, żeby mógł doradzać / kontynuować pracę bez dodatkowych pytań.
+**Struktura dokumentu:** §1-§10 to opisowa migawka BIEŻĄCEGO stanu — ma być
+odświeżana przy każdym PR, który zmienia model danych, inwentarz bloków albo
+liczbę testów (patrz zasada utrzymania na końcu dokumentu). §11 i dalej to
+dziennik napraw, jeden wpis na branch/PR, w kolejności chronologicznej,
+**append-only** — nigdy nie edytowany wstecznie.
 
 ---
 
@@ -13,22 +19,29 @@ repo — bieżące liczby: 500 testów, patrz §15)
 
 EPW Logic Studio to wizualny edytor schematów blokowych (FBD — Function Block Diagram) i kompilator/runtime dla platformy automatyki EPW OS. Użytkownik układa bloki logiczne (bramki, timery, liczniki, przerzutniki, bloki I/O, matematyczne, porównania) na kanwie PySide6, łączy je "drutami", a Studio:
 
-1. zapisuje projekt inżynierski jako plik `.epwlogic` (JSON, `format: EPW_LOGIC`),
-2. kompiluje go do porządku wykonania (topological sort) i formatu `EPW_RUNTIME_LOGIC`,
+1. zapisuje projekt inżynierski jako plik `.epwlogic` (JSON, `format: EPW_LOGIC`, `schema_version: 4`),
+2. kompiluje go do porządku wykonania (topological sort) i formatu `EPW_RUNTIME_LOGIC` (`schema_version: 4`), z sumą kontrolną SHA-256,
 3. wykonuje go w headless silniku PLC-podobnym (`ExecutionEngine`) — deterministycznie, bez zależności od Qt/zegara systemowego, gotowym do symulacji lub docelowo do uruchomienia na sterowniku EPW.
 
-Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy). Brak zewnętrznych zależności runtime poza tym.
+Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) — `requirements.txt` w całości. Brak zewnętrznych zależności runtime poza tym.
 
 ## 2. Status repozytorium
 
-- Gałąź: `main`, czysta (`git status` → nothing to commit), zsynchronizowana z `origin/main`.
-- 19 commitów, praca prowadzona przez PR-y z brancha `feat/phase1-foundation-...` (2 merge PR).
-- Historia pokazuje wyraźne fazy: MVP → Win98 UI rework → Priority A component library → Phase 1 (rework wizualny wg wzorców przemysłowych) → Phase 2 (hardening runtime/architektury).
-- **Testy: 27/27 PASS** (`pytest tests/ -q`, `QT_QPA_PLATFORM=offscreen`, headless, 0.65s) — zweryfikowane w ramach tego audytu, nie tylko zadeklarowane w `REPORT.md`.
-- Rozmiar kodu produkcyjnego (`logic_studio/`): **4045 linii** w 45 plikach `.py` (bez `__pycache__`).
-- Rozmiar testów: **997 linii** w 8 plikach.
+- Gałąź: `main`, commit `65b06c9` (merge PR #15 `feat/signals-panel-tree`).
+- **Testy: 789/789 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~8-11s.
+- **35 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **8874 linie** testów — `find tests -name "test_*.py" | xargs wc -l`.
+- **Kod produkcyjny (`logic_studio/`): 11658 linii w 59 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
+  - `blocks/`: 2278
+  - `ui/`: 7006
+  - `core/`: 1002
+  - `compiler/`: 694
+  - `engine/`: 458
+  - `app.py`/`__init__.py` (top-level): 220
+- **69 zarejestrowanych typów bloków w 12 kategoriach** — patrz §5 (polecenie i pełna lista tam).
+- **10 przykładowych projektów** w `examples/*.epwlogic` — wszystkie otwierają się, kompilują i eksportują z bieżącym kodem (zweryfikowane przy każdym PR, patrz dziennik).
+- **87 commitów** w historii (`git log --oneline | wc -l`) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
 
-Istniejące dokumenty w repo (nie duplikowane tu w całości, patrz ZIP): `README.md`, `ARCHITECTURE.md`, `REPORT.md` (log kamieni milowych Faza 1/2).
+Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §15), `REPORT.md` (log kamieni milowych, obecnie do Phase 8).
 
 ## 3. Struktura katalogów
 
@@ -37,214 +50,256 @@ EPW-Logic-Studio/
 ├── main.py                        # punkt wejścia aplikacji desktopowej
 ├── START_EPW_LOGIC.bat            # launcher Windows
 ├── requirements.txt                # PySide6>=6.5.0, pytest>=7.0.0
-├── README.md / ARCHITECTURE.md / REPORT.md   # dokumentacja istniejąca
-├── examples/                       # 9 przykładowych projektów .epwlogic
-├── tests/                          # 8 plików testowych, 27 testów
+├── README.md / ARCHITECTURE.md / REPORT.md / AUDIT_REPORT.md
+├── .github/workflows/pytest.yml    # CI — patrz §19 dziennika
+├── examples/                       # 10 przykładowych projektów .epwlogic
+├── tests/                          # 35 plików test_*.py, 789 testów
 └── logic_studio/
-    ├── app.py                      # (217 linii) bootstrap Qt, main window wiring
+    ├── app.py                      # bootstrap Qt, main window wiring
     ├── blocks/                     # definicje bloków logicznych (17 plików)
-    │   ├── base.py                 # BaseLogicBlock — klasa bazowa
-    │   ├── pin.py                  # Pin — porty wejścia/wyjścia + connect()
-    │   ├── registry.py             # BlockRegistry — rejestr type_id -> klasa
-    │   ├── logic_gates.py          # AND/OR/NAND/NOR/XOR/XNOR/NOT/BUFFER (+3/4-wej.)
-    │   ├── timers.py                # TON/TOF/TP
-    │   ├── counters.py              # CTU/CTD/CTUD
-    │   ├── memory.py                # SR/RS (przerzutniki)
-    │   ├── edges.py                 # R_TRIG/F_TRIG/CHANGE
-    │   ├── comparators.py           # >, <, >=, <=, ==, !=, BETWEEN
-    │   ├── math_blocks.py           # ADD/SUB/MUL/DIV/ABS/MIN/MAX
-    │   ├── analog_processing.py     # SCALE/LIMIT/HYSTERESIS/MOVING AVG
-    │   ├── constants.py             # TRUE/FALSE/REAL/INT/TIME/STRING
-    │   ├── io_blocks.py             # DI (ELAxx.DIxx) / DO (ADAxx.DOxx)
-    │   ├── virtual_io.py            # Virtual IN/OUT (bez adresu fizycznego)
-    │   ├── system_signals.py        # SYS SIG, Przycisk, LED, Komunikat, Generator
-    │   └── documentation.py         # Text/Note/Section (bloki nie-wykonywalne)
+    │   ├── base.py                  # BaseLogicBlock — klasa bazowa
+    │   ├── pin.py                   # Pin — porty wejścia/wyjścia + connect()
+    │   ├── registry.py               # BlockRegistry — rejestr type_id -> klasa
+    │   ├── logic_gates.py           # AND/OR/NAND/NOR/XOR/XNOR/NOT/BUFFER (+3/4-wej.)
+    │   ├── timers.py                 # TON/TOF/TP
+    │   ├── counters.py               # CTU/CTD/CTUD
+    │   ├── memory.py                 # SR/RS (przerzutniki)
+    │   ├── edges.py                  # R_TRIG/F_TRIG/CHANGE
+    │   ├── comparators.py            # >, <, >=, <=, ==, !=, BETWEEN
+    │   ├── math_blocks.py            # ADD/SUB/MUL/DIV/ABS/MIN/MAX
+    │   ├── analog_processing.py      # SCALE/LIMIT/HYSTERESIS/MOV_AVG/DEADBAND/QUALITY
+    │   ├── analog_io.py              # AI/AO (punkty analogowe projektu)
+    │   ├── constants.py              # TRUE/FALSE/REAL/INT/TIME/STRING
+    │   ├── io_blocks.py              # DI (ELAxx.DIxx) / DO (ADAxx.DOxx)
+    │   ├── virtual_io.py             # Virtual IN/OUT, Rejestr IN/OUT (sygnały wewnętrzne)
+    │   ├── system_signals.py         # SYS SIG, Przycisk, LED, Komunikat, Generator
+    │   └── documentation.py          # Text/Note/Section (bloki nie-wykonywalne)
     ├── compiler/
-    │   ├── core.py                  # Compiler — orkiestracja pipeline'u
-    │   ├── validator.py              # Validator — reguły statyczne
-    │   ├── graph.py                  # GraphBuilder — Kahn topo-sort + break cykli stanowych
-    │   └── exporter.py               # Exporter — serializacja do EPW_RUNTIME_LOGIC
+    │   ├── core.py                   # Compiler — orkiestracja pipeline'u
+    │   ├── validator.py               # Validator — reguły statyczne
+    │   ├── graph.py                   # GraphBuilder — Kahn topo-sort + break cykli stanowych
+    │   └── exporter.py                # Exporter — serializacja do EPW_RUNTIME_LOGIC + checksum
     ├── core/
-    │   ├── project.py                # Project — model projektu, (de)serializacja, undo/redo
-    │   └── device_model.py           # DeviceModel — adresy ELA/ADA
+    │   ├── project.py                 # Project — model projektu, (de)serializacja + migracje, undo/redo
+    │   ├── device_model.py            # DeviceModel — adresy ELA/ADA, punkty analogowe, etykiety I/O
+    │   ├── internal_bits.py           # rejestr sygnałów wewnętrznych (M./MR./MW./MWR.)
+    │   ├── short_id.py                # liczniki krótkich identyfikatorów bloków (g12, i3, ...)
+    │   ├── crossref.py                # cross-reference sygnałów (panel "Sygnały")
+    │   ├── system_signals.py          # dostęp do katalogu sygnałów systemowych
+    │   └── grid.py                    # stała siatki kanwy (GRID_SIZE)
     ├── engine/
-    │   ├── execution.py              # ExecutionEngine — headless scan-cycle runtime
-    │   ├── program.py                # CompiledProgram — immutable payload dla enginu
-    │   ├── io_provider.py            # IOProvider / SimulationIOProvider
-    │   └── time_provider.py          # TimeProvider / SystemTimeProvider / SimulationTimeProvider
-    └── ui/                           # kanwa PySide6 (canvas/, panels/, main_window.py)
+    │   ├── execution.py               # ExecutionEngine — headless scan-cycle runtime
+    │   ├── program.py                 # CompiledProgram — immutable payload dla enginu, pin_map O(1)
+    │   ├── io_provider.py             # IOProvider / SimulationIOProvider
+    │   └── time_provider.py           # TimeProvider / SystemTimeProvider / SimulationTimeProvider
+    └── ui/                             # kanwa PySide6
+        ├── main_window.py             # okno główne, menu, pasek stanu
+        ├── dialogs.py                  # Project Settings (analog_points/internal_bits/io_labels)
+        ├── signal_picker.py            # wybór sygnału (fizyczny/wewnętrzny/systemowy)
+        ├── canvas/                     # scena, bloki, piny, przewody, style rysowania
+        └── panels/                     # biblioteka, właściwości, symulacja, sygnały, urządzenia
 ```
 
 ## 4. Model danych
 
 ### 4.1 `Pin` ([logic_studio/blocks/pin.py](logic_studio/blocks/pin.py))
 - Kierunek: `DIR_INPUT=0` / `DIR_OUTPUT=1`.
-- Typy: `Digital, Analog, Integer, Float, Boolean, String, Any` (wewnętrzne) ↔ `BOOL, REAL, DINT, STRING, ANY` (kanoniczne runtime, mapowane w `serialize()`/`deserialize()`).
-- `connect(other_pin)`: odrzuca input-input/output-output, wymusza **single driver** na inpucie (jeden input = max jedno źródło), egzekwuje zgodność typów (poza `TYPE_ANY`, który pasuje do wszystkiego).
-- Połączenia trzymane jako listy UUID **po obu stronach** (output.connections zawiera UUID inputu i odwrotnie) — ważne dla topologii i propagacji w silniku.
+- Typy: `Digital, Analog, Integer, Float, Boolean, String, Any` (wewnętrzne) ↔ `BOOL, REAL, DINT, STRING, ANY` (kanoniczne runtime).
+- `connect(other_pin)`: odrzuca input-input/output-output, wymusza **single driver** na inpucie, egzekwuje zgodność typów (poza `TYPE_ANY`).
+- Połączenia trzymane jako listy UUID **po obu stronach**.
+- `SERIALIZED_FIELDS = ("uuid", "name", "direction", "data_type", "connections", "disabled", "safety_relevant")` — jedno źródło prawdy dla `serialize()`/`deserialize()`, pilnowane testem audytującym pola (`tests/test_pin_serialization.py`).
+  - `disabled` (feat/editor-modes-and-geometry §2): input jawnie wyłączony z logiki bloku (nie mylić z wyłączeniem CAŁEGO bloku — §4.2 niżej) — wykluczony z `evaluate()` całkowicie, nie karmiony wartością domyślną. Tylko dla wejść bez podłączonego przewodu, na blokach które się na to zgadzają (`allows_disabled_inputs` — bramki wielowejściowe).
+  - `safety_relevant` (metadana UI, "istotne dla bezpieczeństwa" w podglądzie elementu) — obecnie nieustawiane przez żaden blok, gotowe pod przyszłą kategorię `Zabezpieczenia *`.
+  - `value` jest CELOWO wykluczone z `SERIALIZED_FIELDS` (`_TRANSIENT_FIELDS`) — runtime/symulacyjne, nigdy nie zapisywane do pliku.
 
 ### 4.2 `BaseLogicBlock` ([logic_studio/blocks/base.py](logic_studio/blocks/base.py))
-- Pola: `uuid, type_id, display_name, category, description, x/y, width/height, inputs[], outputs[], execution_state, execution_priority, color, visibility, enabled, simulation_state, properties{Address, Comment,...}`.
-- `serialize()/deserialize()` — pełny round-trip do JSON.
-- `clone(preserve_uuid=False)` — świadomie **musi** zachować UUID pinów przy klonowaniu z `preserve_uuid=True`, inaczej graf topologiczny (budowany po UUID) się rozjeżdża — udokumentowane wprost w komentarzu w kodzie jako świadoma decyzja projektowa.
-- `evaluate(engine=None)` / `reset_runtime_state()` — nadpisywane przez podklasy bloków; `reset_runtime_state()` zeruje stan po (re)starcie silnika.
-- Opcjonalny atrybut `is_stateful = True` (ustawiany w `__init__` niektórych bloków, nie w `base.py`) — używany przez kompilator do legalnego przerywania pętli sprzężenia zwrotnego.
+- `SERIALIZED_FIELDS = ("uuid", "short_id", "display_name", "execution_priority", "color", "enabled")`, `_STRUCTURED_FIELDS = ("type_id", "category", "description", "x", "y", "width", "height", "inputs", "outputs", "properties")`, `_TRANSIENT_FIELDS = ("simulation_state", "is_source", "aliases", "allows_disabled_inputs")` — te trzy krotki razem muszą pokrywać KAŻDY atrybut instancji; pilnowane testem audytującym (`tests/test_pin_serialization.py::test_every_serializable_block_attribute_is_accounted_for`).
+  - `short_id` (feat/io-labels-and-ids §4, `core/short_id.py`): projekt-unikalny, czytelny identyfikator (`g12`, `i3`, `o7`, ...) — jedna litera prefiksu na kategorię, licznik per-prefiks NIGDY nie zagęszczany ponownie po usunięciu bloku (usunięty numer nie wraca do puli). Przypisywany raz, wyłącznie przez `Project.add_block()`.
+  - `enabled` (feat/clipboard-and-align §4): tymczasowe wyłączenie CAŁEGO bloku bez usuwania go ze schematu — wyłączony blok nie wchodzi do `execution_order` ani do eksportu runtime, jego wyjścia dostają wymuszoną, zdefiniowaną wartość bezpieczną (nigdy `None`) co skan. Przełączany z menu kontekstowego bloku / menu Edit (`LogicScene.set_blocks_enabled()`). Patrz ARCHITECTURE.md §15.5 i dziennik §18.
+- `clone(preserve_uuid=False)` — musi zachować UUID pinów przy `preserve_uuid=True`, inaczej graf topologiczny (budowany po UUID) się rozjeżdża.
+- `evaluate(engine=None)` / `reset_runtime_state()` — nadpisywane przez podklasy; opcjonalny `is_stateful = True` używany przez kompilator do legalnego przerywania pętli sprzężenia zwrotnego (§6).
 
 ### 4.3 `BlockRegistry` ([logic_studio/blocks/registry.py](logic_studio/blocks/registry.py))
-Prosty rejestr dekoratorowy: `@BlockRegistry.register` na klasie bloku → wpis w `_blocks[category][type_id]` i `_type_id_map[type_id]`. `create_block(type_id)` tworzy nową instancję. Rejestracja odbywa się przez **tworzenie tymczasowej instancji (`dummy = block_class()`)** w momencie importu — czyli każdy blok musi mieć bezargumentowy konstruktor działający "na sucho".
+Rejestr dekoratorowy: `@BlockRegistry.register` na klasie bloku → wpis w `_blocks[category][type_id]`. `create_block(type_id)` tworzy nową instancję; `get_categories()`/`get_blocks_in_category()` — używane przez `LibraryPanel` i przez ten dokument (§5) do wyliczenia inwentarza. Rejestracja tworzy tymczasową instancję (`dummy = block_class()`) przy imporcie — każdy blok musi mieć bezargumentowy konstruktor.
 
 ### 4.4 `Project` ([logic_studio/core/project.py](logic_studio/core/project.py))
-- `blocks: list`, `settings: {name, version, cycle_time_ms}`, stos `undo_stack`/`redo_stack` (max 50 wpisów, snapshot całego projektu — kosztowne, ale proste).
-- `serialize()` → `{format: "EPW_LOGIC", schema_version: 1, settings, blocks:[...]}`.
-- `deserialize()` odrzuca nieznany `format` i `schema_version > 1`.
-- **⚠️ Zidentyfikowany bug (patrz §7.1):** zduplikowany blok kodu w `deserialize()` (linie ~112–131) — martwy/redundantny kod, wart posprzątania.
+- `blocks: list`, `settings: dict`, stos `undo_stack`/`redo_stack` (max 50 wpisów, pełny snapshot JSON projektu — patrz §9.3 niżej).
+- `settings` — cztery projekt-poziomowe rejestry poza `name`/`version`/`cycle_time_ms`:
+  - `analog_points: []` — punkty analogowe (AI/AO są project-defined, nie stałe kanały sprzętowe jak DI/DO).
+  - `internal_bits: []` — rejestr sygnałów wewnętrznych (feat/internal-bits §1) — typ BOOL/REAL + flaga retencji, referencjonowany przez `virtual.input`/`virtual.output`/`internal.reg_in`/`internal.reg_out`. Derywowany id: `M.`/`MR.`/`MW.`/`MWR.<name>` (`core/internal_bits.py::internal_bit_id()`).
+  - `io_labels: {}` — etykiety opisowe adres→tekst (feat/io-labels-and-ids §1), np. `"ELA01.DI01" -> "Wyłącznik Q1 zamknięty"`, czytane/pisane wyłącznie przez `DeviceModel.get_io_label()`/`set_io_label()`.
+  - `short_id_counters` — licznik per-prefiks, dodawany leniwie przy pierwszym bloku.
+- `serialize()` → `{format: "EPW_LOGIC", schema_version: 4, settings, blocks:[...]}`.
+- `deserialize()`: odrzuca nieznany `format` lub `schema_version` nowszy niż obsługiwany; **łańcuch migracji** `_MIGRATIONS = {1: v1→v2, 2: v2→v3, 3: v3→v4}` sekwencyjnie podnosi starszy plik do bieżącej wersji przed dalszym przetwarzaniem:
+  - v1→v2: wprowadza `analog_points`; usuwa błędnie zapisywane "Force State" z właściwości bloku (przenosi do `simulation_state` przy wczytaniu — runtime-only, nigdy nie powinno trafić do pliku).
+  - v2→v3: wprowadza `internal_bits`; migruje wolnotekstowe `Tag` na `virtual.input`/`virtual.output` do zwalidowanego rejestru (`Bit`), scalając duplikaty bez rozróżniania wielkości liter.
+  - v3→v4: wprowadza `io_labels` (pusty domyślnie — funkcja nie istniała wcześniej).
+  - Nieznany `type_id` w pliku **rzuca `ValueError`** z listą brakujących typów — nie jest cicho pomijany (patrz dziennik §11, pkt 3.3 — to była naprawiona regresja).
 
 ### 4.5 `DeviceModel` ([logic_studio/core/device_model.py](logic_studio/core/device_model.py))
-Statyczna definicja topologii I/O: `ELA_DEVICES=["ELA01"]`, `ADA_DEVICES=["ADA01"]`, po 32 kanały każdy → adresy typu `ELA01.DI01`..`DI32`, `ADA01.DO01`..`DO32`. **Hardcoded pojedyncze urządzenie** — brak dynamicznej konfiguracji wielu modułów I/O (świadomie odnotowane w komentarzu jako "future: dynamic configuration").
+Statyczna topologia I/O: `ELA_DEVICES=["ELA01"]`, `ADA_DEVICES=["ADA01"]`, po 32 kanały każdy. Dodatkowo: `get_analog_input_addresses()`/`get_analog_output_addresses()` (z `project.settings["analog_points"]`), `get_io_label()`/`set_io_label()`, `get_labelled_addresses()`. **Hardcoded pojedyncze urządzenie na typ — patrz §9.2 (wciąż otwarte).**
 
 ## 5. Pełny inwentarz bloków logicznych
 
-| Kategoria (PL) | type_id | Nazwa | Plik | stateful? |
-|---|---|---|---|---|
-| Bramki logiczne | `logic.and` / `and3` / `and4` | AND, AND-3, AND-4 | logic_gates.py | nie |
-| Bramki logiczne | `logic.or` / `or3` / `or4` | OR, OR-3, OR-4 | logic_gates.py | nie |
-| Bramki logiczne | `logic.not` | NOT | logic_gates.py | nie |
-| Bramki logiczne | `logic.xor` / `xnor` | XOR, XNOR | logic_gates.py | nie |
-| Bramki logiczne | `logic.nand` / `nand3` / `nand4` | NAND, NAND-3, NAND-4 | logic_gates.py | nie |
-| Bramki logiczne | `logic.nor` / `nor3` / `nor4` | NOR, NOR-3, NOR-4 | logic_gates.py | nie |
-| Bramki logiczne | `logic.buffer` | BUFFER | logic_gates.py | nie |
-| Bramki logiczne | `edge.rtrig` / `ftrig` / `change` | R_TRIG, F_TRIG, CHANGE | edges.py | **tak** |
-| Timery | `timer.ton` / `tof` / `tp` | TON, TOF, TP | timers.py | **tak** |
-| Liczniki | `counter.ctu` / `ctd` / `ctud` | CTU, CTD, CTUD | counters.py | **tak** |
-| Przerzutniki | `memory.sr` / `rs` | SR (set-dominant), RS (reset-dominant) | memory.py | **tak** |
-| Elementy Analogowe | `compare.gt/lt/gte/lte/eq/neq/between` | komparatory | comparators.py | nie |
-| Elementy Analogowe | `math.add/sub/mul/div/abs/min/max` | operacje matematyczne | math_blocks.py | nie |
-| Elementy Analogowe | `analog.scale` | SCALE (skalowanie liniowe) | analog_processing.py | nie |
-| Elementy Analogowe | `analog.limit` | LIMIT (clamp) | analog_processing.py | nie |
-| Elementy Analogowe | `analog.hysteresis` | HYSTERESIS | analog_processing.py | **tak** |
-| Elementy Analogowe | `analog.mov_avg` | MOVING AVG | analog_processing.py | **tak** |
-| Wejścia / Wyjścia | `input.di` | DI (ELAxx.DIxx) | io_blocks.py | nie |
-| Wejścia / Wyjścia | `output.do` | DO (ADAxx.DOxx) | io_blocks.py | nie |
-| Wejścia / Wyjścia | `virtual.input` / `virtual.output` | Virtual IN/OUT | virtual_io.py | nie |
-| Przyciski | `system.button` | Przycisk | system_signals.py | nie |
-| LED | `system.led` | LED | system_signals.py | nie |
-| Liczniki *(sic, patrz §7.2)* | `system.message` | Komunikat użytkownika | system_signals.py | nie |
-| Inne | `system.signal` | SYS SIG | system_signals.py | nie |
-| Inne | `system.generator` | Generator sygnału | system_signals.py | **tak** |
-| Inne | `const.true/false/real/int/time/string` | Stałe | constants.py | nie |
-| Dokumentacja *(nie-wykonywalne)* | `doc.text/note/section` | Text, Note, Section Title | documentation.py | n/d |
+**69 zarejestrowanych typów bloków w 12 kategoriach** — wyliczone z żywego rejestru:
+`register_builtin_blocks(); BlockRegistry.get_categories()` +
+`BlockRegistry.get_blocks_in_category(cat)` dla każdej kategorii (patrz
+polecenie w §2). Bloki `Dokumentacja` (3) są pomijane przez kompilator
+(`GraphBuilder`: `category != "Dokumentacja"`).
 
-**Razem: 51 zarejestrowanych typów bloków** (w tym 3 dokumentacyjne, pomijane przez kompilator — patrz `GraphBuilder`: `category != "Dokumentacja"`).
+| Kategoria | Liczba | `type_id` |
+|---|---|---|
+| Wejścia / Wyjścia | 8 | `input.di`, `output.do`, `input.ai`, `output.ao`, `virtual.input`, `virtual.output`, `internal.reg_in`, `internal.reg_out` |
+| Bramki logiczne | 16 | `logic.and/and3/and4`, `logic.or/or3/or4`, `logic.not`, `logic.xor/xnor`, `logic.nand/nand3/nand4`, `logic.nor/nor3/nor4`, `logic.buffer` |
+| Elementy Analogowe | 20 | `math.add/sub/mul/div/abs/min/max`, `compare.gt/lt/gte/lte/eq/neq/between`, `analog.scale/limit/hysteresis/mov_avg/deadband/quality` |
+| Inne | 8 | `system.signal`, `system.generator`, `const.true/false/real/int/time/string` |
+| Timery | 3 | `timer.ton`, `timer.tof`, `timer.tp` |
+| Liczniki | 3 | `counter.ctu`, `counter.ctd`, `counter.ctud` |
+| Detekcja zboczy | 3 | `edge.rtrig`, `edge.ftrig`, `edge.change` |
+| Dokumentacja *(nie-wykonywalne)* | 3 | `doc.text`, `doc.note`, `doc.section` |
+| Przerzutniki | 2 | `memory.sr`, `memory.rs` |
+| Przyciski | 1 | `system.button` |
+| LED | 1 | `system.led` |
+| Telemechanika | 1 | `system.message` |
+| **Razem** | **69** | |
 
-Kategorie deklarowane w `REPORT.md` (np. `Zabezpieczenia Analogowe`, `Zabezpieczenia Dwustanowe`, `Zabezpieczenia Technologiczne`, `Łączniki`, `Banki Nastaw`, `Telemechanika`, `Zabezpieczenia silnikowe`) **nie mają jeszcze żadnych zarejestrowanych bloków** w bieżącym kodzie — istnieją jako planowana struktura biblioteki (widoczna w `ui/panels/library.py`?), nie jako zaimplementowane typy. Warto to zweryfikować, jeśli oczekiwana jest ich obecność.
+**Bloki stanowe (`is_stateful = True`, biorą udział w łamaniu cykli — §6)**:
+`timer.ton/tof/tp`, `counter.ctu/ctd/ctud`, `memory.sr/rs`,
+`analog.hysteresis`, `analog.mov_avg`, `analog.deadband`, `analog.quality`,
+`system.generator`, `edge.rtrig/ftrig/change` — 14 z 69.
+
+Kategorie zadeklarowane w UI (`ui/panels/library.py`) bez żadnego
+zarejestrowanego bloku: `Zabezpieczenia Analogowe`, `Zabezpieczenia
+Dwustanowe`, `Zabezpieczenia Technologiczne`, `Łączniki`, `Banki Nastaw`,
+`Zabezpieczenia silnikowe` — patrz §9.1 (wciąż otwarte, świadomie).
 
 ## 6. Compiler pipeline ([logic_studio/compiler/](logic_studio/compiler/))
 
 `Compiler.compile()` (`core.py`) wykonuje 4 kroki, przerywając na pierwszym błędzie:
 
 1. **Validator** ([validator.py](logic_studio/compiler/validator.py)):
-   - Woła `block.validate()` na każdym bloku (hook rozszerzalny, obecnie no-op w bazie).
-   - Ostrzeżenie (nie błąd) dla niepodłączonych inputów.
-   - Twarda walidacja adresów `input.di`/`output.do` względem `DeviceModel.get_ela_addresses()/get_ada_addresses()`.
-   - Wykrywanie duplikatów adresów wyjściowych (dwa bloki `output.do` na ten sam adres → błąd).
-   - **Braki:** brak walidacji duplikatów na `input.di`, brak sprawdzania pustych/niepodłączonych wymaganych inputów jako twardego błędu (tylko warning), brak walidacji `const.*`/property ranges.
+   - Ostrzeżenie (nie błąd) dla niepodłączonych wejść aktywnych (`_active_inputs()` — pomija wejścia jawnie wyłączone, §4.1); błąd dla bramki z zerem aktywnych wejść.
+   - Twarda walidacja adresów `input.di`/`output.do` względem `DeviceModel`, `input.ai`/`output.ao` względem `project.settings["analog_points"]`.
+   - Wykrywanie duplikatów adresów **wyjściowych** (dwa bloki na ten sam adres → błąd).
+   - Walidacja rejestru sygnałów wewnętrznych (`internal_bits`) — typ, unikalność, zapisujący/czytający zgodni z kierunkiem.
+   - Nierozpoznany sygnał systemowy (spoza katalogu) → ostrzeżenie, blok działa bezpiecznie (`False`/`0.0`), nie błąd.
+   - **Nadal otwarte braki**: brak twardej walidacji duplikatów na `input.di` (tylko na wyjściach), brak walidacji zakresów właściwości `const.*`.
 
 2. **GraphBuilder** ([graph.py](logic_studio/compiler/graph.py)) — sortowanie topologiczne Kahna:
-   - Buduje graf krawędzi output→input po połączeniach pinów, pomijając bloki `category == "Dokumentacja"`.
-   - Standardowy Kahn; jeśli nie uda się uporządkować wszystkich bloków (cykl), próbuje **naprawić cykl wyłącznie przez bloki `is_stateful=True`** — wymusza wejście takiego bloku do kolejki mimo niezerowego in-degree, symulując że jego zależność zwrotna "już jest spełniona" (bo w PLC pamięć/timer dostarcza wartość z poprzedniego skanu).
-   - Jeśli w cyklu nie ma żadnego bloku stanowego → twardy błąd kompilacji z listą zablokowanych bloków ("Execution Loop Detected...").
-   - Kod ma pozostawione komentarze deweloperskie dokumentujące tok myślenia przy projektowaniu tego algorytmu (przydatne do zrozumienia intencji, ale warte wyczyszczenia przed produkcją).
+   - `executable_blocks` = wszystkie bloki poza `category == "Dokumentacja"` **i poza wyłączonymi (`not b.enabled`)** (feat/clipboard-and-align §4.2) — wyłączony blok jest całkowicie nieobecny w grafie.
+   - Standardowy Kahn po `(execution_priority, uuid)`; nierozwiązany cykl próbuje naprawić WYŁĄCZNIE przez bloki `is_stateful=True` (wymusza wejście mimo niezerowego in-degree — pamięć/timer dostarcza wartość z poprzedniego skanu).
+   - Cykl bez żadnego bloku stanowego → twardy błąd "Execution Loop Detected..." z listą zablokowanych bloków (po `short_id`).
 
-3. **Exporter** ([exporter.py](logic_studio/compiler/exporter.py)) — buduje `EPW_RUNTIME_LOGIC` (schema_version 1): dla każdego bloku zapisuje `type_id, category, inputs/outputs (pin_uuid, name, type, connections), properties`; odrzuca dane UI (pozycja, kolor). Dołącza `execution_order` i `cycle_time_ms`.
+3. **Exporter** ([exporter.py](logic_studio/compiler/exporter.py)) — buduje `EPW_RUNTIME_LOGIC` (`schema_version: 4`):
+   - Dla każdego WŁĄCZONEGO bloku: `type_id, short_id, category, inputs/outputs (pin_uuid, name, type, connections, disabled), properties`; wyłączony blok pomijany całkowicie (feat/clipboard-and-align §4.2).
+   - Metadane: `generated_at/generated_by/project_name/block_count/contains_forced_io/contains_disabled_blocks/analog_points/internal_bits/system_catalog_version/io_labels`.
+   - Suma kontrolna SHA-256 nad zamkniętym zbiorem `CHECKSUM_FIELDS`; `verify_checksum()` do weryfikacji przez konsumenta (EPW-OS).
+   - Ostrzeżenia (nie błędy): aktywne wymuszenia I/O (`contains_forced_io`), wyłączone bloki (`contains_disabled_blocks`) — obie nazwane po `short_id`.
 
-4. **CompiledProgram generation**: `Compiler` serializuje `project` do JSON i **deserializuje ponownie** (`Project.deserialize(project.serialize())`), by uzyskać w pełni izolowane instancje bloków (nie dzielące stanu z UI) — UUID-y są zachowane, więc `execution_order` nadal pasuje. To trafia do `CompiledProgram(blocks, execution_order, cycle_time_ms)`.
+4. **CompiledProgram generation**: `Compiler` serializuje `project` i **deserializuje ponownie** (izolacja od instancji UI, UUID-y zachowane). `CompiledProgram(blocks, execution_order, cycle_time_ms, cycle_delayed_reads)` buduje od razu `pin_map`/`block_map` (`pin_uuid`/`uuid` → obiekt) jako słowniki O(1) — patrz §7.1.
 
 ## 7. Execution Engine ([logic_studio/engine/](logic_studio/engine/))
 
 ### 7.1 Cykl skanu (`ExecutionEngine.step()`, [execution.py](logic_studio/engine/execution.py))
-1. **Acquire**: bloki źródłowe (`input.*`, bloki bez inputów, `virtual.input`, `const.real`, `system.signal`) są ewaluowane jako pierwsze, w kolejności `execution_order`.
-2. **Execute graph**: iteracja po `execution_order`; dla każdego bloku — najpierw propagacja wartości z podłączonych pinów wyjściowych źródłowych (`pin.value = source_pin.value`), potem `block.evaluate(engine=self)`.
-3. **Diagnostyka**: pomiar czasu skanu (`time.monotonic_ns()`), `last_scan_duration_ms`, `max_scan_duration_ms`, `cycle_counter`.
+0. **Wyłączone bloki** (feat/clipboard-and-align §4.2): dla każdego `not block.enabled`, wyjścia wymuszane na bezpieczną, typowo-poprawną wartość (`Pin.safe_default_value()` — `False`/BOOL, `0.0`/REAL, `0`/INTEGER, `""`/STRING), co skan (nie tylko raz — `stop()` zeruje wszystkie piny do `None`, `start()` tego nie odtwarza).
+1. **Acquire**: bloki źródłowe (`is_source=True` — DI/AI, `virtual.input`, `const.*`, `system.signal`, ...) ewaluowane jako pierwsze, w kolejności `execution_order`, raz na skan.
+2. **Execute graph**: iteracja po `execution_order` (pomijając bloki już ewaluowane w kroku 1); dla każdego bloku — propagacja `pin.value = source_pin.value` z podłączonych wyjść przez `pin_map` (lookup O(1)), potem `block.evaluate(engine=self)`.
+3. **Push outputs**: bufor `_output_buffer` (digital/analog/internal) zapisywany do `IOProvider` atomowo, jednym przebiegiem, po zakończeniu ewaluacji WSZYSTKICH bloków — downstream odczyt (np. rejestrator zdarzeń) nigdy nie widzi skanu w połowie zastosowania.
+4. **Diagnostyka**: `last_scan_duration_ms`, `max_scan_duration_ms`, `cycle_counter` (`time.monotonic_ns()`).
 
-Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyści `simulation_state` i woła `reset_runtime_state()` na wszystkich blokach (czysty rozruch, zgodnie z semantyką PLC opisaną w `ARCHITECTURE.md` §5). `stop()` dodatkowo zeruje wartości wszystkich pinów.
+Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyści `simulation_state` i woła `reset_runtime_state()` na wszystkich blokach. `stop()`/przejście do `FAULT` dodatkowo: zeruje wartości wszystkich pinów do `None` i wymusza bezpieczny stan na KAŻDYM adresie wyjściowym kiedykolwiek zapisanym w tej sesji silnika (`_fail_safe_outputs()`) — wyjścia nigdy nie zostają zatrzaśnięte na ostatniej wartości.
 
 `load_program()` — hot-swap skompilowanego programu (implicit `stop()`).
 
-`_find_pin_by_uuid()` przeszukuje **liniowo wszystkie bloki i piny** przy każdym wywołaniu (`O(n_pins)` per lookup, w pętli po wszystkich inputach każdego bloku w każdym skanie → efektywnie **O(n²) na skan**) — dla dużych projektów (setki bloków) będzie to wąskie gardło; warto rozważyć prebudowany `pin_uuid -> Pin` dict w `CompiledProgram`.
-
 ### 7.2 Abstrakcje ([io_provider.py](logic_studio/engine/io_provider.py), [time_provider.py](logic_studio/engine/time_provider.py))
-- `IOProvider` (abstrakcyjny) / `SimulationIOProvider` (in-memory, digital+analog input/output image) — zero zależności sprzętowych; docelowa implementacja sprzętowa EPW OS musi zaimplementować ten interfejs.
-- `TimeProvider` / `SystemTimeProvider` (monotonic zegara systemowego) / `SimulationTimeProvider` (syntetyczny zegar inkrementowany ręcznie przez `advance(ms)`) — pozwala testom przelecieć setki cykli timerów bez `time.sleep()`.
+- `IOProvider` (abstrakcyjny) / `SimulationIOProvider` (in-memory digital+analog+internal image, domyślne wartości sygnałów systemowych) — zero zależności sprzętowych.
+- `TimeProvider` / `SystemTimeProvider` / `SimulationTimeProvider` (syntetyczny zegar, `advance(ms)`) — testy przelatują setki cykli timerów bez `time.sleep()`.
 
 ### 7.3 `RuntimeSnapshot` / `RuntimeBlockState` / `RuntimePinState`
-Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state — piny dostępne zarówno po UUID jak i po nazwie (wygodne dla asercji testowych).
+Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 
-## 8. Testy ([tests/](tests/)) — 27/27 PASS
+## 8. Testy ([tests/](tests/)) — 789/789 PASS
 
-| Plik | Linie | Zakres |
-|---|---|---|
-| `test_acceptance.py` | 103 | scenariusze akceptacyjne end-to-end |
-| `test_blocks.py` | 153 | logika pojedynczych bloków (bramki, timery, itd.) |
-| `test_compiler.py` | 63 | walidacja, sortowanie topologiczne, wykrywanie cykli |
-| `test_e2e.py` | 263 | pełny pipeline: projekt → kompilacja → silnik → symulacja |
-| `test_isolation.py` | 67 | izolacja `CompiledProgram` od instancji UI (brak współdzielenia stanu) |
-| `test_priority_a_audit.py` | 171 | audyt integracyjny komponentów "Priority A" (patrz historia git) |
-| `test_project.py` | 68 | (de)serializacja projektu, undo/redo |
-| `test_universal_library.py` | 109 | rejestracja/kompletność biblioteki bloków |
+35 plików `test_*.py`, 8874 linie. Kilka największych/najbardziej reprezentatywnych plików:
 
-Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **27 passed w 0.65s**, w pełni headless (CI: `.github/workflows/pytest.yml` też stawia to na Linux+Qt offscreen).
+| Plik | Zakres |
+|---|---|
+| `test_canvas_rendering.py` | rysowanie bloków/kanwy — 141 testów |
+| `test_grid_alignment.py` | siatka, snap, geometria — 176 testów |
+| `test_internal_bits.py` | rejestr sygnałów wewnętrznych — 50 testów |
+| `test_export_contract.py` | kontrakt eksportu, checksum, metadane — 33 testy |
+| `test_blocks.py` | logika pojedynczych bloków — 31 testów |
+| `test_short_id.py` | krótkie identyfikatory bloków — 27 testów |
+| `test_property_panel.py` | panel właściwości — 27 testów |
+| `test_signals_panel.py` | panel "Sygnały", drzewo grupowane kategorią — 25 testów |
+| `test_align.py` | wyrównywanie/rozkładanie bloków — 20 testów |
+| `test_crossref.py` | cross-reference sygnałów — 21 testów |
+| `test_block_disable.py` | tymczasowe wyłączanie bloku — 16 testów |
+| `test_clipboard.py` | schowek kopiuj/wytnij/wklej — 14 testów |
+| `test_wire_routing.py` | kierunek wejścia/wyjścia przewodu z pinu — 6 testów |
+| `test_e2e.py`, `test_isolation.py`, `test_compiler.py`, `test_project.py`, `test_acceptance.py`, ... | pipeline end-to-end, izolacja `CompiledProgram`, kompilator, (de)serializacja projektu, scenariusze akceptacyjne |
 
-## 9. Znane problemy i uwagi z audytu
+Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **789 passed w ~8-11s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
 
-### 9.1 Bug: zduplikowany kod w `Project.deserialize()`
-Plik: [logic_studio/core/project.py:107-131](logic_studio/core/project.py#L107-L131). Blok odpowiedzialny za wpisanie UUID/connections do `block.outputs` pojawia się **dwa razy pod rząd** dla tego samego bloku, w tej samej iteracji pętli po `block_data_list`:
+## 9. Znane problemy i uwagi z audytu (wyłącznie OTWARTE)
 
-```python
-for i, pin_data in enumerate(b_data.get("outputs", [])):
-    if i < len(block.outputs):
-        block.outputs[i].uuid = pin_data.get("uuid")
-        block.outputs[i].connections = list(pin_data.get("connections", []))   # kopia listy
-block_map[block.uuid] = block
-proj.add_block(block)
-# --- komentarz "# 2. Wire connections..." ---
-for i, pin_data in enumerate(b_data.get("outputs", [])):        # <-- DRUGI RAZ
-    if i < len(block.outputs):
-        block.outputs[i].uuid = pin_data.get("uuid")
-        block.outputs[i].connections = pin_data.get("connections", [])        # bez list()!
-block_map[block.uuid] = block
-proj.add_block(block)
-```
-Skutki: nie jest to błąd składniowy (wcięcia się zgadzają, oba bloki wykonują się sekwencyjnie w tej samej iteracji `for b_data in block_data_list`), ale to martwy, redundantny kod. Druga kopia nadpisuje `connections` **bezpośrednią referencją** do listy z sparsowanego JSON-a zamiast kopii (`list(...)` vs surowe `.get(...)`) — mało prawdopodobne żeby to obecnie powodowało widoczny bug (świeży `json.load` per plik), ale to zapach kodu wart wyczyszczenia; sugeruję usunąć duplikat (linie ~124-131) przy najbliższej okazji.
+Wszystkie punkty poprzedniej wersji tej sekcji poza dwoma poniższymi zostały
+naprawione i są już udokumentowane w dzienniku (§11, pkt 3.1/3.2/4.3/7.2) —
+usunięte stąd, nie zdublowane. Trzeci dawny punkt (kategorie
+`Zabezpieczenia *` bez bloków) został ZAMKNIĘTY decyzją produktową, nie
+implementacją — patrz §21 dziennika: logika bezpieczeństwa/blokad ma być
+komponowana z istniejących bloków przez bity wewnętrzne, nie przez nowe
+typy bloków, więc te kategorie NIE wrócą jako biblioteka — usunięty stąd
+jako rozstrzygnięty, nie jako naprawiony kodem.
 
-### 9.2 Błędna kategoria bloku `system.message`
-[logic_studio/blocks/system_signals.py:53](logic_studio/blocks/system_signals.py#L53): blok `Komunikat użytkownika` (`type_id="system.message"`) ma `category="Liczniki"` (Counters), mimo że logicznie nie jest licznikiem — wygląda na przeklejony/nieaktualizowany parametr. Warto sprawdzić z właścicielem UI, czy nie powinien trafić np. do `Inne` albo dedykowanej kategorii HMI.
+### 9.1 `DeviceModel` — pojedyncze urządzenie na typ (PRIORYTET — zmieniony status)
+Tylko `ELA01`/`ADA01`, po 32 kanały, hardcoded jako lista jednoelementowa
+(`ELA_DEVICES = ["ELA01"]`). Wcześniej świadomie odłożone (dziennik §11:
+"nie zgłoszone w zleceniu, brak ryzyka bezpieczeństwa, zostawione bez
+zmian") — **status zmieniony 2026-09-03**: właściciel produktu potwierdził,
+że realne wdrożenia będą miały WIELE takich urządzeń, nie jedno. To już nie
+bezpieczne, niskopriorytetowe założenie architektoniczne — generalizacja
+`DeviceModel` (adresacja, walidacja, Device Explorer, eksport) jest
+rzeczywistą, priorytetową pracą do zaplanowania.
 
-### 9.3 Kategorie z `REPORT.md` bez implementacji
-`REPORT.md` deklaruje restrukturyzację biblioteki do kategorii przemysłowych (`Zabezpieczenia Analogowe`, `Zabezpieczenia Dwustanowe`, `Zabezpieczenia Technologiczne`, `Łączniki`, `Banki Nastaw`, `Telemechanika`, `Zabezpieczenia silnikowe`) jako ukończone (`[X]`), ale w kodzie bloków (`logic_studio/blocks/*.py`) nie istnieje **ani jeden** zarejestrowany blok w tych kategoriach — jedynie same nazwy kategorii mogą być gdzieś w UI (`ui/panels/library.py`, nieaudytowany tu w pełni). Jeśli te kategorie mają być funkcjonalne, potrzebna jest faktyczna implementacja bloków; jeśli to tylko szkielet UI, warto zaktualizować `REPORT.md`, żeby nie sugerował ukończenia.
-
-### 9.4 Wydajność `_find_pin_by_uuid`
-Patrz §7.1 — liniowe przeszukiwanie wszystkich pinów wszystkich bloków na każde połączenie, w każdym skanie. Dla małych projektów (dziesiątki bloków) nieistotne; dla większych warto zbudować raz `pin_uuid -> Pin` mapę w `CompiledProgram.__init__` i użyć jej zamiast przeszukiwania.
-
-### 9.5 `DeviceModel` — pojedyncze urządzenie na typ
-Tylko `ELA01`/`ADA01`, po 32 kanały, hardcoded jako lista jednoelementowa. Świadomie oznaczone w kodzie jako tymczasowe. Do rozbudowy, gdy platforma będzie obsługiwać wiele modułów I/O.
-
-### 9.6 Undo/redo pełnym snapshotem
-`Project.push_state()` serializuje **cały projekt** do JSON przy każdej zmianie (do 50 wpisów w stosie) — proste i niezawodne, ale potencjalnie kosztowne pamięciowo/czasowo przy dużych projektach lub częstych zmianach (np. przeciąganie bloku generujące wiele zdarzeń). Brak diff-based undo.
-
-### 9.7 Walidacja typów przy wczytywaniu starszych plików
-`Project.deserialize()` ma martwy fragment "Backwards compatibility check for older JSONs" (linie ~92-100 w project.py) z pętlą, która nic nie robi (`pass`) — pozostałość po niedokończonej migracji; obecnie każdy blok bez `type_id` po prostu zostanie pominięty (bo `block_class` będzie `None`), cicho, bez ostrzeżenia w UI/logu.
+### 9.2 Undo/redo pełnym snapshotem, nie różnicowo (PRIORYTET — zmieniony status)
+`Project.push_state()` serializuje CAŁY projekt do JSON przy każdej realnej
+zmianie (limit 50 wpisów, najstarszy odrzucany — limit już wdrożony).
+Zmierzony rozmiar pojedynczego zrzutu dla największego obecnie przykładu
+(`examples/EPW_LOGIC_PRIORITY_A_TEST.epwlogic`, 11 bloków): **9398 bajtów**
+(~9,2 KiB) — 50-wpisowy stos to ~459 KiB w najgorszym razie dla dzisiejszych
+przykładów, rośnie w przybliżeniu liniowo z liczbą bloków. Wcześniej
+odnotowane jako "kandydat na przyszłość, nie pilne" — **status zmieniony
+2026-09-03**: dzisiejsze projekty to dziesiątki bloków, ale właściciel
+produktu wprost nie chce, by architektura ograniczała dalszy wzrost —
+przeprojektowanie na przechowywanie różnicowe traktować jako realną,
+nieodległą pracę, nie "kiedyś, jeśli".
 
 ## 10. Rekomendacje / pytania otwarte do dalszej pracy
 
-1. Usunąć duplikat w `Project.deserialize()` (§9.1) — bezpieczny, izolowany fix.
-2. Zdecydować i poprawić kategorię `system.message` (§9.2).
-3. Ustalić, czy kategorie "Zabezpieczenia..." mają realną implementację bloków w planach najbliższego sprintu, czy `REPORT.md` powinien zostać zaktualizowany, by nie sugerować ukończenia (§9.3).
-4. Rozważyć indeksowanie pinów po UUID w `CompiledProgram` dla wydajności silnika przy większych projektach (§9.4).
-5. Dodać w `Validator` twarde błędy dla niepodłączonych **wymaganych** wejść (obecnie tylko warning) oraz walidację duplikatów adresów na `input.di` (obecnie tylko na `output.do`).
-6. Cicho pomijane bloki bez `type_id` przy wczytywaniu (§9.7) — warto dodać jawny błąd/ostrzeżenie zamiast milczącej utraty danych.
+1. Zaplanować generalizację `DeviceModel` na wiele urządzeń ELA/ADA (§9.1)
+   — osobna sesja projektowa, dotyka adresacji/walidacji/Device Explorer/
+   eksportu.
+2. Zaplanować przeprojektowanie undo/redo na przechowywanie różnicowe
+   (§9.2, zmierzone w dzienniku §18) — osobna sesja projektowa.
+3. Dodać w `Validator` walidację zakresów właściwości `const.*` (§6,
+   "Nadal otwarte braki"). Duplikaty adresów na `input.di` (dziś
+   sprawdzane tylko na `output.do`) świadomie NIE jako błąd walidacji —
+   właściciel produktu chce w tym miejscu hiperłącze/nawigację
+   między blokami o tym samym adresie zamiast blokady kompilacji
+   (czytelność diagramu > twarda reguła); do zaprojektowania jako osobna
+   funkcja nawigacyjna, rozszerzająca istniejący `core/crossref.py`/
+   "Pokaż użycia sygnału" (ARCHITECTURE.md §14), nie jako nowa reguła
+   `Validator`.
+4. Routing przewodów (`ui/canvas/wire_item.py`) poprawnie wybiera dziś
+   kierunek wyjścia/wejścia względem strony pinu (`_port_facing()`), ale
+   nie unika kolizji z ciałem innego bloku przy ciasnym układzie
+   (przewód "wsteczny" może wizualnie przeciąć blok stojący na drodze).
+   Właściciel produktu chce to doprowadzić do jakości profesjonalnego
+   narzędzia (pełny router z omijaniem przeszkód) — osobna sesja
+   projektowa, nie incrementalna poprawka.
 
 ---
-*Raport wygenerowany automatycznie na podstawie stanu repo w `d:\BroniszLabs\EPW_Platform\EPW-Logic-Studio` (branch `main`, commit `9adf742`). Załączony ZIP zawiera pełne źródła `logic_studio/`, `tests/`, `examples/`, dokumentację istniejącą oraz ten raport — bez `.git/` i `__pycache__/`.*
 
 ## 11. Status napraw (branch `fix/audit-stage-a-b`)
 
@@ -563,3 +618,185 @@ faktycznie coś się zmieniło" z §3.1's dosłownego brzmienia.
   założona.
 - Żadna zmiana w `compiler/validator.py` poza tym, co już istniało —
   pominięcie wyłączonego bloku w `validate()` jest sprzed tego PR.
+
+## 19. Naprawa CI dla PR #12 (`feat/clipboard-and-align`, commit `d20592a`)
+
+Ten wpis dokumentuje retroaktywnie pracę wykonaną na gałęzi
+`feat/clipboard-and-align` PO powstaniu jej własnego wpisu w §18 (commit
+`d20592a`, już scalony do `main` w ramach PR #12) — nie miała wtedy
+własnego wpisu w dzienniku, mimo że kwalifikuje się jak każda inna naprawa
+w tym repozytorium. Dodana teraz, w ramach `docs/refresh-audit-report`,
+żeby dziennik pozostał kompletny.
+
+**Zgłoszony problem**: GitHub raportował dla PR #12 dwa różne wyniki tego
+samego commita — `Pytest / test (pull_request)` sukces, `Pytest / test
+(push)` failure — mimo braku konfliktów z `main`.
+
+**Przyczyna, ustalona z rzeczywistego logu CI (nie zgadywana)**: uruchomienie
+`push` (run id `33630869640`, job `100249678468`) padło na dokładnie jednym
+teście:
+
+```
+tests/test_signals_panel_navigation.py::test_pulse_highlight_overlay_is_added_then_removed
+    QTest.qWait(150)  # > 2 * 20ms
+    after = len([...])
+>   assert after == before
+E   assert 1 == 0
+1 failed, 775 passed, 2 warnings in 13.91s
+```
+
+Uruchomienie `pull_request` TEGO SAMEGO commita przeszło w całości. Test
+sprawdzał wynik animacji sterowanej `QTimer` (`cycles=2 * interval_ms=20`
+≈ 40ms) jednym stałym `QTest.qWait(150)` i jednym sprawdzeniem — margines
+3.75× bywa niewystarczający na obciążonym/przydzielonym mniej CPU
+runnerze GitHub Actions. To wada testu wrażliwego na zegar systemowy, NIE
+zależność od kolejności wykonania testów ani zanieczyszczenie przez
+`QSettings` — potwierdzone wprost: plik workflow miał dokładnie jedną
+definicję jobu, identyczną dla obu wyzwalaczy (te same kroki, wersja
+Pythona, zmienne środowiskowe, instalacja zależności), a w repozytorium
+nie było zainstalowanego żadnego pluginu losującego kolejność testów, więc
+oba uruchomienia wykonały testy w tej samej, deterministycznej kolejności.
+
+**Co zmieniono**:
+1. `tests/test_signals_panel_navigation.py` — zamieniono pojedyncze
+   `QTest.qWait(150)` + jedno sprawdzenie na pętlę odpytującą (pułap 2s,
+   krok 20ms, przerwanie w momencie zniknięcia nakładki) — ten sam szybki
+   scenariusz w typowym przypadku, znacznie większy margines pod
+   obciążeniem CI.
+2. Audyt CAŁEGO `tests/` pod kątem widgetów tworzonych bez wstrzykniętego
+   `QSettings` (ta sama klasa błędu co w poprzednich PR-ach) znalazł 5
+   pominiętych miejsc — poprawione mimo że nie tłumaczyły obserwowanej
+   awarii (żadne z nich nie dotyczyło testu, który faktycznie padł):
+   `test_analog_ui.py::test_simulation_panel_analog_widgets_rebuild_on_set_project`,
+   `test_analog_ui.py::test_simulation_panel_slider_spinbox_sync`,
+   `test_analog_ui.py::test_property_grid_analog_address_combobox`,
+   `test_property_panel.py::test_spinbox_does_not_fire_on_every_keystroke`,
+   `test_simulation_panel.py::test_first_group_is_di01_through_di08_in_order`
+   — wszystkie teraz przyjmują fixturę `qsettings` i przekazują
+   `settings=qsettings`.
+3. `.github/workflows/pytest.yml`: `on: [push, pull_request]` →
+   `push: {branches: [main]}` + nieograniczony `pull_request` — gałąź
+   robocza sprawdzana wyłącznie przez swój PR, `main` wyłącznie przez
+   push. Podwójne uruchamianie tego samego zestawu na jeden commit
+   wyeliminowane.
+4. Krok testowy w CI ustawia teraz `HOME`/`XDG_CONFIG_HOME` na
+   `$RUNNER_TEMP` — obrona w głąb: nawet przyszły przypadek pominięcia
+   fixtury `qsettings` nie zostawi śladu między uruchomieniami na tym
+   samym runnerze.
+
+**Jak to potwierdzono**:
+- Pełny zestaw testów uruchomiony **5 razy z pluginem `pytest-randomly`**,
+  różne ziarna (101/202/303/404/505), każde z inną, potwierdzoną
+  faktycznie różną kolejnością zbierania testów — **776 passed za każdym
+  razem**.
+- Dodatkowy przebieg pod symulowaną izolacją `HOME`/`XDG_CONFIG_HOME` —
+  776 passed.
+- Każdy z 33 plików testowych uruchomiony osobno — 776/776 łącznie, zero
+  rozbieżności solo-vs-cały-zestaw w którąkolwiek stronę.
+- Po wypchnięciu poprawki (`d20592a`) zweryfikowano na żywo przez GitHub
+  API: ten commit ma dokładnie JEDNO uruchomienie workflow
+  (`pull_request`, `success`) — brak odpowiadającego `push`, dokładnie
+  jak przewidywała zmiana z punktu 3.
+
+Wszystkie cztery elementy zlecenia zostały wykonane — żaden nie został
+pominięty.
+
+## 20. Status napraw (branch `fix/wire-routing-direction`, PR #13)
+
+Zgłoszony problem: przewód z bramki logicznej do wejścia bloku (oba na tym
+samym mniej więcej poziomie Y, umiarkowany odstęp X) wchodził w pin od
+dołu zamiast z lewej — patrz zrzut ekranu w zgłoszeniu.
+
+**Diagnoza**: `WireItem.update_path()` (`ui/canvas/wire_item.py`) wybierał
+kierunek wyjścia/wejścia na podstawie WZGLĘDNEJ pozycji X końców przewodu
+("cel wystarczająco na prawo" → trasa prosta; inaczej → trasa "dookoła" z
+wymuszonym minimum 40px w pionie), NIE na podstawie tego, po której
+stronie bloku pin faktycznie siedzi. Gałąź "dookoła" kończyła się
+technicznie poprawnym, ale bardzo krótkim (15px) poziomym podejściem tuż
+przed pinem — niezauważalnym obok wymuszonego 40px+ objazdu, więc
+wyglądało to jak wejście od dołu. Dodatkowo `source_port`/`dest_port`
+zapisują tylko KOLEJNOŚĆ KLIKNIĘCIA przy rysowaniu przewodu, nie który
+koniec jest logicznie wyjściem — trasowanie względem "source vs dest"
+było więc podatne na odwróconą kolejność kliknięcia.
+
+| # | Punkt | Status |
+|---|---|---|
+| 1 | Kierunek wyjścia/wejścia przewodu | Naprawione — `_port_facing(port)` zwraca kierunek na podstawie WŁASNEJ pozycji pinu w bloku (lewa/prawa krawędź — każdy pin w tej aplikacji siedzi na `x=0` lub `x=width`, niezależnie od typu bloku), nie względnej pozycji drugiego końca. Oba końce dostają najpierw stały "stub" wychodzący z własnego pinu we właściwą stronę; dopiero te dwa punkty łączy prosta trasa Manhattan (jeden zgięcie w pionie albo linia prosta, gdy poziomy). |
+| 2 | Odporność na odwróconą kolejność klikania | Naprawione jako efekt uboczny punktu 1 — trasowanie nie zakłada już, który koniec jest source/dest. |
+
+**Świadomie pominięte / poza zakresem tego PR**: unikanie kolizji z ciałem
+innego bloku (przewód "wsteczny" w ciasnym układzie może wciąż wizualnie
+przeciąć blok stojący na drodze) — właściciel produktu chce to docelowo
+rozwiązać jako pełny router z omijaniem przeszkód (§10 pkt 4), osobna
+sesja projektowa.
+
+Testy: `tests/test_wire_routing.py`, 6 nowych — kierunek wyjścia z pinu
+po prawej, kierunek wejścia do pinu po lewej (dokładnie zgłoszony defekt),
+mały offset pionowy już nie wymusza objazdu, przewód "wsteczny" zachowuje
+tę samą regułę kierunku, odwrócona kolejność klikania trasuje identycznie,
+podgląd przeciąganego (jeszcze niepodłączonego) przewodu kończy się
+dokładnie na kursorze. Potwierdzone też wizualnie (render do PNG,
+dokładnie ten sam scenariusz co w zgłoszeniu, plus przypadek wsteczny).
+
+## 21. Status napraw (branch `chore/ci-randomize-tests-and-doc-cleanup`, PR #14)
+
+Drobne, ale trwałe usprawnienie porządkowe, poza głównym nurtem funkcji:
+
+| # | Punkt | Status |
+|---|---|---|
+| 1 | Losowa kolejność testów w CI | Naprawione — `pytest-randomly` dodany na stałe do instalacji zależności CI (`.github/workflows/pytest.yml`). Każde uruchomienie tasuje kolejność i wypisuje użyty seed ("Using --randomly-seed=..."); przyszły błąd zależności od kolejności (np. pominięta fixtura `qsettings` — patrz MEMORY.md) zostanie złapany automatycznie, nie dopiero po ręcznym audycie po fakcie (jak przy PR #12, §19). |
+| 2 | Komentarz o kategoriach `Zabezpieczenia *` w `library.py` | Zamknięte decyzją produktową — potwierdzone z właścicielem produktu: te kategorie NIE wrócą jako dedykowane typy bloków; logika bezpieczeństwa/blokad ma być komponowana z istniejącej biblioteki bloków przez bity wewnętrzne (`project.settings["internal_bits"]`, ARCHITECTURE.md §10). Bez zmiany funkcjonalnej (kategorie były już usunięte z UI wcześniej — feat/editor-modes-and-geometry §3) — zaktualizowany tylko komentarz, żeby nie sugerował "kiedyś, może" tam, gdzie decyzja już zapadła. Zamyka dawny punkt §9.1 tej migawki (patrz nagłówek §9 powyżej). |
+
+## 22. Status napraw (branch `feat/signals-panel-tree`, PR #15)
+
+Panel "Sygnały" przebudowany z płaskiej, sortowalnej `QTableWidget` na
+`QTreeWidget` grupowany kategorią (Fizyczne/Analogowe/Wewnętrzne/
+Systemowe) — każda kategoria to zwijalny węzeł, sygnały są jej dziećmi.
+Zastępuje wcześniejszą, mniejszą poprawkę tego samego problemu (PR z
+gałęzi `fix/signals-panel-narrow-filter` — przycisk z menu wielokrotnego
+wyboru zamiast 5 rozłącznych przycisków — świadomie odrzucony bez
+mergowania na rzecz tego pełniejszego podejścia, gdy właściciel produktu
+zobaczył obie opcje i wybrał drzewo).
+
+| # | Punkt | Status |
+|---|---|---|
+| 1 | Panel niemożliwy do zawężenia poniżej ~830px (przy domyślnym dokowaniu na 300px) | Naprawione — kategoryzacja jest teraz WYŁĄCZNIE STRUKTURALNA (zwinięcie węzła zamiast osobnego filtra), więc pasek filtrów kurczy się do samej wyszukiwarki + "Problemy". Zmierzone: `panel.minimumSizeHint().width()` spada z 830px do bez porównania mniejszej wartości ograniczonej praktycznie tylko przez treść wyszukiwarki/tabeli, nie przez sumę szerokości przycisków kategorii, których już nie ma. |
+| 2 | Kilka kategorii widocznych naraz | Nowa zdolność — wcześniejsze przyciski (i nawet wcześniejsza poprawka z menu) pozwalały pokazać jedną kategorię na raz; zwinięcie/rozwinięcie węzła drzewa pozwala pokazać dowolny podzbiór naraz, bez żadnego dodatkowego UI filtra. |
+| 3 | Sortowanie a stała kolejność kategorii | Sortowanie sterowane ręcznie (`_on_sort_indicator_changed` woła `category_item.sortChildren()` na każdej kategorii z osobna) — kliknięcie nagłówka kolumny zmienia kolejność sygnałów WEWNĄTRZ kategorii, nigdy kolejność samych czterech kategorii. |
+| 4 | Trwałość stanu rozwinięcia | Wzorowane wprost na `LibraryPanel`'s ustalonym wzorcu (`itemExpanded`/`itemCollapsed` → `QSettings`) — `signals_panel/expanded/<kategoria>`. |
+
+**Świadomie pominięte / poza zakresem tego PR**: publiczne API panelu
+(`set_project`, `request_refresh`, `search_edit`, `only_issues_check`,
+`export_csv`, `focus_signal`, `highlight_blocks`) pozostało niezmienione —
+`main_window.py`/`block_item.py` nie wymagały żadnej zmiany.
+
+Testy: `tests/test_signals_panel.py` przepisany (25, wcześniej 17 —
+usunięty test rozłącznego filtra, dodane pokrycie grupowania/liczników/
+trwałości rozwinięcia/auto-rozwijania przy wyszukiwaniu/sortowania bez
+przestawiania kategorii/braku wpływu zwinięcia na eksport);
+`tests/test_signals_panel_navigation.py` i
+`tests/test_block_signal_usage_menu.py` zaktualizowane do nowego API
+(`_row_of()` zwraca teraz liść drzewa, `_on_item_double_clicked(item,
+col)`) — to samo pokrycie co wcześniej, żaden test nie usunięty.
+
+Pełny zestaw: 789 passed (776 + 6 z §20 + 7 netto z §22, po odjęciu 1
+usuniętego testu rozłącznego filtra), stabilne pod `pytest-randomly` przy
+kilku ziarnach.
+
+---
+
+## Zasada utrzymania tego dokumentu
+
+**Sekcje opisowe (§1-§10)** muszą być odświeżone przy KAŻDYM PR, który
+zmienia model danych (nowe/usunięte pole w `Pin`/`BaseLogicBlock`/
+`Project.settings`, nowa migracja schematu), inwentarz bloków (nowy/usunięty
+zarejestrowany `type_id` lub kategoria) albo liczbę testów w sposób, który
+czyni liczby w §2/§5/§8 nieaktualnymi. Liczby wyliczane z repozytorium w
+momencie odświeżenia (polecenia podane w §2/§5/§8), nigdy przepisywane z
+poprzedniej wersji. §9 zawiera wyłącznie problemy wciąż otwarte — naprawiony
+punkt jest przenoszony do dziennika (jeśli jeszcze go tam nie ma) i usuwany
+stąd.
+
+**Dziennik napraw (§11 i dalej)** jest dopisywany ZAWSZE, przy każdym
+branchu/PR, jeden nowy numerowany wpis na końcu — nigdy nie edytowany
+wstecznie ani nie usuwany.
