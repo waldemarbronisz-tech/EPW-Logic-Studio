@@ -1,9 +1,10 @@
 # EPW Logic Studio — Pełny raport audytowy (dla Claude.ai)
 
 **Data:** 2026-09-03 (migawka §1-§10 odświeżona do stanu `main`, commit
-`34f5e51` — branch `docs/refresh-audit-report`; wszystkie liczby poniżej
-wyliczone bezpośrednio z repozytorium, nie przepisane z poprzedniej wersji —
-polecenia użyte do ich wyliczenia podane w każdej sekcji).
+`65b06c9` — branch `docs/refresh-audit-report`, po scaleniu PR #13/#14/#15;
+wszystkie liczby poniżej wyliczone bezpośrednio z repozytorium, nie
+przepisane z poprzedniej wersji — polecenia użyte do ich wyliczenia podane
+w każdej sekcji).
 **Zakres:** wyłącznie warstwa logiki — `EPW-Logic-Studio/` (moduł `logic_studio`, testy, przykłady `.epwlogic`). Pozostałe moduły platformy (`EPW-OS`, `EPW-Synoptic-Editor`) celowo pominięte.
 **Cel dokumentu:** dać modelowi bez dostępu do repo pełny, samodzielny obraz architektury, stanu i znanych problemów, żeby mógł doradzać / kontynuować pracę bez dodatkowych pytań.
 **Struktura dokumentu:** §1-§10 to opisowa migawka BIEŻĄCEGO stanu — ma być
@@ -26,19 +27,19 @@ Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) 
 
 ## 2. Status repozytorium
 
-- Gałąź: `main`, commit `34f5e51` (merge PR #12 `feat/clipboard-and-align`).
-- **Testy: 776/776 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~7-8s.
-- **34 pliki testowe** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **8566 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
-- **Kod produkcyjny (`logic_studio/`): 11521 linii w 59 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
+- Gałąź: `main`, commit `65b06c9` (merge PR #15 `feat/signals-panel-tree`).
+- **Testy: 789/789 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~8-11s.
+- **35 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **8874 linie** testów — `find tests -name "test_*.py" | xargs wc -l`.
+- **Kod produkcyjny (`logic_studio/`): 11658 linii w 59 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
   - `blocks/`: 2278
-  - `ui/`: 6869
+  - `ui/`: 7006
   - `core/`: 1002
   - `compiler/`: 694
   - `engine/`: 458
   - `app.py`/`__init__.py` (top-level): 220
 - **69 zarejestrowanych typów bloków w 12 kategoriach** — patrz §5 (polecenie i pełna lista tam).
 - **10 przykładowych projektów** w `examples/*.epwlogic` — wszystkie otwierają się, kompilują i eksportują z bieżącym kodem (zweryfikowane przy każdym PR, patrz dziennik).
-- **81 commitów** w historii (`git log --oneline | wc -l`) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
+- **87 commitów** w historii (`git log --oneline | wc -l`) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
 
 Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §15), `REPORT.md` (log kamieni milowych, obecnie do Phase 8).
 
@@ -52,7 +53,7 @@ EPW-Logic-Studio/
 ├── README.md / ARCHITECTURE.md / REPORT.md / AUDIT_REPORT.md
 ├── .github/workflows/pytest.yml    # CI — patrz §19 dziennika
 ├── examples/                       # 10 przykładowych projektów .epwlogic
-├── tests/                          # 34 pliki test_*.py, 776 testów
+├── tests/                          # 35 plików test_*.py, 789 testów
 └── logic_studio/
     ├── app.py                      # bootstrap Qt, main window wiring
     ├── blocks/                     # definicje bloków logicznych (17 plików)
@@ -217,9 +218,9 @@ Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyśc
 ### 7.3 `RuntimeSnapshot` / `RuntimeBlockState` / `RuntimePinState`
 Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 
-## 8. Testy ([tests/](tests/)) — 776/776 PASS
+## 8. Testy ([tests/](tests/)) — 789/789 PASS
 
-34 pliki `test_*.py`, 8566 linii. Kilka największych/najbardziej reprezentatywnych plików:
+35 plików `test_*.py`, 8874 linie. Kilka największych/najbardziej reprezentatywnych plików:
 
 | Plik | Zakres |
 |---|---|
@@ -230,59 +231,73 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_blocks.py` | logika pojedynczych bloków — 31 testów |
 | `test_short_id.py` | krótkie identyfikatory bloków — 27 testów |
 | `test_property_panel.py` | panel właściwości — 27 testów |
+| `test_signals_panel.py` | panel "Sygnały", drzewo grupowane kategorią — 25 testów |
 | `test_align.py` | wyrównywanie/rozkładanie bloków — 20 testów |
-| `test_crossref.py` | cross-reference sygnałów | 21 testów |
+| `test_crossref.py` | cross-reference sygnałów — 21 testów |
 | `test_block_disable.py` | tymczasowe wyłączanie bloku — 16 testów |
 | `test_clipboard.py` | schowek kopiuj/wytnij/wklej — 14 testów |
+| `test_wire_routing.py` | kierunek wejścia/wyjścia przewodu z pinu — 6 testów |
 | `test_e2e.py`, `test_isolation.py`, `test_compiler.py`, `test_project.py`, `test_acceptance.py`, ... | pipeline end-to-end, izolacja `CompiledProgram`, kompilator, (de)serializacja projektu, scenariusze akceptacyjne |
 
-Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **776 passed w ~7-8s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen — patrz dziennik §19 dla historii jego naprawy).
+Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **789 passed w ~8-11s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
 
 ## 9. Znane problemy i uwagi z audytu (wyłącznie OTWARTE)
 
-Wszystkie punkty poprzedniej wersji tej sekcji poza trzema poniższymi zostały
+Wszystkie punkty poprzedniej wersji tej sekcji poza dwoma poniższymi zostały
 naprawione i są już udokumentowane w dzienniku (§11, pkt 3.1/3.2/4.3/7.2) —
-usunięte stąd, nie zdublowane.
+usunięte stąd, nie zdublowane. Trzeci dawny punkt (kategorie
+`Zabezpieczenia *` bez bloków) został ZAMKNIĘTY decyzją produktową, nie
+implementacją — patrz §21 dziennika: logika bezpieczeństwa/blokad ma być
+komponowana z istniejących bloków przez bity wewnętrzne, nie przez nowe
+typy bloków, więc te kategorie NIE wrócą jako biblioteka — usunięty stąd
+jako rozstrzygnięty, nie jako naprawiony kodem.
 
-### 9.1 Kategorie bez zaimplementowanych bloków
-`Zabezpieczenia Analogowe`, `Zabezpieczenia Dwustanowe`, `Zabezpieczenia
-Technologiczne`, `Łączniki`, `Banki Nastaw`, `Zabezpieczenia silnikowe` —
-zadeklarowane w `ui/panels/library.py` (grupy istnieją, ukrywane przy braku
-bloków), zero zarejestrowanych typów bloków w `logic_studio/blocks/`.
-Świadomie poza zakresem każdego dotychczasowego PR (dziennik §11: "Świadomie
-pominięte"; `REPORT.md` śledzi to jako `[ ]`, nieukończone). Status
-niezmieniony od pierwszego audytu.
-
-### 9.2 `DeviceModel` — pojedyncze urządzenie na typ
+### 9.1 `DeviceModel` — pojedyncze urządzenie na typ (PRIORYTET — zmieniony status)
 Tylko `ELA01`/`ADA01`, po 32 kanały, hardcoded jako lista jednoelementowa
-(`ELA_DEVICES = ["ELA01"]`). Świadomie odnotowane w dzienniku §11 jako "nie
-zgłoszone w zleceniu, brak ryzyka bezpieczeństwa, zostawione bez zmian".
-Status niezmieniony.
+(`ELA_DEVICES = ["ELA01"]`). Wcześniej świadomie odłożone (dziennik §11:
+"nie zgłoszone w zleceniu, brak ryzyka bezpieczeństwa, zostawione bez
+zmian") — **status zmieniony 2026-09-03**: właściciel produktu potwierdził,
+że realne wdrożenia będą miały WIELE takich urządzeń, nie jedno. To już nie
+bezpieczne, niskopriorytetowe założenie architektoniczne — generalizacja
+`DeviceModel` (adresacja, walidacja, Device Explorer, eksport) jest
+rzeczywistą, priorytetową pracą do zaplanowania.
 
-### 9.3 Undo/redo pełnym snapshotem, nie różnicowo
+### 9.2 Undo/redo pełnym snapshotem, nie różnicowo (PRIORYTET — zmieniony status)
 `Project.push_state()` serializuje CAŁY projekt do JSON przy każdej realnej
 zmianie (limit 50 wpisów, najstarszy odrzucany — limit już wdrożony).
 Zmierzony rozmiar pojedynczego zrzutu dla największego obecnie przykładu
 (`examples/EPW_LOGIC_PRIORITY_A_TEST.epwlogic`, 11 bloków): **9398 bajtów**
 (~9,2 KiB) — 50-wpisowy stos to ~459 KiB w najgorszym razie dla dzisiejszych
-przykładów, nieproporcjonalne dopiero przy znacznie większych projektach
-(rośnie w przybliżeniu liniowo z liczbą bloków). Odnotowane w dzienniku §18
-jako kandydat na przyszłe przeprojektowanie na przechowywanie różnicowe —
-świadomie NIE zaimplementowane, poza zakresem PR-a, w którym to zmierzono.
+przykładów, rośnie w przybliżeniu liniowo z liczbą bloków. Wcześniej
+odnotowane jako "kandydat na przyszłość, nie pilne" — **status zmieniony
+2026-09-03**: dzisiejsze projekty to dziesiątki bloków, ale właściciel
+produktu wprost nie chce, by architektura ograniczała dalszy wzrost —
+przeprojektowanie na przechowywanie różnicowe traktować jako realną,
+nieodległą pracę, nie "kiedyś, jeśli".
 
 ## 10. Rekomendacje / pytania otwarte do dalszej pracy
 
-1. Zdecydować, czy kategorie `Zabezpieczenia *`/`Łączniki`/`Banki Nastaw`
-   (§9.1) mają realną implementację bloków w planach najbliższego sprintu,
-   czy zostają jako szkielet UI na później.
-2. Rozbudować `DeviceModel` o wiele urządzeń ELA/ADA, jeśli platforma ma
-   docelowo obsługiwać więcej niż jeden moduł I/O każdego typu (§9.2).
-3. Rozważyć przeprojektowanie undo/redo na przechowywanie różnicowe, jeśli
-   realne projekty zaczną znacząco przekraczać rozmiar dzisiejszych
-   przykładów (§9.3, zmierzone w dzienniku §18).
-4. Dodać w `Validator` twardą walidację duplikatów adresów na `input.di`
-   (dziś tylko na `output.do`) i walidację zakresów właściwości `const.*`
-   (§6, "Nadal otwarte braki").
+1. Zaplanować generalizację `DeviceModel` na wiele urządzeń ELA/ADA (§9.1)
+   — osobna sesja projektowa, dotyka adresacji/walidacji/Device Explorer/
+   eksportu.
+2. Zaplanować przeprojektowanie undo/redo na przechowywanie różnicowe
+   (§9.2, zmierzone w dzienniku §18) — osobna sesja projektowa.
+3. Dodać w `Validator` walidację zakresów właściwości `const.*` (§6,
+   "Nadal otwarte braki"). Duplikaty adresów na `input.di` (dziś
+   sprawdzane tylko na `output.do`) świadomie NIE jako błąd walidacji —
+   właściciel produktu chce w tym miejscu hiperłącze/nawigację
+   między blokami o tym samym adresie zamiast blokady kompilacji
+   (czytelność diagramu > twarda reguła); do zaprojektowania jako osobna
+   funkcja nawigacyjna, rozszerzająca istniejący `core/crossref.py`/
+   "Pokaż użycia sygnału" (ARCHITECTURE.md §14), nie jako nowa reguła
+   `Validator`.
+4. Routing przewodów (`ui/canvas/wire_item.py`) poprawnie wybiera dziś
+   kierunek wyjścia/wejścia względem strony pinu (`_port_facing()`), ale
+   nie unika kolizji z ciałem innego bloku przy ciasnym układzie
+   (przewód "wsteczny" może wizualnie przeciąć blok stojący na drodze).
+   Właściciel produktu chce to doprowadzić do jakości profesjonalnego
+   narzędzia (pełny router z omijaniem przeszkód) — osobna sesja
+   projektowa, nie incrementalna poprawka.
 
 ---
 
@@ -685,6 +700,88 @@ oba uruchomienia wykonały testy w tej samej, deterministycznej kolejności.
 
 Wszystkie cztery elementy zlecenia zostały wykonane — żaden nie został
 pominięty.
+
+## 20. Status napraw (branch `fix/wire-routing-direction`, PR #13)
+
+Zgłoszony problem: przewód z bramki logicznej do wejścia bloku (oba na tym
+samym mniej więcej poziomie Y, umiarkowany odstęp X) wchodził w pin od
+dołu zamiast z lewej — patrz zrzut ekranu w zgłoszeniu.
+
+**Diagnoza**: `WireItem.update_path()` (`ui/canvas/wire_item.py`) wybierał
+kierunek wyjścia/wejścia na podstawie WZGLĘDNEJ pozycji X końców przewodu
+("cel wystarczająco na prawo" → trasa prosta; inaczej → trasa "dookoła" z
+wymuszonym minimum 40px w pionie), NIE na podstawie tego, po której
+stronie bloku pin faktycznie siedzi. Gałąź "dookoła" kończyła się
+technicznie poprawnym, ale bardzo krótkim (15px) poziomym podejściem tuż
+przed pinem — niezauważalnym obok wymuszonego 40px+ objazdu, więc
+wyglądało to jak wejście od dołu. Dodatkowo `source_port`/`dest_port`
+zapisują tylko KOLEJNOŚĆ KLIKNIĘCIA przy rysowaniu przewodu, nie który
+koniec jest logicznie wyjściem — trasowanie względem "source vs dest"
+było więc podatne na odwróconą kolejność kliknięcia.
+
+| # | Punkt | Status |
+|---|---|---|
+| 1 | Kierunek wyjścia/wejścia przewodu | Naprawione — `_port_facing(port)` zwraca kierunek na podstawie WŁASNEJ pozycji pinu w bloku (lewa/prawa krawędź — każdy pin w tej aplikacji siedzi na `x=0` lub `x=width`, niezależnie od typu bloku), nie względnej pozycji drugiego końca. Oba końce dostają najpierw stały "stub" wychodzący z własnego pinu we właściwą stronę; dopiero te dwa punkty łączy prosta trasa Manhattan (jeden zgięcie w pionie albo linia prosta, gdy poziomy). |
+| 2 | Odporność na odwróconą kolejność klikania | Naprawione jako efekt uboczny punktu 1 — trasowanie nie zakłada już, który koniec jest source/dest. |
+
+**Świadomie pominięte / poza zakresem tego PR**: unikanie kolizji z ciałem
+innego bloku (przewód "wsteczny" w ciasnym układzie może wciąż wizualnie
+przeciąć blok stojący na drodze) — właściciel produktu chce to docelowo
+rozwiązać jako pełny router z omijaniem przeszkód (§10 pkt 4), osobna
+sesja projektowa.
+
+Testy: `tests/test_wire_routing.py`, 6 nowych — kierunek wyjścia z pinu
+po prawej, kierunek wejścia do pinu po lewej (dokładnie zgłoszony defekt),
+mały offset pionowy już nie wymusza objazdu, przewód "wsteczny" zachowuje
+tę samą regułę kierunku, odwrócona kolejność klikania trasuje identycznie,
+podgląd przeciąganego (jeszcze niepodłączonego) przewodu kończy się
+dokładnie na kursorze. Potwierdzone też wizualnie (render do PNG,
+dokładnie ten sam scenariusz co w zgłoszeniu, plus przypadek wsteczny).
+
+## 21. Status napraw (branch `chore/ci-randomize-tests-and-doc-cleanup`, PR #14)
+
+Drobne, ale trwałe usprawnienie porządkowe, poza głównym nurtem funkcji:
+
+| # | Punkt | Status |
+|---|---|---|
+| 1 | Losowa kolejność testów w CI | Naprawione — `pytest-randomly` dodany na stałe do instalacji zależności CI (`.github/workflows/pytest.yml`). Każde uruchomienie tasuje kolejność i wypisuje użyty seed ("Using --randomly-seed=..."); przyszły błąd zależności od kolejności (np. pominięta fixtura `qsettings` — patrz MEMORY.md) zostanie złapany automatycznie, nie dopiero po ręcznym audycie po fakcie (jak przy PR #12, §19). |
+| 2 | Komentarz o kategoriach `Zabezpieczenia *` w `library.py` | Zamknięte decyzją produktową — potwierdzone z właścicielem produktu: te kategorie NIE wrócą jako dedykowane typy bloków; logika bezpieczeństwa/blokad ma być komponowana z istniejącej biblioteki bloków przez bity wewnętrzne (`project.settings["internal_bits"]`, ARCHITECTURE.md §10). Bez zmiany funkcjonalnej (kategorie były już usunięte z UI wcześniej — feat/editor-modes-and-geometry §3) — zaktualizowany tylko komentarz, żeby nie sugerował "kiedyś, może" tam, gdzie decyzja już zapadła. Zamyka dawny punkt §9.1 tej migawki (patrz nagłówek §9 powyżej). |
+
+## 22. Status napraw (branch `feat/signals-panel-tree`, PR #15)
+
+Panel "Sygnały" przebudowany z płaskiej, sortowalnej `QTableWidget` na
+`QTreeWidget` grupowany kategorią (Fizyczne/Analogowe/Wewnętrzne/
+Systemowe) — każda kategoria to zwijalny węzeł, sygnały są jej dziećmi.
+Zastępuje wcześniejszą, mniejszą poprawkę tego samego problemu (PR z
+gałęzi `fix/signals-panel-narrow-filter` — przycisk z menu wielokrotnego
+wyboru zamiast 5 rozłącznych przycisków — świadomie odrzucony bez
+mergowania na rzecz tego pełniejszego podejścia, gdy właściciel produktu
+zobaczył obie opcje i wybrał drzewo).
+
+| # | Punkt | Status |
+|---|---|---|
+| 1 | Panel niemożliwy do zawężenia poniżej ~830px (przy domyślnym dokowaniu na 300px) | Naprawione — kategoryzacja jest teraz WYŁĄCZNIE STRUKTURALNA (zwinięcie węzła zamiast osobnego filtra), więc pasek filtrów kurczy się do samej wyszukiwarki + "Problemy". Zmierzone: `panel.minimumSizeHint().width()` spada z 830px do bez porównania mniejszej wartości ograniczonej praktycznie tylko przez treść wyszukiwarki/tabeli, nie przez sumę szerokości przycisków kategorii, których już nie ma. |
+| 2 | Kilka kategorii widocznych naraz | Nowa zdolność — wcześniejsze przyciski (i nawet wcześniejsza poprawka z menu) pozwalały pokazać jedną kategorię na raz; zwinięcie/rozwinięcie węzła drzewa pozwala pokazać dowolny podzbiór naraz, bez żadnego dodatkowego UI filtra. |
+| 3 | Sortowanie a stała kolejność kategorii | Sortowanie sterowane ręcznie (`_on_sort_indicator_changed` woła `category_item.sortChildren()` na każdej kategorii z osobna) — kliknięcie nagłówka kolumny zmienia kolejność sygnałów WEWNĄTRZ kategorii, nigdy kolejność samych czterech kategorii. |
+| 4 | Trwałość stanu rozwinięcia | Wzorowane wprost na `LibraryPanel`'s ustalonym wzorcu (`itemExpanded`/`itemCollapsed` → `QSettings`) — `signals_panel/expanded/<kategoria>`. |
+
+**Świadomie pominięte / poza zakresem tego PR**: publiczne API panelu
+(`set_project`, `request_refresh`, `search_edit`, `only_issues_check`,
+`export_csv`, `focus_signal`, `highlight_blocks`) pozostało niezmienione —
+`main_window.py`/`block_item.py` nie wymagały żadnej zmiany.
+
+Testy: `tests/test_signals_panel.py` przepisany (25, wcześniej 17 —
+usunięty test rozłącznego filtra, dodane pokrycie grupowania/liczników/
+trwałości rozwinięcia/auto-rozwijania przy wyszukiwaniu/sortowania bez
+przestawiania kategorii/braku wpływu zwinięcia na eksport);
+`tests/test_signals_panel_navigation.py` i
+`tests/test_block_signal_usage_menu.py` zaktualizowane do nowego API
+(`_row_of()` zwraca teraz liść drzewa, `_on_item_double_clicked(item,
+col)`) — to samo pokrycie co wcześniej, żaden test nie usunięty.
+
+Pełny zestaw: 789 passed (776 + 6 z §20 + 7 netto z §22, po odjęciu 1
+usuniętego testu rozłącznego filtra), stabilne pod `pytest-randomly` przy
+kilku ziarnach.
 
 ---
 
