@@ -234,6 +234,103 @@ def test_system_signal_block_inherits_safety_relevant_from_catalog():
     block.update_property("Sygnał", "SYS.READY")
     assert block.outputs[0].safety_relevant is False
 
+# ---- AUDIT_REPORT.md §28: type stays wrong until first evaluate() -------
+# BaseLogicBlock.deserialize() sets `properties` directly, bypassing
+# update_property() — so without SystemBooleanSignalBlock.deserialize()'s
+# override, a project loaded from disk kept __init__()'s default Boolean
+# pin type for a REAL signal until the engine ran its first scan. Late
+# enough to matter: Exporter.export() reads pin.data_type BEFORE
+# Compiler.compile() ever calls evaluate() on anything, so a project
+# opened and compiled/exported without ever pressing Play shipped the
+# wrong pin type to EPW-OS.
+
+def test_deserialize_syncs_output_type_for_a_real_signal_without_evaluate():
+    _app()
+    from logic_studio.blocks.pin import Pin
+    from logic_studio.blocks.registry import BlockRegistry
+
+    block = BlockRegistry.create_block("system.signal")
+    block.properties["Sygnał"] = "SYS.SCAN_TIME"
+    data = block.serialize()
+
+    restored = block.__class__.deserialize(data)
+    # Never called evaluate() or update_property() on `restored` — exactly
+    # what Project.deserialize() does when opening a saved file.
+    assert restored.outputs[0].data_type == Pin.TYPE_FLOAT
+    assert restored.outputs[0].safety_relevant is False
+
+def test_deserialize_syncs_safety_relevant_for_a_safety_signal():
+    _app()
+    from logic_studio.blocks.registry import BlockRegistry
+
+    block = BlockRegistry.create_block("system.signal")
+    block.properties["Sygnał"] = "SYS.FAULT"
+    restored = block.__class__.deserialize(block.serialize())
+    assert restored.outputs[0].safety_relevant is True
+
+def test_a_freshly_loaded_real_signal_block_can_be_wired_immediately():
+    """Regression for the concrete, reproduced symptom: before this fix,
+    Pin.connect() rejected a perfectly legal REAL-to-REAL wire because the
+    just-loaded output pin was still stuck at Boolean."""
+    _app()
+    from logic_studio.blocks.registry import BlockRegistry
+
+    block = BlockRegistry.create_block("system.signal")
+    block.properties["Sygnał"] = "SYS.SCAN_TIME"
+    restored = block.__class__.deserialize(block.serialize())
+
+    add_block = BlockRegistry.create_block("math.add")
+    assert restored.outputs[0].connect(add_block.inputs[0]) is True
+
+def test_export_reports_correct_type_for_real_signal_without_ever_running_sim():
+    """End-to-end: build + save + reload + compile/export a project
+    referencing a REAL system signal, WITHOUT ever calling engine.step() —
+    the exported pin type must be correct regardless."""
+    _app()
+    import json
+    from logic_studio.core.project import Project
+    from logic_studio.compiler.core import Compiler
+    from logic_studio.blocks.pin import Pin
+    from logic_studio.blocks.registry import BlockRegistry
+
+    p = Project()
+    sig = BlockRegistry.create_block("system.signal")
+    sig.properties["Sygnał"] = "SYS.SCAN_TIME"
+    p.add_block(sig)
+
+    reloaded = Project.deserialize(json.loads(json.dumps(p.serialize())))
+    compiler = Compiler(reloaded)
+    result = compiler.compile()
+    assert result is not None, compiler.errors
+
+    sig_uuid = reloaded.blocks[0].uuid
+    assert result["blocks"][sig_uuid]["outputs"][0]["type"] == Pin.TYPE_FLOAT
+
+def test_export_falls_back_to_live_pin_type_for_unrecognized_signal():
+    """An unrecognized/legacy signal id (§3.4 migration note) has no
+    catalog entry to resolve a type from — export must fall back to
+    whatever the live pin already carries, not raise or blank the field."""
+    _app()
+    import json
+    from logic_studio.core.project import Project
+    from logic_studio.blocks.pin import Pin
+    from logic_studio.compiler.core import Compiler
+    from logic_studio.blocks.registry import BlockRegistry
+
+    p = Project()
+    sig = BlockRegistry.create_block("system.signal")
+    sig.properties["Sygnał"] = "SYS_READY"  # old pre-catalog underscore format
+    p.add_block(sig)
+
+    reloaded = Project.deserialize(json.loads(json.dumps(p.serialize())))
+    compiler = Compiler(reloaded)
+    result = compiler.compile()
+    assert result is not None, compiler.errors
+
+    sig_uuid = reloaded.blocks[0].uuid
+    assert result["blocks"][sig_uuid]["outputs"][0]["type"] == Pin.TYPE_BOOLEAN
+
+
 def test_system_signal_block_reads_via_read_system_signal_not_digital_input():
     """The exact bug from the audit: a system signal must never be
     readable by coincidentally matching a physical DI address."""

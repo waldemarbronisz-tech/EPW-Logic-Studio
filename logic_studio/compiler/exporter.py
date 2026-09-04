@@ -3,6 +3,7 @@ import hashlib
 from datetime import datetime, timezone
 
 from logic_studio import __version__
+from logic_studio.blocks.pin import Pin
 from logic_studio.core.device_model import DeviceModel
 from logic_studio.core import system_signals
 
@@ -83,6 +84,27 @@ class Exporter:
                     properties["_resolved_range_min"] = point.get("min")
                     properties["_resolved_range_max"] = point.get("max")
                     properties["_resolved_unit"] = point.get("unit", "")
+            elif block.type_id == "system.signal" and outputs:
+                # AUDIT_REPORT.md §28: SystemBooleanSignalBlock's output pin
+                # type is derived from its "Sygnał" property via
+                # _sync_output_type() — correct once the engine has run at
+                # least one scan (evaluate() calls it) or the property was
+                # just edited live through the UI (update_property() calls
+                # it too), but NOT yet at this point for a project that was
+                # only just loaded and is being compiled/exported without
+                # ever having run a simulation: BaseLogicBlock.deserialize()
+                # sets `properties` directly, bypassing update_property(),
+                # and this export runs before Compiler.compile() ever calls
+                # evaluate() on anything. Recomputed here, fresh and
+                # project-aware (this project's own device list, for a
+                # future per-device REAL signal), rather than trusted from
+                # the live pin — the one place in the export pipeline that
+                # always has both a project reference AND runs before any
+                # evaluate() call.
+                sig_id = properties.get("Sygnał", "")
+                entry = system_signals.get_signal(sig_id, self.project) if sig_id else None
+                if entry:
+                    outputs[0]["type"] = Pin.TYPE_FLOAT if entry.get("type") == "REAL" else Pin.TYPE_BOOLEAN
 
             runtime_blocks[block.uuid] = {
                 "type_id": block.type_id,

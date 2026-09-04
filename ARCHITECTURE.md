@@ -1141,3 +1141,83 @@ tam od feat/signal-crossref §3.1), żeby ten sam "zaznacz + wyśrodkuj +
 podświetl pulsowaniem" mógł wołać też `BlockItem` bez duplikowania kodu —
 oba miejsca teraz importują z jednego źródła zamiast dwa razy pisać to
 samo.
+
+## 22. Typ pinu `system.signal` nie synchronizował się po wczytaniu projektu (fix/system-signal-type-sync-after-load)
+
+Znalezione podczas przeglądu §19.2's "Świadomie NIE zrobione" — przy
+okazji sprawdzania, czy dałoby się dorobić `safety_relevant` per
+urządzenie, wyszedł na jaw poważniejszy, niezwiązany z wielourządzeniowością
+błąd, odtworzony (nie hipotetyczny), obecny od `feat/internal-bits`.
+
+**Błąd**: `SystemBooleanSignalBlock._sync_output_type()` ustawia typ pinu
+wyjściowego (`Boolean`/`Float`) na podstawie wpisu katalogowego wskazanego
+przez właściwość `"Sygnał"` — ale jest wołana wyłącznie z `__init__()`
+(gdy `"Sygnał"` jest jeszcze puste), `update_property()` (tylko przy
+edycji na żywo z UI) i `evaluate()` (tylko podczas realnego skanu silnika).
+`BaseLogicBlock.deserialize()` ustawia `properties` bezpośrednio
+(`block.properties = data.get("properties", {}).copy()`), świadomie z
+pominięciem `update_property()` — więc blok wczytany z zapisanego pliku
+projektu zachowywał typ pinu sprzed wczytania (domyślny `Boolean`) aż do
+pierwszego skanu silnika, niezależnie od faktycznie zapisanej wartości
+`"Sygnał"`. Dla sygnału typu REAL (`SYS.SCAN_TIME`, `SYS.CYCLE_COUNT`,
+`SYS.ACCESS_LEVEL`) to źle — a błąd zdążył sam siebie udokumentować jako
+"naprawiony" fałszywym komentarzem w `_sync_output_type()` ("Called from
+evaluate() too ... so a project loaded via deserialize() ... still ends
+up with the right pin type"), który mylnie zakładał, że coś zawsze
+wywoła `evaluate()` zanim to ma znaczenie.
+
+To założenie jest fałszywe w DWÓCH miejscach:
+1. **Sesja edycyjna**: inżynier otwiera projekt i od razu próbuje
+   podłączyć przewód do tego pinu, zanim kiedykolwiek naciśnie Play —
+   `Pin.connect()` odrzuca poprawne połączenie REAL-do-REAL, bo pin wciąż
+   "myśli", że jest typu Boolean. Odtworzone wprost:
+   `SystemBooleanSignalBlock` związany z `SYS.SCAN_TIME`, świeżo
+   zdeserializowany, `outputs[0].connect(jakiś_wejście_REAL)` zwracał
+   `False`.
+2. **Eksport**: `Exporter.export()` (`compiler/exporter.py`) czyta
+   `pin.data_type` bezpośrednio z ŻYWEGO bloku projektu (`self.project`,
+   nie izolowanej kopii) i działa PRZED jakimkolwiek wywołaniem
+   `evaluate()` w pipeline `Compiler.compile()` (Validator → GraphBuilder
+   → Exporter → dopiero potem budowa `CompiledProgram`). Projekt otwarty i
+   od razu skompilowany/wyeksportowany bez uruchomienia symulacji choćby
+   raz wysyłał do EPW-OS `EPW_RUNTIME_LOGIC` z BŁĘDNYM typem pinu —
+   dokładnie ta klasa błędu, którą AUDIT_REPORT.md §1 nazywa "an object's
+   behavior will diverge from what Logic Studio's own simulation showed
+   the engineer": tu nawet bez rozjazdu między symulacją a eksportem —
+   PRAWDA nigdzie w tej sesji nie została jeszcze obliczona.
+
+**Naprawa — dwa niezależne miejsca, bo dwa niezależne symptomy**:
+- `SystemBooleanSignalBlock.deserialize()` (nowy override) woła
+  `_sync_output_type()` od razu po `super().deserialize(data)` — naprawia
+  symptom 1 (sesja edycyjna) dla KAŻDEGO projektu, jednourządzeniowego
+  czy nie.
+- `Exporter.export()` dostaje nową gałąź `elif block.type_id ==
+  "system.signal"`, obok istniejącej dla `input.ai` — przelicza typ na
+  nowo, PROJEKT-ŚWIADOMIE (`system_signals.get_signal(sig_id,
+  self.project)`), zamiast ufać `pin.data_type` na żywym bloku. To
+  jedyne miejsce w pipeline kompilacji, które ma jednocześnie referencję
+  do projektu I działa przed jakimkolwiek `evaluate()` — naprawia symptom
+  2 (eksport) BEZ ZALEŻNOŚCI od naprawy w `deserialize()` (i przy okazji
+  poprawnie obsługuje przyszły sygnał REAL per-urządzenie, gdyby taki
+  kiedyś trafił do katalogu — patrz §19.2). Sygnał nierozpoznany przez
+  katalog (`entry is None`, np. stary format `"SYS_READY"` sprzed
+  katalogu) świadomie zostawia `outputs[0]["type"]` bez zmian — brak
+  wpisu katalogowego nie daje niczego lepszego do podstawienia niż to, co
+  już jest na żywym pinie.
+
+**§19.2 wciąż otwarte, celowo, mimo tej naprawy**: `safety_relevant` nie
+jest w ogóle eksportowane (ani w `inputs`, ani w `outputs` — czysto
+kosmetyczna metadana UI, `ElementPreviewPanel`), więc naprawa w
+`Exporter` jej nie dotyczy. Sygnał drugiego urządzenia
+(np. `ELA02.FAULT`) wciąż nie podświetli się jako `safety_relevant` na
+żywym bloku, bo `_sync_output_type()` strukturalnie nie ma dostępu do
+projektu — bez zmiany.
+
+Testy: rozszerzone `tests/test_internal_bits.py` (5 nowych) —
+`deserialize()` synchronizuje typ dla sygnału REAL i `safety_relevant`
+dla sygnału bezpieczeństwa bez wołania `evaluate()`, świeżo wczytany
+blok da się od razu podłączyć do wejścia REAL, pełny
+zapis→wczytanie→kompilacja→eksport bez ANI JEDNEGO wywołania silnika
+zwraca poprawny typ, sygnał nierozpoznany nie psuje eksportu (fallback na
+typ z żywego pinu). Wszystkie 10 `examples/*.epwlogic` nadal się
+kompilują.

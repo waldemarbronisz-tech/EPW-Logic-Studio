@@ -29,9 +29,11 @@ class SystemBooleanSignalBlock(BaseLogicBlock):
         type (§3.4: "typ wyjścia zgodny z typem sygnału w katalogu") — most
         signals are BOOL, but SYS.SCAN_TIME/SYS.CYCLE_COUNT/
         SYS.ACCESS_LEVEL are REAL. Called from evaluate() too (cheap,
-        idempotent) so a project loaded via deserialize() — which sets
-        `properties` directly, bypassing update_property() — still ends up
-        with the right pin type without a separate sync step."""
+        idempotent) AND from deserialize() below — a project loaded via
+        Project.deserialize() sets `properties` directly, bypassing
+        update_property(), so without the deserialize() call this stayed
+        wrong (defaulting to Boolean) until the engine ran its first scan;
+        see AUDIT_REPORT.md §28 for the reproduced bug this closes."""
         from logic_studio.core import system_signals
         signal_id = self.properties.get("Sygnał", "")
         entry = system_signals.get_signal(signal_id) if signal_id else None
@@ -45,6 +47,27 @@ class SystemBooleanSignalBlock(BaseLogicBlock):
         super().update_property(key, value)
         if key == "Sygnał":
             self._sync_output_type()
+
+    @classmethod
+    def deserialize(cls, data: dict):
+        """AUDIT_REPORT.md §28: BaseLogicBlock.deserialize() sets
+        `properties` directly (never through update_property()), so
+        without this override a project loaded from disk kept whatever
+        pin type __init__() set (Boolean, since "Sygnał" starts empty)
+        regardless of the actually-saved "Sygnał" value — wrong for any
+        REAL-typed signal (SYS.SCAN_TIME/SYS.CYCLE_COUNT/SYS.ACCESS_LEVEL)
+        until the engine ran at least one scan. That's late enough to
+        matter: Exporter.export() (compiler/exporter.py) reads pin.data_type
+        straight off the live block, and runs BEFORE any evaluate() call in
+        Compiler.compile()'s pipeline — a project opened and compiled/
+        exported without ever pressing Play shipped the wrong pin type to
+        EPW-OS. (Exporter.export() also independently re-resolves this
+        project-aware, straight from the catalog, rather than trusting the
+        live pin — see its own comment — so this override alone would not
+        have been a complete fix.)"""
+        block = super().deserialize(data)
+        block._sync_output_type()
+        return block
 
     def evaluate(self, engine=None):
         self._sync_output_type()
