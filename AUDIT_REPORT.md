@@ -1,11 +1,13 @@
 # EPW Logic Studio — Pełny raport audytowy (dla Claude.ai)
 
-**Data:** 2026-09-04 (migawka §1-§10 odświeżona do stanu na `main` commit
-`28e6bc0` — po scaleniu PR #21 `feat/duplicate-address-hyperlink`, samego
-PR #20 `fix/audit-followups-multidevice-const` i PR #19
-`feat/undo-diff-storage`; wszystkie liczby poniżej wyliczone bezpośrednio
-z repozytorium na `main`, nie przepisane z poprzedniej wersji — polecenia
-użyte do ich wyliczenia podane w każdej sekcji).
+**Data:** 2026-09-04 (migawka §1-§10 odświeżona do stanu na branchu
+`fix/system-signal-type-sync-after-load`, zbudowanym na `docs/refresh-audit-report-pr21`
+— który sam jest zbudowany na `main` commit `28e6bc0`, po scaleniu PR #21
+`feat/duplicate-address-hyperlink`, PR #20
+`fix/audit-followups-multidevice-const` i PR #19 `feat/undo-diff-storage`;
+wszystkie liczby poniżej wyliczone bezpośrednio z repozytorium na tym
+branchu, nie przepisane z poprzedniej wersji — polecenia użyte do ich
+wyliczenia podane w każdej sekcji).
 **Zakres:** wyłącznie warstwa logiki — `EPW-Logic-Studio/` (moduł `logic_studio`, testy, przykłady `.epwlogic`). Pozostałe moduły platformy (`EPW-OS`, `EPW-Synoptic-Editor`) celowo pominięte.
 **Cel dokumentu:** dać modelowi bez dostępu do repo pełny, samodzielny obraz architektury, stanu i znanych problemów, żeby mógł doradzać / kontynuować pracę bez dodatkowych pytań.
 **Struktura dokumentu:** §1-§10 to opisowa migawka BIEŻĄCEGO stanu — ma być
@@ -28,21 +30,21 @@ Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) 
 
 ## 2. Status repozytorium
 
-- Gałąź: `main` (commit `28e6bc0`, merge PR #21 `feat/duplicate-address-hyperlink`).
-- **Testy: 890/890 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~17-18s.
-- **43 pliki testowe** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **10372 linie** testów — `find tests -name "test_*.py" | xargs wc -l`.
-- **Kod produkcyjny (`logic_studio/`): 12576 linii w 62 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
-  - `blocks/`: 2283
+- Gałąź: `fix/system-signal-type-sync-after-load` (na `docs/refresh-audit-report-pr21`, na `main` commit `28e6bc0`), jeszcze niescalona.
+- **Testy: 895/895 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~17-18s.
+- **43 pliki testowe** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **10469 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
+- **Kod produkcyjny (`logic_studio/`): 12621 linii w 62 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
+  - `blocks/`: 2306
   - `ui/`: 7533
   - `core/`: 1352
-  - `compiler/`: 730
+  - `compiler/`: 752
   - `engine/`: 458
   - `app.py`/`__init__.py` (top-level): 220
 - **69 zarejestrowanych typów bloków w 12 kategoriach** — patrz §5 (polecenie i pełna lista tam), bez zmian od ostatniej migawki.
 - **10 przykładowych projektów** w `examples/*.epwlogic` — wszystkie otwierają się, kompilują i eksportują z bieżącym kodem (zweryfikowane przy każdym PR, patrz dziennik).
-- **101 commitów** w historii (`git log --oneline | wc -l`) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
+- **102 commity** w historii (`git log --oneline | wc -l`) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
 
-Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §21), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
+Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §22), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
 
 ## 3. Struktura katalogów
 
@@ -240,7 +242,7 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 |---|---|
 | `test_canvas_rendering.py` | rysowanie bloków/kanwy — 141 testów |
 | `test_grid_alignment.py` | siatka, snap, geometria — 176 testów |
-| `test_internal_bits.py` | rejestr sygnałów wewnętrznych — 50 testów |
+| `test_internal_bits.py` | rejestr sygnałów wewnętrznych, katalog sygnałów systemowych + synchronizacja typu pinu po wczytaniu (§28 dziennika) — 55 testów |
 | `test_export_contract.py` | kontrakt eksportu, checksum, metadane — 33 testy |
 | `test_blocks.py` | logika pojedynczych bloków — 31 testów |
 | `test_signals_panel.py` | panel "Sygnały", drzewo grupowane kategorią — 25 testów |
@@ -261,7 +263,7 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_wire_routing.py` | kierunek wejścia/wyjścia przewodu z pinu — 6 testów |
 | `test_e2e.py`, `test_isolation.py`, `test_compiler.py`, `test_project.py`, `test_acceptance.py`, ... | pipeline end-to-end, izolacja `CompiledProgram`, kompilator, (de)serializacja projektu, scenariusze akceptacyjne |
 
-Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **890 passed w ~17-18s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
+Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **895 passed w ~17-18s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
 
 ## 9. Znane problemy i uwagi z audytu (wyłącznie OTWARTE)
 
@@ -1005,6 +1007,42 @@ przed scaleniem.
 - Wymiana między osobnymi instancjami programu (np. skok do bloku w innym
   otwartym oknie) — poza zakresem, ten sam wzorzec "jedna scena, jedno
   okno" co reszta nawigacji kanwy.
+
+## 28. Naprawa: typ pinu `system.signal` nie synchronizował się po wczytaniu projektu (branch `fix/system-signal-type-sync-after-load`)
+
+Znalezione NIE w ramach zaplanowanego zadania — przy sprawdzaniu, czy da
+się domknąć §19.2's "Świadomie NIE zrobione" (`safety_relevant` per
+urządzenie), wyszedł na jaw i został odtworzony poważniejszy, osobny
+błąd, obecny od `feat/internal-bits`, niezwiązany z wielourządzeniowością.
+Pełny opis mechanizmu w ARCHITECTURE.md §22 — tu tylko status.
+
+| # | Punkt | Status |
+|---|---|---|
+| 1 | Typ pinu `system.signal` stały na `Boolean` do pierwszego skanu silnika | Naprawione — `SystemBooleanSignalBlock.deserialize()` (nowy override) woła `_sync_output_type()` od razu po `super().deserialize(data)`. Odtworzone wprost: świeżo wczytany blok związany z `SYS.SCAN_TIME` nie dawał się podłączyć do wejścia REAL (`Pin.connect()` zwracał `False`) przed tą naprawą. |
+| 2 | `Exporter.export()` eksportował błędny typ pinu bez uruchomienia symulacji ani razu | Naprawione — nowa gałąź `elif block.type_id == "system.signal"` w `Exporter.export()` (obok istniejącej dla `input.ai`), przeliczająca typ na nowo, projekt-świadomie (`system_signals.get_signal(sig_id, self.project)`), zamiast ufać `pin.data_type` na żywym bloku. Niezależne od punktu 1 — działa nawet gdyby punkt 1 nie został naprawiony. Odtworzone wprost: zapis→wczytanie→kompilacja→eksport bez ANI JEDNEGO wywołania `engine.step()` dawał `"type": "Boolean"` w `EPW_RUNTIME_LOGIC` dla sygnału REAL. |
+
+**Dlaczego to realny, a nie hipotetyczny błąd**: `_sync_output_type()`
+miała już komentarz twierdzący, że jest "wywoływana też z evaluate(), więc
+projekt wczytany przez deserialize() i tak kończy z poprawnym typem pinu"
+— założenie fałszywe w dwóch niezależnych miejscach (sesja edycyjna przed
+pierwszym Play, i cały pipeline kompilacji/eksportu, który nie wywołuje
+`evaluate()` w ogóle). Ten sam kształt błędu co już raz ugryzł
+`Pin.connections`/`Pin.disabled`/`BaseLogicBlock.visibility` (§14/§15
+ARCHITECTURE.md) — pochodna stanu, którą coś MIAŁO zsynchronizować po
+deserializacji, ale nic tego faktycznie nie robiło.
+
+### Świadomie pominięte / poza zakresem tego PR
+- §19.2 (safety_relevant dla sygnału drugiego urządzenia w
+  `ElementPreviewPanel`) POZOSTAJE OTWARTE — `safety_relevant` nie jest w
+  ogóle eksportowane (czysto UI-owa metadana), więc naprawa w `Exporter`
+  jej nie dotyczy; na żywym bloku wciąż wymagałoby to dostępu do projektu,
+  którego `SystemBooleanSignalBlock` strukturalnie nie ma.
+
+Testy: rozszerzone `tests/test_internal_bits.py` (5 nowych) — patrz
+ARCHITECTURE.md §22 dla pełnej listy scenariuszy.
+
+Pełny zestaw: 895 passed (890 + 5 nowych testów tego PR). Wszystkie 10
+`examples/*.epwlogic` nadal się kompilują.
 
 ## Zasada utrzymania tego dokumentu
 
