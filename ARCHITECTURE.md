@@ -31,7 +31,7 @@ migration chain. Never conflate them, and never bump one to fix a problem in
 the other.
 
 ### 3.1 `.epwlogic` (engineering project) — `EPWLOGIC_SCHEMA_VERSION`
-Currently **5** (`core/project.py`). Bumping it requires adding a
+Currently **6** (`core/project.py`). Bumping it requires adding a
 `_migrate_vN_to_v(N+1)(data)` function and registering it in `_MIGRATIONS`,
 keyed by the version it upgrades *from*. `Project.deserialize()` applies the
 chain sequentially —
@@ -41,8 +41,8 @@ while schema_version in _MIGRATIONS:
     schema_version = data["schema_version"]
 ```
 — so a file several versions behind today's still loads correctly by walking
-every intermediate step; a future v5 → v6 migration slots in exactly the way
-v1 → v2 through v4 → v5 did, with no change to `deserialize()` itself.
+every intermediate step; a future v6 → v7 migration slots in exactly the way
+v1 → v2 through v5 → v6 did, with no change to `deserialize()` itself.
 
 `_migrate_v1_to_v2` defaults a missing `settings.analog_points` to `[]`, and
 absorbs what used to be a separate `_migrate_legacy_force_state` helper: it
@@ -83,6 +83,11 @@ nothing to keep.
 exact single-device list every pre-v5 project was ALREADY permanently
 fixed to, so this migration is lossless by construction: no v4 file could
 ever have addressed a second device in the first place.
+
+`_migrate_v5_to_v6` (feat/signal-watch, §23) defaults missing
+`settings.watched_signals` to `[]` — otherwise an empty migration, since
+no v5 project could have had any entries (the feature didn't exist yet),
+same reasoning as v3→v4's `io_labels`.
 
 `short_id` (§13) is deliberately NOT gated behind a schema-version bump —
 `Project.add_block()`, the single choke point every block passes through
@@ -1221,3 +1226,126 @@ zapis→wczytanie→kompilacja→eksport bez ANI JEDNEGO wywołania silnika
 zwraca poprawny typ, sygnał nierozpoznany nie psuje eksportu (fallback na
 typ z żywego pinu). Wszystkie 10 `examples/*.epwlogic` nadal się
 kompilują.
+
+## 23. Panel Obserwowanych sygnałów (feat/signal-watch)
+
+Pierwsza nowa FUNKCJA (nie naprawa audytu) po serii domknięć §19-§22 —
+wybrana z listy propozycji jako pierwsza do zrobienia. Pozwala inżynierowi
+przypiąć dowolny sygnał (fizyczny DI/DO, analogowy AI/AO, wewnętrzny bit/
+rejestr, systemowy) do stałej listy monitorowanej na żywo podczas
+symulacji, niezależnie od tego, co akurat jest zaznaczone na kanwie czy w
+bibliotece — realna potrzeba przy uruchamianiu instalacji, gdy trzeba
+obserwować kilka niepowiązanych ze sobą na kanwie sygnałów naraz.
+
+### 23.1 Model danych (`core/watch.py`)
+
+`project.settings["watched_signals"]` — lista `{"kind", "signal_id"}`,
+dokładnie ten sam wzorzec co `analog_points`/`internal_bits`/`io_labels`:
+jedyne sankcjonowane API to `get_watches()`/`add_watch()`/`remove_watch()`/
+`describe_watch()`/`is_boolean_kind()`/`read_value()` w `core/watch.py`
+(zero zależności od Qt — panel w `ui/panels/watch.py` to cienka warstwa
+nad tym modułem, dokładnie ten sam podział co `core/crossref.py` vs.
+`ui/panels/signals.py`). `EPWLOGIC_SCHEMA_VERSION` 5→6, migracja
+`_migrate_v5_to_v6` (§3.1).
+
+`kind` używa TYCH SAMYCH stałych `KIND_*` co `core/crossref.py` — jedna
+klasyfikacja czterech przestrzeni nazw sygnałów (§10/§14) w całej
+aplikacji, nie druga, niezależna. `signal_id` jest ZAWSZE tym samym
+identyfikatorem, którego inżynier użyłby gdzie indziej w aplikacji: adres
+dla `KIND_PHYSICAL_DI/_DO/KIND_ANALOG_IN/_OUT`, GOŁA nazwa sygnału
+wewnętrznego (NIE wyprowadzony `M./MR./MW./MWR.<name>` id) dla
+`KIND_INTERNAL_BIT/_REG` — dokładnie to, co zwraca `SignalPickerDialog` i
+co blok trzyma we własnej właściwości `"Bit"` — oraz id z katalogu dla
+`KIND_SYSTEM`. Goła nazwa (nie wyprowadzony id) dla sygnałów wewnętrznych
+oznacza, że obserwacja przetrwa zmianę flagi `retentive`/typu w rejestrze
+tego wpisu; tylko zmiana nazwy albo usunięcie unieważnia obserwację —
+dokładnie tak samo, jak wpłynęłoby to na właściwość `"Bit"` bloku.
+
+`read_value(project, io_provider, kind, signal_id, now_ms)` to jedyne
+miejsce mapujące wpis obserwacji z powrotem na realny odczyt przez
+właściwą metodę `IOProvider` — panel nigdy sam nie rozgałęzia się po
+`kind`. Dla sygnałów wewnętrznych wyprowadza pełny id
+(`internal_bit_id()`) z gołej nazwy przy KAŻDYM odczycie, dokładnie tak,
+jak `virtual_io.py`'s bloki robią to raz, przy kompilacji
+(`set_signal_id()`, §10) — tu bez etapu kompilacji, więc wyprowadzenie
+dzieje się na żywo. Sygnał usunięty z rejestru po przypięciu do
+obserwacji zwraca `None` (panel pokazuje myślnik, nigdy nie wywala się).
+
+**`classify_signal_id(project, coarse_kind, signal_id)`** (nowa funkcja
+publiczna w `core/crossref.py`, obok istniejących `KIND_*`) — mapuje
+grubszą klasyfikację `SignalPickerDialog`'a ("physical"/"internal"/
+"system", jego `KIND_ROLE`) na właściwą, drobniejszą stałą `KIND_*` tego
+modułu. Potrzebne, bo obserwowany sygnał nie musi być podłączony do
+żadnego bloku na kanwie (w przeciwieństwie do `build_crossref()`, który
+skanuje tylko bloki) — `SignalPickerDialog.selected_kind()` (nowa metoda,
+analogiczna do istniejącego `selected_signal_id()`) zwraca tylko grubszą
+sekcję, z której wybór pochodzi.
+
+### 23.2 Panel (`ui/panels/watch.py`)
+
+Nowa czwarta zakładka "Obserwowane" obok Library/Device Explorer/Sygnały.
+Tabela: Typ (skrócona etykieta — `DI`/`DO`/`AI`/`AO`/`M`/`MW`/`SYS`, ten
+sam duch co literowe prefiksy `short_id`, §13, zastosowany tu do
+przestrzeni sygnałów zamiast kategorii bloków), Sygnał, Opis, Wartość,
+Trend.
+
+**"Dodaj..."** otwiera `SignalPickerDialog` — TEN SAM wybór sygnału, z
+którego korzysta każda właściwość `"Bit"`/`"Sygnał"`/`"Address"` — więc
+dodawanie obserwacji nigdy nie jest drugim, niezależnie utrzymywanym
+sposobem przeglądania sygnałów. Duplikat (ta sama para kind+signal_id) po
+cichu nic nie robi (`is_watched()` sprawdzone przed `push_state()`, żeby
+nie zaśmiecać historii cofania pustą zmianą). **"Usuń"** kasuje całe
+zaznaczenie w JEDNYM wpisie historii cofania, niezależnie od liczby
+wierszy — ten sam wzorzec co `scene.py`'s `delete_selected_items()`.
+Obie akcje wołają `project.push_state()` PRZED mutacją (nie po) —
+dokładnie ta dyscyplina, którą feat/clipboard-and-align §3 (ARCHITECTURE.md
+§15.4 dziennika) ustaliło jako jedyny poprawny porządek.
+
+**Odświeżanie wartości**: `refresh_values(io_provider, now_ms)`, wołane
+raz na skan z `MainWindow._run_scan()` — dokładnie ten sam punkt zaczepienia
+co synchronizacja DI/DO/AI/AO `SimulationPanel`'a. `now_ms` liczone
+identycznie jak w `system.signal`'s `evaluate()` (z `engine.time`, nigdy z
+zegara systemowego) — sygnały generatorów impulsów/migania obserwowane
+tu tykają w tym samym rytmie symulacji co reszta aplikacji.
+
+**Trend (`_Sparkline`)**: mały, proceduralnie rysowany (`QPainter`) wykres
+paskowy — zero zależności od biblioteki wykresów, ta sama filozofia co
+`ui/canvas/shapes.py`/`ui/icons.py` (zero plików graficznych, zero
+zewnętrznych bibliotek). Sygnał boolowski rysuje przebieg schodkowy
+(0/1); sygnał analogowy skaluje się do minimum/maksimum FAKTYCZNIE
+ZAOBSERWOWANEGO w buforze próbek (nie do zadeklarowanego zakresu punktu
+analogowego) — obserwacja może wskazywać na dowolny sygnał, większość z
+nich nie ma żadnego zadeklarowanego zakresu w ogóle (np. rejestr
+wewnętrzny). Bufor: ostatnie 100 próbek, FIFO.
+
+### 23.3 Świadomie NIE zrobione w tym PR
+
+- **Eksport runtime**: `watched_signals` NIE jedzie w `EPW_RUNTIME_LOGIC`
+  — to czysto inżynierska/debugowa wygoda Logic Studio, EPW-OS nigdy jej
+  nie potrzebuje do wykonania logiki (ten sam status co
+  `short_id_counters` — wewnętrzna księgowość, nie kontrakt eksportu).
+- **Skrót z menu kontekstowego bloku** ("Dodaj do obserwowanych" na bloku
+  z przypisanym adresem/bitem/sygnałem, analogicznie do "Pokaż użycia
+  sygnału"/"Inne bloki tego samego sygnału") — realna wygoda, ale
+  odłożona żeby nie rozdmuchiwać zakresu pierwszej wersji; `SignalPickerDialog`
+  pozostaje jedyną drogą dodawania na razie.
+- **Eksport CSV listy obserwacji** (na wzór `SignalsPanel.export_csv()`,
+  §14) — nie zgłoszony jako potrzeba na tym etapie, łatwy do dodania
+  później przy tej samej strukturze danych.
+
+Testy: nowy `tests/test_watch.py` (28) — `core/watch.py` w pełnej izolacji
+od Qt: dodawanie/usuwanie/idempotencja, kopia (nie żywa referencja) z
+`get_watches()`, przetrwanie serializacji, migracja v5→v6,
+`describe_watch()`/`is_boolean_kind()`/`read_value()` dla wszystkich
+czterech `kind`, wliczając wyprowadzenie id sygnału wewnętrznego i sygnał
+usunięty z rejestru. Nowy `tests/test_watch_panel.py` (11) — pusty stan,
+budowa wierszy, sparkline boolowski vs. analogowy, `refresh_values()`
+(w tym myślnik dla nierozwiązanej wartości i no-op bez projektu), dodanie
+przez zamockowany `SignalPickerDialog.exec()` (jeden wpis cofania,
+sygnał `changed`), anulowanie dialogu nic nie zmienia, usunięcie
+zaznaczenia (jeden wpis cofania), stan przycisku "Usuń". Rozszerzone
+`tests/test_crossref.py` (6) — `classify_signal_id()` dla wszystkich
+czterech `kind` i nieznanej grubszej kategorii. Rozszerzone
+`tests/test_internal_bits.py` (2) — `SignalPickerDialog.selected_kind()`.
+Wszystkie 10 `examples/*.epwlogic` nadal się kompilują (migracja v1→v6 w
+locie).

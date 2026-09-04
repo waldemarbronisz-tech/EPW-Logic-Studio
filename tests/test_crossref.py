@@ -295,3 +295,43 @@ def test_multiple_addresses_do_not_cross_contaminate():
     index = build_crossref(p)
     assert len(index["ELA01.DI01"].readers) == 1
     assert len(index["ELA01.DI02"].readers) == 1
+
+
+# ---- classify_signal_id (feat/signal-watch) --------------------------------
+# Maps a SignalPickerDialog-style coarse kind + its chosen signal_id back to
+# this module's finer KIND_* constants, for a caller (WatchPanel) with only
+# a dialog result to work from, not an already-scanned block.
+
+def test_classify_signal_id_physical_di():
+    p = Project()
+    assert crossref.classify_signal_id(p, "physical", "ELA01.DI01") == KIND_PHYSICAL_DI
+
+def test_classify_signal_id_physical_do():
+    p = Project()
+    assert crossref.classify_signal_id(p, "physical", "ADA01.DO01") == KIND_PHYSICAL_DO
+
+def test_classify_signal_id_physical_analog_in_and_out():
+    p = Project()
+    p.settings["analog_points"] = [
+        {"address": "AI01", "name": "", "unit": "", "min": 0.0, "max": 1.0, "direction": "input"},
+        {"address": "AO01", "name": "", "unit": "", "min": 0.0, "max": 1.0, "direction": "output"},
+    ]
+    assert crossref.classify_signal_id(p, "physical", "AI01") == KIND_ANALOG_IN
+    assert crossref.classify_signal_id(p, "physical", "AO01") == KIND_ANALOG_OUT
+
+def test_classify_signal_id_internal_bit_vs_reg():
+    p = Project()
+    p.settings["internal_bits"] = [
+        {"name": "M_BIT", "type": "BOOL", "retentive": False},
+        {"name": "M_REG", "type": "REAL", "retentive": False},
+    ]
+    assert crossref.classify_signal_id(p, "internal", "M_BIT") == KIND_INTERNAL_BIT
+    assert crossref.classify_signal_id(p, "internal", "M_REG") == KIND_INTERNAL_REG
+
+def test_classify_signal_id_system():
+    p = Project()
+    assert crossref.classify_signal_id(p, "system", "SYS.READY") == KIND_SYSTEM
+
+def test_classify_signal_id_unknown_coarse_kind():
+    p = Project()
+    assert crossref.classify_signal_id(p, "bogus", "whatever") == KIND_UNASSIGNED

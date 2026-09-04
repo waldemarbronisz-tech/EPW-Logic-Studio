@@ -1,13 +1,11 @@
 # EPW Logic Studio — Pełny raport audytowy (dla Claude.ai)
 
-**Data:** 2026-09-04 (migawka §1-§10 odświeżona do stanu na branchu
-`fix/system-signal-type-sync-after-load`, zbudowanym na `docs/refresh-audit-report-pr21`
-— który sam jest zbudowany na `main` commit `28e6bc0`, po scaleniu PR #21
-`feat/duplicate-address-hyperlink`, PR #20
-`fix/audit-followups-multidevice-const` i PR #19 `feat/undo-diff-storage`;
-wszystkie liczby poniżej wyliczone bezpośrednio z repozytorium na tym
-branchu, nie przepisane z poprzedniej wersji — polecenia użyte do ich
-wyliczenia podane w każdej sekcji).
+**Data:** 2026-09-04 (migawka §1-§10 odświeżona do stanu na `main` commit
+`eb36719` — po scaleniu PR #23 `fix/system-signal-type-sync-after-load`,
+PR #22 `docs/refresh-audit-report-pr21` i PR #21
+`feat/duplicate-address-hyperlink`; wszystkie liczby poniżej wyliczone
+bezpośrednio z repozytorium na `main`, nie przepisane z poprzedniej
+wersji — polecenia użyte do ich wyliczenia podane w każdej sekcji).
 **Zakres:** wyłącznie warstwa logiki — `EPW-Logic-Studio/` (moduł `logic_studio`, testy, przykłady `.epwlogic`). Pozostałe moduły platformy (`EPW-OS`, `EPW-Synoptic-Editor`) celowo pominięte.
 **Cel dokumentu:** dać modelowi bez dostępu do repo pełny, samodzielny obraz architektury, stanu i znanych problemów, żeby mógł doradzać / kontynuować pracę bez dodatkowych pytań.
 **Struktura dokumentu:** §1-§10 to opisowa migawka BIEŻĄCEGO stanu — ma być
@@ -22,7 +20,7 @@ dziennik napraw, jeden wpis na branch/PR, w kolejności chronologicznej,
 
 EPW Logic Studio to wizualny edytor schematów blokowych (FBD — Function Block Diagram) i kompilator/runtime dla platformy automatyki EPW OS. Użytkownik układa bloki logiczne (bramki, timery, liczniki, przerzutniki, bloki I/O, matematyczne, porównania) na kanwie PySide6, łączy je "drutami", a Studio:
 
-1. zapisuje projekt inżynierski jako plik `.epwlogic` (JSON, `format: EPW_LOGIC`, `schema_version: 5`),
+1. zapisuje projekt inżynierski jako plik `.epwlogic` (JSON, `format: EPW_LOGIC`, `schema_version: 6`),
 2. kompiluje go do porządku wykonania (topological sort) i formatu `EPW_RUNTIME_LOGIC` (`schema_version: 4`), z sumą kontrolną SHA-256,
 3. wykonuje go w headless silniku PLC-podobnym (`ExecutionEngine`) — deterministycznie, bez zależności od Qt/zegara systemowego, gotowym do symulacji lub docelowo do uruchomienia na sterowniku EPW.
 
@@ -30,21 +28,21 @@ Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) 
 
 ## 2. Status repozytorium
 
-- Gałąź: `fix/system-signal-type-sync-after-load` (na `docs/refresh-audit-report-pr21`, na `main` commit `28e6bc0`), jeszcze niescalona.
-- **Testy: 895/895 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~17-18s.
-- **43 pliki testowe** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **10469 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
-- **Kod produkcyjny (`logic_studio/`): 12621 linii w 62 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
+- Gałąź: `feat/signal-watch-panel` (na `main` commit `eb36719`), jeszcze niescalona.
+- **Testy: 942/942 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~17-18s.
+- **45 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **10920 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
+- **Kod produkcyjny (`logic_studio/`): 13121 linii w 64 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
   - `blocks/`: 2306
-  - `ui/`: 7533
-  - `core/`: 1352
+  - `ui/`: 7848
+  - `core/`: 1537
   - `compiler/`: 752
   - `engine/`: 458
   - `app.py`/`__init__.py` (top-level): 220
 - **69 zarejestrowanych typów bloków w 12 kategoriach** — patrz §5 (polecenie i pełna lista tam), bez zmian od ostatniej migawki.
 - **10 przykładowych projektów** w `examples/*.epwlogic` — wszystkie otwierają się, kompilują i eksportują z bieżącym kodem (zweryfikowane przy każdym PR, patrz dziennik).
-- **102 commity** w historii (`git log --oneline | wc -l`) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
+- **106 commitów** w historii (`git log --oneline | wc -l`) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
 
-Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §22), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
+Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §23), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
 
 ## 3. Struktura katalogów
 
@@ -56,7 +54,7 @@ EPW-Logic-Studio/
 ├── README.md / ARCHITECTURE.md / REPORT.md / AUDIT_REPORT.md
 ├── .github/workflows/pytest.yml    # CI — patrz §19 dziennika
 ├── examples/                       # 10 przykładowych projektów .epwlogic
-├── tests/                          # 40 plików test_*.py, 849 testów
+├── tests/                          # 45 plików test_*.py, 942 testy
 └── logic_studio/
     ├── app.py                      # bootstrap Qt, main window wiring
     ├── blocks/                     # definicje bloków logicznych (17 plików)
@@ -90,6 +88,7 @@ EPW-Logic-Studio/
     │   ├── short_id.py                # liczniki krótkich identyfikatorów bloków (g12, i3, ...)
     │   ├── crossref.py                # cross-reference sygnałów (panel "Sygnały")
     │   ├── system_signals.py          # dostęp do katalogu sygnałów systemowych
+    │   ├── watch.py                    # lista obserwowanych sygnałów (panel "Obserwowane")
     │   └── grid.py                    # stała siatki kanwy (GRID_SIZE)
     ├── engine/
     │   ├── execution.py               # ExecutionEngine — headless scan-cycle runtime
@@ -101,7 +100,7 @@ EPW-Logic-Studio/
         ├── dialogs.py                  # Project Settings (analog_points/internal_bits/io_labels)
         ├── signal_picker.py            # wybór sygnału (fizyczny/wewnętrzny/systemowy)
         ├── canvas/                     # scena, bloki, piny, przewody, style rysowania
-        └── panels/                     # biblioteka, właściwości, symulacja, sygnały, urządzenia
+        └── panels/                     # biblioteka, właściwości, symulacja, sygnały, urządzenia, obserwowane
 ```
 
 ## 4. Model danych
@@ -128,18 +127,20 @@ Rejestr dekoratorowy: `@BlockRegistry.register` na klasie bloku → wpis w `_blo
 
 ### 4.4 `Project` ([logic_studio/core/project.py](logic_studio/core/project.py))
 - `blocks: list`, `settings: dict`, stos `undo_stack`/`redo_stack` (max 50 wpisów każdy; od feat/undo-diff-storage — §18 ARCHITECTURE.md, §25 dziennika — przechowywane różnicowo: tylko wierzchołek stosu jest pełnym słownikiem, reszta to diffy względem `core/state_diff.py`, nie 50 niezależnych pełnych snapshotów JSON).
-- `settings` — pięć projekt-poziomowych rejestrów poza `name`/`version`/`cycle_time_ms`:
+- `settings` — sześć projekt-poziomowych rejestrów poza `name`/`version`/`cycle_time_ms`:
   - `analog_points: []` — punkty analogowe (AI/AO są project-defined, nie stałe kanały sprzętowe jak DI/DO).
   - `internal_bits: []` — rejestr sygnałów wewnętrznych (feat/internal-bits §1) — typ BOOL/REAL + flaga retencji, referencjonowany przez `virtual.input`/`virtual.output`/`internal.reg_in`/`internal.reg_out`. Derywowany id: `M.`/`MR.`/`MW.`/`MWR.<name>` (`core/internal_bits.py::internal_bit_id()`).
   - `io_labels: {}` — etykiety opisowe adres→tekst (feat/io-labels-and-ids §1), np. `"ELA01.DI01" -> "Wyłącznik Q1 zamknięty"`, czytane/pisane wyłącznie przez `DeviceModel.get_io_label()`/`set_io_label()`.
   - `ela_devices: ["ELA01"]`/`ada_devices: ["ADA01"]` — lista urządzeń ELA/ADA (feat/multi-device-io, §16 ARCHITECTURE.md) — projekt-definiowana od v5, wcześniej trwale jedno-elementowa. Czytane/pisane wyłącznie przez `DeviceModel.get_ela_devices()`/`get_ada_devices()`/`set_ela_devices()`/`set_ada_devices()`.
+  - `watched_signals: []` — lista sygnałów przypiętych do panelu "Obserwowane" (feat/signal-watch, §23 ARCHITECTURE.md) — `{"kind", "signal_id"}`, czytane/pisane wyłącznie przez `core/watch.py::get_watches()`/`add_watch()`/`remove_watch()`.
   - `short_id_counters` — licznik per-prefiks, dodawany leniwie przy pierwszym bloku.
-- `serialize()` → `{format: "EPW_LOGIC", schema_version: 5, settings, blocks:[...]}`.
-- `deserialize()`: odrzuca nieznany `format` lub `schema_version` nowszy niż obsługiwany; **łańcuch migracji** `_MIGRATIONS = {1: v1→v2, 2: v2→v3, 3: v3→v4, 4: v4→v5}` sekwencyjnie podnosi starszy plik do bieżącej wersji przed dalszym przetwarzaniem:
+- `serialize()` → `{format: "EPW_LOGIC", schema_version: 6, settings, blocks:[...]}`.
+- `deserialize()`: odrzuca nieznany `format` lub `schema_version` nowszy niż obsługiwany; **łańcuch migracji** `_MIGRATIONS = {1: v1→v2, 2: v2→v3, 3: v3→v4, 4: v4→v5, 5: v5→v6}` sekwencyjnie podnosi starszy plik do bieżącej wersji przed dalszym przetwarzaniem:
   - v1→v2: wprowadza `analog_points`; usuwa błędnie zapisywane "Force State" z właściwości bloku (przenosi do `simulation_state` przy wczytaniu — runtime-only, nigdy nie powinno trafić do pliku).
   - v2→v3: wprowadza `internal_bits`; migruje wolnotekstowe `Tag` na `virtual.input`/`virtual.output` do zwalidowanego rejestru (`Bit`), scalając duplikaty bez rozróżniania wielkości liter.
   - v3→v4: wprowadza `io_labels` (pusty domyślnie — funkcja nie istniała wcześniej).
   - v4→v5: wprowadza `ela_devices`/`ada_devices` (domyślnie `["ELA01"]`/`["ADA01"]` — dokładnie to, co KAŻDY starszy plik już zakładał na stałe, więc migracja jest bezstratna).
+  - v5→v6: wprowadza `watched_signals` (pusty domyślnie — funkcja nie istniała wcześniej).
   - Nieznany `type_id` w pliku **rzuca `ValueError`** z listą brakujących typów — nie jest cicho pomijany (patrz dziennik §11, pkt 3.3 — to była naprawiona regresja).
 
 ### 4.5 `DeviceModel` ([logic_studio/core/device_model.py](logic_studio/core/device_model.py))
@@ -234,21 +235,22 @@ Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyśc
 ### 7.3 `RuntimeSnapshot` / `RuntimeBlockState` / `RuntimePinState`
 Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 
-## 8. Testy ([tests/](tests/)) — 890/890 PASS
+## 8. Testy ([tests/](tests/)) — 942/942 PASS
 
-43 pliki `test_*.py`, 10372 linie. Kilka największych/najbardziej reprezentatywnych plików:
+45 plików `test_*.py`, 10920 linii. Kilka największych/najbardziej reprezentatywnych plików:
 
 | Plik | Zakres |
 |---|---|
 | `test_canvas_rendering.py` | rysowanie bloków/kanwy — 141 testów |
 | `test_grid_alignment.py` | siatka, snap, geometria — 176 testów |
-| `test_internal_bits.py` | rejestr sygnałów wewnętrznych, katalog sygnałów systemowych + synchronizacja typu pinu po wczytaniu (§28 dziennika) — 55 testów |
+| `test_internal_bits.py` | rejestr sygnałów wewnętrznych, katalog sygnałów systemowych, synchronizacja typu pinu po wczytaniu (§28) + `SignalPickerDialog.selected_kind()` (§29 dziennika) — 57 testów |
 | `test_export_contract.py` | kontrakt eksportu, checksum, metadane — 33 testy |
 | `test_blocks.py` | logika pojedynczych bloków — 31 testów |
+| `test_watch.py` | lista obserwowanych sygnałów, `core/watch.py` (§29 dziennika) — 28 testów |
 | `test_signals_panel.py` | panel "Sygnały", drzewo grupowane kategorią — 25 testów |
 | `test_short_id.py` | krótkie identyfikatory bloków — 27 testów |
 | `test_property_panel.py` | panel właściwości — 27 testów |
-| `test_crossref.py` | cross-reference sygnałów — 21 testów |
+| `test_crossref.py` | cross-reference sygnałów + `classify_signal_id()` (§29 dziennika) — 27 testów |
 | `test_align.py` | wyrównywanie/rozkładanie bloków — 20 testów |
 | `test_multi_device_io.py` | wiele urządzeń ELA/ADA (§23 dziennika) + katalog sygnałów per urządzenie i walidacja `const.*` dopisane w §26 — 25 testów |
 | `test_undo_diff_storage.py` | historia undo/redo różnicowa, `Project`-level (§25 dziennika) — 9 testów |
@@ -259,11 +261,12 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_clipboard.py` | schowek kopiuj/wytnij/wklej — 14 testów |
 | `test_duplicate_address_hyperlink.py` | hiperłącze do duplikatów adresu (§27 dziennika) — 10 testów |
 | `test_canvas_navigation.py` | `ui/canvas/navigation.py` (skok+pulsowanie), wydzielone z `SignalsPanel` (§27 dziennika) — 7 testów |
+| `test_watch_panel.py` | panel "Obserwowane" — tabela, sparkline, dodawanie przez `SignalPickerDialog` (§29 dziennika) — 11 testów |
 | `test_wire_item_obstacle_avoidance.py` | integracja routera A* z `WireItem`/`BlockItem` realnym (§24 dziennika) — 4 testy |
 | `test_wire_routing.py` | kierunek wejścia/wyjścia przewodu z pinu — 6 testów |
 | `test_e2e.py`, `test_isolation.py`, `test_compiler.py`, `test_project.py`, `test_acceptance.py`, ... | pipeline end-to-end, izolacja `CompiledProgram`, kompilator, (de)serializacja projektu, scenariusze akceptacyjne |
 
-Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **895 passed w ~17-18s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
+Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **942 passed w ~17-18s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
 
 ## 9. Znane problemy i uwagi z audytu (wyłącznie OTWARTE)
 
@@ -1043,6 +1046,34 @@ ARCHITECTURE.md §22 dla pełnej listy scenariuszy.
 
 Pełny zestaw: 895 passed (890 + 5 nowych testów tego PR). Wszystkie 10
 `examples/*.epwlogic` nadal się kompilują.
+
+## 29. Nowa funkcja: panel Obserwowanych sygnałów (branch `feat/signal-watch-panel`)
+
+Pierwsza NOWA FUNKCJA po serii audytowych domknięć §19-§28 — wybrana z
+listy czterech propozycji jako pierwsza do zrobienia (makrobloki, trend/
+watch, porównanie wersji projektu, eksport do PDF), po rozmowie z
+właścicielem produktu. Pełny opis mechanizmu w ARCHITECTURE.md §23 — tu
+tylko status.
+
+| # | Punkt | Status |
+|---|---|---|
+| 1 | Model danych (`core/watch.py`) | Zrobione — `project.settings["watched_signals"]` (lista `{"kind", "signal_id"}`, `kind` współdzielone z `core/crossref.py`'s `KIND_*`), jedyne sankcjonowane API `get_watches()`/`add_watch()`/`remove_watch()`/`describe_watch()`/`is_boolean_kind()`/`read_value()`. `EPWLOGIC_SCHEMA_VERSION` 5→6, migracja `_migrate_v5_to_v6` (pusta domyślnie, jak `io_labels` w v3→v4). |
+| 2 | `classify_signal_id()` w `core/crossref.py` + `SignalPickerDialog.selected_kind()` | Zrobione — mapuje grubszą klasyfikację `SignalPickerDialog`'a ("physical"/"internal"/"system") na drobniejsze `KIND_*`, potrzebne bo obserwowany sygnał nie musi być podłączony do żadnego bloku (w przeciwieństwie do tego, co skanuje `build_crossref()`). |
+| 3 | Panel (`ui/panels/watch.py`) | Zrobione — czwarta zakładka "Obserwowane" obok Library/Device Explorer/Sygnały. Tabela Typ/Sygnał/Opis/Wartość/Trend, "Dodaj..." przez `SignalPickerDialog` (ten sam wybór co każda właściwość `"Bit"`/`"Sygnał"`/`"Address"`), "Usuń" dla zaznaczenia — obie akcje `push_state()` PRZED mutacją, jeden wpis cofania niezależnie od liczby wierszy. |
+| 4 | Trend na żywo | Zrobione — `_Sparkline`, proceduralnie rysowany `QPainter` (zero biblioteki wykresów), krok schodkowy dla boolowskich, skalowanie do zaobserwowanego min/max dla analogowych. `refresh_values()` wołane raz na skan z `MainWindow._run_scan()`, ten sam punkt zaczepienia co synchronizacja DI/DO/AI/AO `SimulationPanel`'a. |
+
+### Świadomie pominięte / poza zakresem tego PR
+- Eksport `watched_signals` do `EPW_RUNTIME_LOGIC` — czysto inżynierska
+  wygoda Logic Studio, EPW-OS jej nie potrzebuje.
+- Skrót "Dodaj do obserwowanych" w menu kontekstowym bloku — realna
+  wygoda, odłożona żeby nie rozdmuchiwać zakresu pierwszej wersji.
+- Eksport CSV listy obserwacji (na wzór `SignalsPanel.export_csv()`) —
+  nie zgłoszony jako potrzeba na tym etapie.
+
+Testy: nowy `tests/test_watch.py` (28), nowy `tests/test_watch_panel.py`
+(11), rozszerzone `tests/test_crossref.py` (+6) i `tests/test_internal_bits.py`
+(+2). Pełny zestaw: 942 passed (895 + 47 nowych testów tego PR). Wszystkie
+10 `examples/*.epwlogic` nadal się kompilują (migracja v1→v6 w locie).
 
 ## Zasada utrzymania tego dokumentu
 

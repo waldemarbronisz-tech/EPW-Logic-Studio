@@ -656,6 +656,29 @@ def test_signal_picker_select_and_accept_returns_chosen_id():
 
     assert dialog.selected_signal_id() == "BLOKADA_ZS"
 
+def test_signal_picker_select_and_accept_returns_chosen_kind():
+    """feat/signal-watch: selected_kind() pairs with selected_signal_id()
+    for a caller (WatchPanel) that needs the coarse "physical"/"internal"/
+    "system" section a choice came from."""
+    _app()
+    from logic_studio.ui.signal_picker import SignalPickerDialog
+    p = Project()
+    dialog = SignalPickerDialog(p, value_type=None, sections=("system",))
+
+    root = dialog.tree.topLevelItem(0)
+    leaf = root.child(0).child(0)
+    dialog.tree.setCurrentItem(leaf)
+    dialog._on_accept()
+
+    assert dialog.selected_kind() == "system"
+
+def test_signal_picker_selected_kind_none_before_any_selection():
+    _app()
+    from logic_studio.ui.signal_picker import SignalPickerDialog
+    p = Project()
+    dialog = SignalPickerDialog(p, value_type=None, sections=("system",))
+    assert dialog.selected_kind() is None
+
 def test_signal_picker_new_internal_signal_button_adds_to_registry():
     """§6.6: adding a signal without leaving the dialog."""
     _app()

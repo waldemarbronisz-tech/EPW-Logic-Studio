@@ -73,6 +73,34 @@ class Issue:
     text: str
 
 
+def classify_signal_id(project, coarse_kind: str, signal_id: str) -> str:
+    """Maps a SignalPickerDialog-style coarse kind ("physical"/"internal"/
+    "system", ui/signal_picker.py's KIND_ROLE) plus its chosen signal_id to
+    one of this module's finer-grained KIND_* constants above — the same
+    classification _resolve_address() below uses internally, exposed here
+    for a caller (feat/signal-watch's WatchPanel) that only has a
+    SignalPickerDialog result to work from, not an already-built crossref
+    index scanned from blocks on the canvas (a signal an engineer wants to
+    watch need not be wired to any block yet)."""
+    if coarse_kind == "physical":
+        if signal_id in DeviceModel.get_ela_addresses(project):
+            return KIND_PHYSICAL_DI
+        if signal_id in DeviceModel.get_ada_addresses(project):
+            return KIND_PHYSICAL_DO
+        if signal_id in DeviceModel.get_analog_output_addresses(project):
+            return KIND_ANALOG_OUT
+        # Defensive fallback for an address SignalPickerDialog's "physical"
+        # section could only ever have offered as an analog INPUT in the
+        # first place (every other case matched above) — never raises.
+        return KIND_ANALOG_IN
+    if coarse_kind == "internal":
+        entry = DeviceModel.get_internal_bit(project, signal_id)
+        return KIND_INTERNAL_REG if entry and entry.get("type") == "REAL" else KIND_INTERNAL_BIT
+    if coarse_kind == "system":
+        return KIND_SYSTEM
+    return KIND_UNASSIGNED
+
+
 def build_crossref(project) -> dict:
     """The full cross-reference index, keyed by signal_id."""
     index = {}

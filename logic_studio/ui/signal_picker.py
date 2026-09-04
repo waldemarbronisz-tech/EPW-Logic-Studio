@@ -77,6 +77,7 @@ class SignalPickerDialog(QDialog):
         self.value_type = value_type
         self.sections = sections
         self._chosen_id = None
+        self._chosen_kind = None
         self.setWindowTitle("Wybór sygnału")
         self.resize(640, 480)
 
@@ -238,6 +239,7 @@ class SignalPickerDialog(QDialog):
         if leaf is None:
             return
         self._chosen_id = leaf.data(0, SIGNAL_ID_ROLE)
+        self._chosen_kind = leaf.data(0, KIND_ROLE)
         self.accept()
 
     def selected_signal_id(self):
@@ -247,6 +249,15 @@ class SignalPickerDialog(QDialog):
         internal signals, or a system-catalog id. None if the dialog was
         cancelled or nothing was ever selected."""
         return self._chosen_id
+
+    def selected_kind(self):
+        """The coarse section the choice came from — "physical" |
+        "internal" | "system" (KIND_ROLE). feat/signal-watch: paired with
+        selected_signal_id() by callers (core/watch.py's WatchPanel) that
+        need core/crossref.py's finer KIND_* classification —
+        crossref.classify_signal_id(project, dialog.selected_kind(),
+        dialog.selected_signal_id())."""
+        return self._chosen_kind
 
     # ---- §6.6: add a registry entry without leaving the dialog ---------------
 
