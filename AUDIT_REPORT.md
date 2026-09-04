@@ -1,8 +1,8 @@
 # EPW Logic Studio — Pełny raport audytowy (dla Claude.ai)
 
 **Data:** 2026-09-04 (migawka §1-§10 odświeżona do stanu na branchu
-`feat/wire-routing-obstacle-avoidance`, zbudowanym na `main` commit
-`1468c7c` — po scaleniu PR #17 `feat/multi-device-io`; wszystkie liczby
+`feat/undo-diff-storage`, zbudowanym na `main` commit `6581946` — po
+scaleniu PR #18 `feat/wire-routing-obstacle-avoidance`; wszystkie liczby
 poniżej wyliczone bezpośrednio z repozytorium na tym branchu, nie
 przepisane z poprzedniej wersji — polecenia użyte do ich wyliczenia
 podane w każdej sekcji).
@@ -28,21 +28,21 @@ Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) 
 
 ## 2. Status repozytorium
 
-- Gałąź: `feat/wire-routing-obstacle-avoidance` (na `main` commit `1468c7c`, merge PR #17 `feat/multi-device-io`), jeszcze niescalona.
-- **Testy: 829/829 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~7-8s.
-- **38 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **9449 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
-- **Kod produkcyjny (`logic_studio/`): 12129 linii w 60 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
+- Gałąź: `feat/undo-diff-storage` (na `main` commit `6581946`, merge PR #18 `feat/wire-routing-obstacle-avoidance`), jeszcze niescalona.
+- **Testy: 849/849 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~9-11s.
+- **40 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **9771 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
+- **Kod produkcyjny (`logic_studio/`): 12293 linie w 61 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
   - `blocks/`: 2278
   - `ui/`: 7354
-  - `core/`: 1125
+  - `core/`: 1289
   - `compiler/`: 694
   - `engine/`: 458
   - `app.py`/`__init__.py` (top-level): 220
 - **69 zarejestrowanych typów bloków w 12 kategoriach** — patrz §5 (polecenie i pełna lista tam), bez zmian w tym PR.
 - **10 przykładowych projektów** w `examples/*.epwlogic` — wszystkie otwierają się, kompilują i eksportują z bieżącym kodem (zweryfikowane przy każdym PR, patrz dziennik).
-- **94 commity** w historii (`git log --oneline | wc -l`) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
+- **96 commitów** w historii (`git log --oneline | wc -l`) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
 
-Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §17), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
+Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §18), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
 
 ## 3. Struktura katalogów
 
@@ -54,7 +54,7 @@ EPW-Logic-Studio/
 ├── README.md / ARCHITECTURE.md / REPORT.md / AUDIT_REPORT.md
 ├── .github/workflows/pytest.yml    # CI — patrz §19 dziennika
 ├── examples/                       # 10 przykładowych projektów .epwlogic
-├── tests/                          # 38 plików test_*.py, 829 testów
+├── tests/                          # 40 plików test_*.py, 849 testów
 └── logic_studio/
     ├── app.py                      # bootstrap Qt, main window wiring
     ├── blocks/                     # definicje bloków logicznych (17 plików)
@@ -82,6 +82,7 @@ EPW-Logic-Studio/
     │   └── exporter.py                # Exporter — serializacja do EPW_RUNTIME_LOGIC + checksum
     ├── core/
     │   ├── project.py                 # Project — model projektu, (de)serializacja + migracje, undo/redo
+    │   ├── state_diff.py              # diff/patch dla Project.serialize() — przechowywanie historii undo/redo
     │   ├── device_model.py            # DeviceModel — adresy ELA/ADA, punkty analogowe, etykiety I/O
     │   ├── internal_bits.py           # rejestr sygnałów wewnętrznych (M./MR./MW./MWR.)
     │   ├── short_id.py                # liczniki krótkich identyfikatorów bloków (g12, i3, ...)
@@ -124,7 +125,7 @@ EPW-Logic-Studio/
 Rejestr dekoratorowy: `@BlockRegistry.register` na klasie bloku → wpis w `_blocks[category][type_id]`. `create_block(type_id)` tworzy nową instancję; `get_categories()`/`get_blocks_in_category()` — używane przez `LibraryPanel` i przez ten dokument (§5) do wyliczenia inwentarza. Rejestracja tworzy tymczasową instancję (`dummy = block_class()`) przy imporcie — każdy blok musi mieć bezargumentowy konstruktor.
 
 ### 4.4 `Project` ([logic_studio/core/project.py](logic_studio/core/project.py))
-- `blocks: list`, `settings: dict`, stos `undo_stack`/`redo_stack` (max 50 wpisów, pełny snapshot JSON projektu — patrz §9.1 niżej).
+- `blocks: list`, `settings: dict`, stos `undo_stack`/`redo_stack` (max 50 wpisów każdy; od feat/undo-diff-storage — §18 ARCHITECTURE.md, §25 dziennika — przechowywane różnicowo: tylko wierzchołek stosu jest pełnym słownikiem, reszta to diffy względem `core/state_diff.py`, nie 50 niezależnych pełnych snapshotów JSON).
 - `settings` — pięć projekt-poziomowych rejestrów poza `name`/`version`/`cycle_time_ms`:
   - `analog_points: []` — punkty analogowe (AI/AO są project-defined, nie stałe kanały sprzętowe jak DI/DO).
   - `internal_bits: []` — rejestr sygnałów wewnętrznych (feat/internal-bits §1) — typ BOOL/REAL + flaga retencji, referencjonowany przez `virtual.input`/`virtual.output`/`internal.reg_in`/`internal.reg_out`. Derywowany id: `M.`/`MR.`/`MW.`/`MWR.<name>` (`core/internal_bits.py::internal_bit_id()`).
@@ -231,9 +232,9 @@ Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyśc
 ### 7.3 `RuntimeSnapshot` / `RuntimeBlockState` / `RuntimePinState`
 Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 
-## 8. Testy ([tests/](tests/)) — 829/829 PASS
+## 8. Testy ([tests/](tests/)) — 849/849 PASS
 
-38 plików `test_*.py`, 9449 linii. Kilka największych/najbardziej reprezentatywnych plików:
+40 plików `test_*.py`, 9771 linii. Kilka największych/najbardziej reprezentatywnych plików:
 
 | Plik | Zakres |
 |---|---|
@@ -248,6 +249,8 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_crossref.py` | cross-reference sygnałów — 21 testów |
 | `test_align.py` | wyrównywanie/rozkładanie bloków — 20 testów |
 | `test_multi_device_io.py` | wiele urządzeń ELA/ADA (§23 dziennika) — 20 testów |
+| `test_undo_diff_storage.py` | historia undo/redo różnicowa, `Project`-level (§25 dziennika) — 9 testów |
+| `test_state_diff.py` | diff/patch `core/state_diff.py`, w izolacji od `Project`/Qt (§25 dziennika) — 11 testów |
 | `test_wire_routing_obstacles.py` | router A* z omijaniem przeszkód, w izolacji od sceny (§24 dziennika) — 15 testów |
 | `test_block_disable.py` | tymczasowe wyłączanie bloku — 16 testów |
 | `test_clipboard.py` | schowek kopiuj/wytnij/wklej — 14 testów |
@@ -255,7 +258,7 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_wire_routing.py` | kierunek wejścia/wyjścia przewodu z pinu — 6 testów |
 | `test_e2e.py`, `test_isolation.py`, `test_compiler.py`, `test_project.py`, `test_acceptance.py`, ... | pipeline end-to-end, izolacja `CompiledProgram`, kompilator, (de)serializacja projektu, scenariusze akceptacyjne |
 
-Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **829 passed w ~7-8s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
+Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **849 passed w ~9-11s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
 
 ## 9. Znane problemy i uwagi z audytu (wyłącznie OTWARTE)
 
@@ -267,28 +270,17 @@ przez bity wewnętrzne, nie nowe typy bloków). `DeviceModel` na jedno
 urządzenie ZAMKNIĘTE implementacją (§23 dziennika, branch
 `feat/multi-device-io` — wiele urządzeń ELA/ADA jest teraz
 projekt-definiowane), choć zostawiła po sobie dwa węższe, wciąż otwarte
-punkty (§9.2/§9.3 poniżej). Duplikat adresu na `input.di` ZAMKNIĘTY
+punkty (§9.1/§9.2 poniżej). Duplikat adresu na `input.di` ZAMKNIĘTY
 implementacją innej formy niż pierwotnie rozważana — hiperłącze między
 blokami, nie błąd walidacji (branch `feat/duplicate-address-hyperlink`,
 PR otwarty, jeszcze bez własnego wpisu w tym dzienniku — dopisze się przy
 scaleniu). Router przewodów bez omijania przeszkód (poprzedni §10, pkt 4)
 ZAMKNIĘTY implementacją (§24 dziennika, branch
-`feat/wire-routing-obstacle-avoidance`).
+`feat/wire-routing-obstacle-avoidance`). Undo/redo pełnym snapshotem
+zamiast różnicowo (poprzedni §9.1, PRIORYTET) ZAMKNIĘTY implementacją
+(§25 dziennika, branch `feat/undo-diff-storage`).
 
-### 9.1 Undo/redo pełnym snapshotem, nie różnicowo (PRIORYTET — zmieniony status)
-`Project.push_state()` serializuje CAŁY projekt do JSON przy każdej realnej
-zmianie (limit 50 wpisów, najstarszy odrzucany — limit już wdrożony).
-Zmierzony rozmiar pojedynczego zrzutu dla największego obecnie przykładu
-(`examples/EPW_LOGIC_PRIORITY_A_TEST.epwlogic`, 11 bloków): **9398 bajtów**
-(~9,2 KiB) — 50-wpisowy stos to ~459 KiB w najgorszym razie dla dzisiejszych
-przykładów, rośnie w przybliżeniu liniowo z liczbą bloków. Wcześniej
-odnotowane jako "kandydat na przyszłość, nie pilne" — **status zmieniony
-2026-09-03**: dzisiejsze projekty to dziesiątki bloków, ale właściciel
-produktu wprost nie chce, by architektura ograniczała dalszy wzrost —
-przeprojektowanie na przechowywanie różnicowe traktować jako realną,
-nieodległą pracę, nie "kiedyś, jeśli".
-
-### 9.2 Panel Symulacji nie przebudowuje siatki DI/DO na zmianę listy urządzeń
+### 9.1 Panel Symulacji nie przebudowuje siatki DI/DO na zmianę listy urządzeń
 Znalezione podczas §23 (`feat/multi-device-io`), świadomie zostawione poza
 zakresem tamtego PR. `ui/panels/simulation.py`'s DI/DO checkboxy budowane
 są RAZ, w konstruktorze `SimulationPanel.__init__()` — `set_project()`
@@ -300,7 +292,7 @@ wymaga realnego przepisania budowy siatki DI/DO na coś przebudowywalnego
 przy zmianie projektu, nie tylko dopisania argumentu `project` do
 istniejących wywołań (jak reszta §23's zmian).
 
-### 9.3 Katalog sygnałów systemowych nie generuje diagnostyki per urządzenie
+### 9.2 Katalog sygnałów systemowych nie generuje diagnostyki per urządzenie
 Również znalezione i świadomie odłożone podczas §23. `core/
 system_signals_catalog.json` ma STATYCZNE wpisy `"ELA01.ONLINE"`/
 `"ELA01.FAULT"`/`"ADA01.ONLINE"`/`"ADA01.FAULT"`/`"ADA01.SAFE_PATH_OK"` —
@@ -312,19 +304,23 @@ poprawka.
 
 ## 10. Rekomendacje / pytania otwarte do dalszej pracy
 
-1. Zaplanować przeprojektowanie undo/redo na przechowywanie różnicowe
-   (§9.1, zmierzone w dzienniku §18) — osobna sesja projektowa.
-2. Dokończyć wielourządzeniowość: przebudowa siatki Panelu Symulacji
-   (§9.2) i generowana diagnostyka systemowa per urządzenie (§9.3) —
+1. Dokończyć wielourządzeniowość: przebudowa siatki Panelu Symulacji
+   (§9.1) i generowana diagnostyka systemowa per urządzenie (§9.2) —
    obie mniejsze niż §23's oryginalny zakres, ale osobne od niego.
-3. Dodać w `Validator` walidację zakresów właściwości `const.*` (§6,
+2. Dodać w `Validator` walidację zakresów właściwości `const.*` (§6,
    "Nadal otwarte braki").
-4. A* router (§17 ARCHITECTURE.md, §24 dziennika) przelicza się od zera
+3. A* router (§17 ARCHITECTURE.md, §24 dziennika) przelicza się od zera
    przy każdym `update_path()` dla przewodu, który go potrzebuje — brak
    cache'owania wyniku między klatkami przeciągania tego samego bloku.
    Nie zmierzone jako realny problem dzisiaj (pojedynczy przewód: ~kilka
    ms), ale warto obserwować przy projekcie, gdzie przeciągane bloki mają
    wiele "trudnych" przewodów jednocześnie.
+4. `diff_project_state()` (§18 ARCHITECTURE.md, §25 dziennika) porównuje
+   każdy blok base-vs-target na każdym `push_state()` — O(N) względem
+   liczby bloków, ten sam rząd co `Project.serialize()` już dziś, więc
+   nie jest to regresja, ale nie zoptymalizowane na wyrost (np. śledzenie
+   "brudnych" uuid wprost przy mutacji) bez zmierzonego realnego
+   problemu przy dzisiejszych rozmiarach projektów.
 
 ---
 
@@ -897,6 +893,55 @@ bez commitu `feat/duplicate-address-hyperlink`, jeszcze niescalonego)
 plus 19 nowych testów tego PR — stabilne pod `pytest-randomly`
 (zweryfikowane na trzech ziarnach: 1, 42, 777). Wszystkie
 `examples/*.epwlogic` nadal się otwierają i kompilują bez zmian.
+
+---
+
+## 25. Status napraw (branch `feat/undo-diff-storage`)
+
+Undo/redo różnicowo, nie pełnym snapshotem — właściciel produktu wybrał to
+wprost jako kolejny priorytet z listy §10 poprzedniej migawki (pkt 1,
+oznaczone PRIORYTET w §9.1). `Project.push_state()` serializował CAŁY
+projekt do JSON na każdą realną zmianę, mimo że typowa edycja dotyka
+jednego bloku albo kilku — koszt rósł liniowo z liczbą bloków, 50-wpisowy
+stos sięgał setek KiB, dokładnie to, czego właściciel produktu nie chciał
+("architektura nie ma ograniczać dalszego wzrostu").
+
+| # | Punkt | Status |
+|---|---|---|
+| 1 | Nowy moduł `core/state_diff.py` | Zrobione — `diff_project_state()`/`apply_project_diff()`, bloki dopasowywane po `uuid` (nie po pozycji), `order` zapisywany jawnie tylko gdy faktycznie inny niż w `base` (typowa edycja istniejącego bloku nie płaci za listę wszystkich uuid w projekcie). |
+| 2 | Przechowywanie w `Project` | Zrobione — `_HistoryEntry` (`full`/`diff`), niezmiennik "wierzchołek stosu zawsze pełny, reszta to diffy względem sąsiada nad sobą" utrzymywany przez `_stack_push()`/`_stack_pop()`. Push/pop O(rozmiar zmiany), nie O(głębokości stosu) — patrz uzasadnienie w ARCHITECTURE.md §18. Zewnętrzny kontrakt (`push_state()`/`undo()`/`redo()`, `len(undo_stack)`) bez zmian — żaden istniejący test/wywołujący kod nie zauważa różnicy. |
+| 3 | Naprawiony błąd aliasowania (znaleziony po drodze) | Zrobione — `BaseLogicBlock.serialize()`'s `properties` i zagnieżdżone wartości `Project.settings` były zwracane przez referencję, nie kopiowane; późniejsza edycja w miejscu cicho przepisywała już zapisaną historię. `_stack_push()` teraz robi `copy.deepcopy(state)` raz, na wejściu. |
+| 4 | Zmierzony efekt | Zweryfikowane — koszt na wpis-różnicę praktycznie stały (~770 B na edycję jednego bloku) niezależnie od rozmiaru projektu; redukcja względem starego sposobu rośnie z rozmiarem projektu: 7,2x przy 10 blokach, 22,5x przy 50, 38,2x przy 200, 46,4x przy 800 (tabela w ARCHITECTURE.md §18). |
+
+### Świadomie pominięte / poza zakresem tego PR
+- `diff_project_state()` nadal wykonuje porównanie O(N) bloków na każdy
+  `push_state()` — ten sam rząd złożoności co `Project.serialize()` już
+  dziś, nie regresja, ale nie zoptymalizowane na wyrost. Nowy otwarty
+  punkt §10, pkt 4 tej migawki.
+
+Testy: `tests/test_state_diff.py` (11 nowych) — round-trip diff/apply w
+pełnej izolacji od `Project`/Qt: stany identyczne, jeden zmieniony blok,
+dodanie, usunięcie, przestawienie kolejności bez zmiany treści, zmiana
+ustawień (klucz dodany/usunięty), pusta różnica, brak mutacji wejść,
+przeniesienie `format`/`schema_version`. `tests/test_undo_diff_storage.py`
+(9 nowych) — trzy edycje cofnięte po kolei we właściwej kolejności, redo
+odtwarzające ten sam łańcuch w przód (przez pełne `Project.deserialize()`
+między krokami, jak `MainWindow._apply_state()`), redo_stack czyszczony po
+nowym push, limit 50 wpisów wciąż respektowany z poprawnym cofaniem po
+odrzuceniu starszych wpisów, oba testy regresyjne aliasowania
+(properties/settings), brak aliasowania między dwoma wypchniętymi
+snapshotami, pojedyncza zmiana jednego bloku zapisuje w różnicy wyłącznie
+ten blok niezależnie od rozmiaru projektu.
+
+Pełny zestaw: 849 passed (§24's 829 plus 20 nowych testów tego PR),
+stabilne pod `pytest-randomly` (zweryfikowane na czterech ziarnach: 1,
+42, 777, 12345). Wszystkie `examples/*.epwlogic` nadal się otwierają i
+kompilują bez zmian. Cały istniejący pakiet testów undo-related
+(`tests/test_undo_stack.py` i undo-cover w `test_align.py`/
+`test_clipboard.py`/`test_block_disable.py`/`test_property_panel.py`/
+`test_io_labels_editor.py`/`test_analog_ui.py`/`test_block_display.py`)
+przeszedł BEZ ŻADNEJ modyfikacji — potwierdza, że przechowywanie
+różnicowe jest niewidoczne z zewnątrz.
 
 ---
 
