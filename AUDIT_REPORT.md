@@ -1,11 +1,11 @@
 # EPW Logic Studio — Pełny raport audytowy (dla Claude.ai)
 
-**Data:** 2026-09-04 (migawka §1-§10 odświeżona do stanu na branchu
-`fix/audit-followups-multidevice-const`, zbudowanym na `main` commit
-`d480313` — po scaleniu PR #19 `feat/undo-diff-storage`; wszystkie liczby
-poniżej wyliczone bezpośrednio z repozytorium na tym branchu, nie
-przepisane z poprzedniej wersji — polecenia użyte do ich wyliczenia
-podane w każdej sekcji).
+**Data:** 2026-09-04 (migawka §1-§10 odświeżona do stanu na `main` commit
+`28e6bc0` — po scaleniu PR #21 `feat/duplicate-address-hyperlink`, samego
+PR #20 `fix/audit-followups-multidevice-const` i PR #19
+`feat/undo-diff-storage`; wszystkie liczby poniżej wyliczone bezpośrednio
+z repozytorium na `main`, nie przepisane z poprzedniej wersji — polecenia
+użyte do ich wyliczenia podane w każdej sekcji).
 **Zakres:** wyłącznie warstwa logiki — `EPW-Logic-Studio/` (moduł `logic_studio`, testy, przykłady `.epwlogic`). Pozostałe moduły platformy (`EPW-OS`, `EPW-Synoptic-Editor`) celowo pominięte.
 **Cel dokumentu:** dać modelowi bez dostępu do repo pełny, samodzielny obraz architektury, stanu i znanych problemów, żeby mógł doradzać / kontynuować pracę bez dodatkowych pytań.
 **Struktura dokumentu:** §1-§10 to opisowa migawka BIEŻĄCEGO stanu — ma być
@@ -28,21 +28,21 @@ Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) 
 
 ## 2. Status repozytorium
 
-- Gałąź: `fix/audit-followups-multidevice-const` (na `main` commit `d480313`, merge PR #19 `feat/undo-diff-storage`), jeszcze niescalona.
-- **Testy: 874/874 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~16-17s.
-- **41 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **10087 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
-- **Kod produkcyjny (`logic_studio/`): 12464 linie w 61 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
+- Gałąź: `main` (commit `28e6bc0`, merge PR #21 `feat/duplicate-address-hyperlink`).
+- **Testy: 890/890 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~17-18s.
+- **43 pliki testowe** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **10372 linie** testów — `find tests -name "test_*.py" | xargs wc -l`.
+- **Kod produkcyjny (`logic_studio/`): 12576 linii w 62 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
   - `blocks/`: 2283
-  - `ui/`: 7421
+  - `ui/`: 7533
   - `core/`: 1352
   - `compiler/`: 730
   - `engine/`: 458
   - `app.py`/`__init__.py` (top-level): 220
-- **69 zarejestrowanych typów bloków w 12 kategoriach** — patrz §5 (polecenie i pełna lista tam), bez zmian w tym PR.
+- **69 zarejestrowanych typów bloków w 12 kategoriach** — patrz §5 (polecenie i pełna lista tam), bez zmian od ostatniej migawki.
 - **10 przykładowych projektów** w `examples/*.epwlogic` — wszystkie otwierają się, kompilują i eksportują z bieżącym kodem (zweryfikowane przy każdym PR, patrz dziennik).
-- **97 commitów** w historii (`git log --oneline | wc -l`) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
+- **101 commitów** w historii (`git log --oneline | wc -l`) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
 
-Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §20), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
+Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §21), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
 
 ## 3. Struktura katalogów
 
@@ -232,9 +232,9 @@ Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyśc
 ### 7.3 `RuntimeSnapshot` / `RuntimeBlockState` / `RuntimePinState`
 Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 
-## 8. Testy ([tests/](tests/)) — 849/849 PASS
+## 8. Testy ([tests/](tests/)) — 890/890 PASS
 
-40 plików `test_*.py`, 9771 linii. Kilka największych/najbardziej reprezentatywnych plików:
+43 pliki `test_*.py`, 10372 linie. Kilka największych/najbardziej reprezentatywnych plików:
 
 | Plik | Zakres |
 |---|---|
@@ -248,17 +248,20 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_property_panel.py` | panel właściwości — 27 testów |
 | `test_crossref.py` | cross-reference sygnałów — 21 testów |
 | `test_align.py` | wyrównywanie/rozkładanie bloków — 20 testów |
-| `test_multi_device_io.py` | wiele urządzeń ELA/ADA (§23 dziennika) — 20 testów |
+| `test_multi_device_io.py` | wiele urządzeń ELA/ADA (§23 dziennika) + katalog sygnałów per urządzenie i walidacja `const.*` dopisane w §26 — 25 testów |
 | `test_undo_diff_storage.py` | historia undo/redo różnicowa, `Project`-level (§25 dziennika) — 9 testów |
 | `test_state_diff.py` | diff/patch `core/state_diff.py`, w izolacji od `Project`/Qt (§25 dziennika) — 11 testów |
 | `test_wire_routing_obstacles.py` | router A* z omijaniem przeszkód, w izolacji od sceny (§24 dziennika) — 15 testów |
+| `test_const_validation.py` | walidacja właściwości `const.real/int/time` (§26 dziennika) — 16 testów |
 | `test_block_disable.py` | tymczasowe wyłączanie bloku — 16 testów |
 | `test_clipboard.py` | schowek kopiuj/wytnij/wklej — 14 testów |
+| `test_duplicate_address_hyperlink.py` | hiperłącze do duplikatów adresu (§27 dziennika) — 10 testów |
+| `test_canvas_navigation.py` | `ui/canvas/navigation.py` (skok+pulsowanie), wydzielone z `SignalsPanel` (§27 dziennika) — 7 testów |
 | `test_wire_item_obstacle_avoidance.py` | integracja routera A* z `WireItem`/`BlockItem` realnym (§24 dziennika) — 4 testy |
 | `test_wire_routing.py` | kierunek wejścia/wyjścia przewodu z pinu — 6 testów |
 | `test_e2e.py`, `test_isolation.py`, `test_compiler.py`, `test_project.py`, `test_acceptance.py`, ... | pipeline end-to-end, izolacja `CompiledProgram`, kompilator, (de)serializacja projektu, scenariusze akceptacyjne |
 
-Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **849 passed w ~9-11s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
+Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **890 passed w ~17-18s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
 
 ## 9. Znane problemy i uwagi z audytu (wyłącznie OTWARTE)
 
@@ -275,9 +278,8 @@ sygnałów systemowych bez diagnostyki per urządzenie (poprzedni §9.2) —
 oba ZAMKNIĘTE implementacją (§26 dziennika, branch
 `fix/audit-followups-multidevice-const`). Duplikat adresu na `input.di` ZAMKNIĘTY
 implementacją innej formy niż pierwotnie rozważana — hiperłącze między
-blokami, nie błąd walidacji (branch `feat/duplicate-address-hyperlink`,
-PR otwarty, jeszcze bez własnego wpisu w tym dzienniku — dopisze się przy
-scaleniu). Router przewodów bez omijania przeszkód (poprzedni §10, pkt 4)
+blokami, nie błąd walidacji (§27 dziennika, branch
+`feat/duplicate-address-hyperlink`, PR #21, scalony). Router przewodów bez omijania przeszkód (poprzedni §10, pkt 4)
 ZAMKNIĘTY implementacją (§24 dziennika, branch
 `feat/wire-routing-obstacle-avoidance`). Undo/redo pełnym snapshotem
 zamiast różnicowo (poprzedni §9.1, PRIORYTET) ZAMKNIĘTY implementacją
@@ -960,6 +962,49 @@ Testy: rozszerzone `tests/test_simulation_panel.py` (4 nowe) i
 `tests/test_const_validation.py` (16) dla punktu 4.
 
 Pełny zestaw: 874 passed (849 + 9 z punktów 1-3 + 16 z punktu 4).
+
+## 27. Status napraw (branch `feat/duplicate-address-hyperlink`, PR #21)
+
+Dwa bloki czytające ten sam fizyczny/wewnętrzny adres (np. dwa `input.di`
+z `Address="ELA01.DI01"`) to legalny, częsty wzorzec — ten sam sygnał
+narysowany ponownie w innym miejscu dużego diagramu, żeby uniknąć
+długiego przewodu przez całą kanwę — nie zawsze pomyłka, w
+przeciwieństwie do duplikatu adresu WYJŚCIOWEGO (`output.do`), gdzie dwa
+zapisujące ten sam adres naprawdę są błędem (już wykrywanym przez
+Validator). Potwierdzone z właścicielem produktu: to celowo NIE staje
+się nowym błędem Validatora — potrzebny był tylko szybki sposób skoku
+między duplikatami z kanwy, żeby inżynier mógł potwierdzić, że to
+zamierzone powtórzenie, nie kolizja.
+
+| # | Punkt | Status |
+|---|---|---|
+| 1 | Podmenu "Inne bloki tego samego sygnału" | Zrobione — `BlockItem`'s menu kontekstowe, zawsze obecne (odkrywalność), włączane tylko gdy coś innego faktycznie dzieli sygnał tego bloku. `BlockItem._duplicate_reference_blocks()` używa `core/crossref.py`'s własnej rezolucji sygnału (ten sam zestaw czytelników+zapisujących, który panel Sygnały już traktuje jako "ten sam sygnał") — działa jednolicie dla Address/Bit/Sygnał, nie tylko DI. `populate_duplicate_reference_menu()` wydzielone z `contextMenuEvent()` (wzorzec `scene.py`'s `populate_align_menu()`/`SignalsPanel`'s `_build_reader_menu()`) — testowalne bez `QMenu.exec()`. |
+| 2 | Wspólny moduł nawigacji kanwy | Zrobione — nowy `ui/canvas/navigation.py` (`find_block_item()`/`pulse_highlight()`/`jump_to_block()`) wydzielony z `SignalsPanel` (żył tam od feat/signal-crossref §3.1) — `SignalsPanel` i `BlockItem` wołają teraz te same trzy funkcje zamiast `BlockItem` duplikującego "zaznacz + wyśrodkuj + podświetl pulsowaniem" od nowa. `SignalsPanel._jump_to_block()` zostaje cienkim wrapperem delegującym (publiczna nazwa metody dla istniejących wywołujących bez zmian). |
+| 3 | Sprzątnięcie zduplikowanego dostępu do okna/projektu | Zrobione — trzecia kopia `self.scene().views()[0].window()` (z tym samym try/except guard) na `BlockItem` scalona w jedną parę `_current_window()`/`_current_project()`, którą teraz współdzielą `_resolved_internal_signal_id()` i nowa logika duplikatów — bez zmiany zachowania. |
+
+Testy: nowy plik `tests/test_duplicate_address_hyperlink.py` (10) —
+wykrywanie duplikatów dla 2 i 3 bloków dzielących adres, unikalny adres
+bez duplikatów, blok bez żadnego odwołania do sygnału bez duplikatów, to
+samo dla bloków opartych o `Bit` (nie tylko `Address`), stan
+włączone/wyłączone podmenu, etykieta wpisu zawiera Tag gdy ustawiony,
+wybór wpisu skacze do i zaznacza właściwy blok. Nowy plik
+`tests/test_canvas_navigation.py` (7) — w większości przeniesione z
+`tests/test_signals_panel_navigation.py`, który stracił swoje testy
+funkcji nawigacyjnych teraz mieszkających w module współdzielonym (własny
+plik testowy tego panelu zostaje, zawężony do tego, co panel faktycznie
+dokłada od siebie).
+
+Pełny zestaw: 890 passed (874 + 16 nowych testów tego PR). Zweryfikowany
+czystym mergem lokalnym (bez konfliktów) przeciwko ówczesnemu `main`
+przed scaleniem.
+
+### Świadomie pominięte / poza zakresem tego PR
+- Żadna zmiana w `compiler/validator.py` — duplikat adresu na
+  `input.di`/`internal.*` pozostaje jawnie NIE błędem kompilacji, zgodnie
+  z decyzją właściciela produktu opisaną wyżej.
+- Wymiana między osobnymi instancjami programu (np. skok do bloku w innym
+  otwartym oknie) — poza zakresem, ten sam wzorzec "jedna scena, jedno
+  okno" co reszta nawigacji kanwy.
 
 ## Zasada utrzymania tego dokumentu
 
