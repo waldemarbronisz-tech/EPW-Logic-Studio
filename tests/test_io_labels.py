@@ -106,9 +106,11 @@ def test_analog_point_address_label_does_not_warn():
 # ---- §1.3 migration ---------------------------------------------------
 
 def test_v3_project_migrates_with_empty_io_labels():
-    from logic_studio.core.project import EPWLOGIC_SCHEMA_VERSION
-    assert EPWLOGIC_SCHEMA_VERSION == 4
-
+    """A v3 file predates io_labels entirely (introduced in v3->v4) — it
+    must migrate all the way up to the CURRENT schema version (whatever
+    that is — not asserted as a literal number here, so this test doesn't
+    need updating every time a later migration is added) with an empty
+    io_labels dict, not a missing key or an error."""
     old_data = {
         "format": "EPW_LOGIC",
         "schema_version": 3,

@@ -6,7 +6,7 @@ from logic_studio.core.grid import GRID_SIZE
 # Bump when the on-disk .epwlogic schema changes in a way that requires migration.
 # Every bump needs a matching _migrate_vN_to_v(N+1)(data) function registered in
 # _MIGRATIONS below — see AUDIT_REPORT.md §2 "Wersjonowanie schematów".
-EPWLOGIC_SCHEMA_VERSION = 4
+EPWLOGIC_SCHEMA_VERSION = 5
 
 
 def _migrate_v1_to_v2(data: dict) -> dict:
@@ -131,13 +131,34 @@ def _migrate_v3_to_v4(data: dict) -> dict:
     return data
 
 
+def _migrate_v4_to_v5(data: dict) -> dict:
+    """v4 -> v5 (feat/multi-device-io):
+    - settings.ela_devices/ada_devices introduced — the project-defined
+      list of ELA/ADA module names (core/device_model.py's
+      ELA_DEVICES/ADA_DEVICES class constants, previously fixed at
+      ["ELA01"]/["ADA01"] for every project). Defaults to exactly that
+      single-device list when absent, so every pre-v5 file — which could
+      only ever have addressed "ELA01.DI01".."ELA01.DI32"/"ADA01.DO01"..
+      "ADA01.DO32" in the first place — keeps validating and compiling
+      identically after this migration; nothing is actually being
+      migrated FROM, same "an empty migration is not a skipped one"
+      reasoning as v3->v4.
+    """
+    settings = data.setdefault("settings", {})
+    settings.setdefault("ela_devices", ["ELA01"])
+    settings.setdefault("ada_devices", ["ADA01"])
+    data["schema_version"] = 5
+    return data
+
+
 # Keyed by the version a migration upgrades FROM. Project.deserialize() walks
 # this sequentially — apply the migration for the file's current version,
-# re-check, repeat — so a v1 file goes through v1->v2->v3->v4 in one load.
+# re-check, repeat — so a v1 file goes through v1->v2->v3->v4->v5 in one load.
 _MIGRATIONS = {
     1: _migrate_v1_to_v2,
     2: _migrate_v2_to_v3,
     3: _migrate_v3_to_v4,
+    4: _migrate_v4_to_v5,
 }
 
 
@@ -170,6 +191,15 @@ class Project:
             # is added here lazily by the first block ever added to the
             # project — not seeded here, since an empty project needs none.
             "io_labels": {},
+            # feat/multi-device-io: the ELA/ADA modules THIS project
+            # addresses — a new project starts with the same single-device
+            # default every project always had (DeviceModel.ELA_CHANNELS/
+            # ADA_CHANNELS fixed channels-per-device stays a platform
+            # constant, not project-defined — only the DEVICE COUNT is).
+            # Always read/written through DeviceModel.get_ela_devices()/
+            # get_ada_devices(), never this list directly.
+            "ela_devices": ["ELA01"],
+            "ada_devices": ["ADA01"],
         }
 
         self.undo_stack = []
@@ -288,6 +318,8 @@ class Project:
         proj.settings.setdefault("analog_points", [])
         proj.settings.setdefault("internal_bits", [])
         proj.settings.setdefault("io_labels", {})
+        proj.settings.setdefault("ela_devices", ["ELA01"])
+        proj.settings.setdefault("ada_devices", ["ADA01"])
 
         block_data_list = data.get("blocks", [])
 

@@ -31,7 +31,7 @@ migration chain. Never conflate them, and never bump one to fix a problem in
 the other.
 
 ### 3.1 `.epwlogic` (engineering project) — `EPWLOGIC_SCHEMA_VERSION`
-Currently **4** (`core/project.py`). Bumping it requires adding a
+Currently **5** (`core/project.py`). Bumping it requires adding a
 `_migrate_vN_to_v(N+1)(data)` function and registering it in `_MIGRATIONS`,
 keyed by the version it upgrades *from*. `Project.deserialize()` applies the
 chain sequentially —
@@ -41,8 +41,8 @@ while schema_version in _MIGRATIONS:
     schema_version = data["schema_version"]
 ```
 — so a file several versions behind today's still loads correctly by walking
-every intermediate step; a future v3 → v4 migration slots in exactly the way
-v1 → v2 and v2 → v3 did, with no change to `deserialize()` itself.
+every intermediate step; a future v5 → v6 migration slots in exactly the way
+v1 → v2 through v4 → v5 did, with no change to `deserialize()` itself.
 
 `_migrate_v1_to_v2` defaults a missing `settings.analog_points` to `[]`, and
 absorbs what used to be a separate `_migrate_legacy_force_state` helper: it
@@ -77,6 +77,12 @@ Kept as its own explicit step anyway rather than folded into the general
 `deserialize()`: the schema version on disk should accurately reflect what
 the *current* format supports, and an empty migration function costs
 nothing to keep.
+
+`_migrate_v4_to_v5` (feat/multi-device-io, §16) defaults missing
+`settings.ela_devices`/`ada_devices` to `["ELA01"]`/`["ADA01"]` — the
+exact single-device list every pre-v5 project was ALREADY permanently
+fixed to, so this migration is lossless by construction: no v4 file could
+ever have addressed a second device in the first place.
 
 `short_id` (§13) is deliberately NOT gated behind a schema-version bump —
 `Project.add_block()`, the single choke point every block passes through
@@ -682,3 +688,75 @@ kierunku, nie odwrócenie stanu każdego bloku z osobna, bo mieszane
 zaznaczenie nie ma jednoznacznego "przeciwieństwa"). Obie ścieżki wołają
 `LogicScene.set_blocks_enabled()` — JEDEN wpis historii cofania niezależnie
 od liczby bloków.
+
+## 16. Wiele urządzeń ELA/ADA (feat/multi-device-io)
+
+Do tej pory `DeviceModel.ELA_DEVICES`/`ADA_DEVICES` były stałymi
+klasowymi na stałe ustawionymi na `["ELA01"]`/`["ADA01"]` — KAŻDY projekt
+miał dokładnie jedno urządzenie każdego typu, bez możliwości zmiany.
+Realne wdrożenia mają wiele takich urządzeń — lista urządzeń jest teraz
+**projekt-definiowana**, dokładnie tym samym wzorcem co
+`analog_points`/`internal_bits`/`io_labels`.
+
+**Model danych**: `project.settings["ela_devices"]`/`["ada_devices"]` —
+listy nazw urządzeń (`["ELA01", "ELA02", ...]`), domyślnie
+jedno-elementowe (dokładnie to, co KAŻDY projekt miał wcześniej na
+stałe — nowy projekt i każdy zmigrowany stary plik zachowują się
+identycznie jak przed tą zmianą). LICZBA KANAŁÓW na urządzenie
+(`DeviceModel.ELA_CHANNELS`/`ADA_CHANNELS`, 32) zostaje stałą
+platformową, NIE projekt-definiowaną — zmienna jest tylko LICZBA
+urządzeń, nie ich pojemność. Migracja schematu v4→v5
+(`core/project.py`) dopisuje domyślną listę jednoelementową do każdego
+starszego pliku — "pusta migracja" w tym samym sensie co v3→v4 (nic nie
+migruje OD, bo żaden plik sprzed tej funkcji nie mógł mieć więcej niż
+jedno urządzenie).
+
+**`DeviceModel`**: `get_ela_devices(project=None)`/`get_ada_devices(project=None)`
+— `project` jest OPCJONALNY wszędzie (brak → jedno-urządzeniowy
+domyślny), więc miejsce, które nie zdążyło jeszcze przekazać projektu,
+degraduje się do dawnego zachowania zamiast wybuchać.
+`get_ela_addresses(project)`/`get_ada_addresses(project)` iterują teraz
+PO KAŻDYM zdefiniowanym urządzeniu. `is_valid_device_name(prefix, name)`
+wymusza konwencję `^ELA\d{2}$`/`^ADA\d{2}$` (tę samą, którą reszta
+aplikacji już zakłada — `system_signals_catalog.json`'s `"ELA01.ONLINE"`
+i każdy przykład w dokumentacji). `set_ela_devices()`/`set_ada_devices()`
+walidują, odrzucają duplikaty, i NIGDY nie pozwalają na pustą listę
+(spadek do domyślnej) — projekt bez ani jednego urządzenia ELA/ADA
+uczyniłby każdy fizyczny blok trwale nieprawidłowym.
+
+**Konsumenci zaktualizowani** (wszyscy już mieli `project` pod ręką —
+zmiana to w większości dopisanie brakującego argumentu):
+`compiler/validator.py` (twarda walidacja adresu DI/DO), `core/crossref.py`
+(klasyfikacja adresu jako `KIND_PHYSICAL_DI`/`_DO`), `ui/panels/
+property_grid.py` (lista adresów w combo Address), `ui/signal_picker.py`
+(sekcja "fizyczne" wyboru sygnału), `ui/panels/device_explorer.py`
+(jedna gałąź drzewa NA URZĄDZENIE, nie jeden wspólny węzeł "ELA-01" na
+wszystkie razem).
+
+**Edycja z UI**: nowa zakładka "Urządzenia" w Project Settings
+(`ui/dialogs.py`) — dwie listy (ELA/ADA) z przyciskami Dodaj/Usuń.
+Dodawanie NIGDY nie wymaga wpisywania nazwy ręcznie —
+`DeviceModel.next_device_name()` sugeruje pierwszy wolny numer — więc ta
+zakładka nigdy nie musi walidować dowolnego tekstu wpisanego przez
+użytkownika. Usunięcie urządzenia, którego adres wciąż używa jakiś blok,
+prosi o potwierdzenie z nazwami bloków — ten sam wzorzec co usunięcie
+używanego sygnału wewnętrznego (§7.2 istniejącego kodu) — zamiast po
+cichu zostawić blok z adresem wskazującym donikąd.
+
+**Świadomie odłożone (poza zakresem tego PR)** — dwie luki znalezione po
+drodze, obie realne, żadna cicho nie zignorowana:
+- **Panel Symulacji** (`ui/panels/simulation.py`) buduje siatkę
+  checkboxów DI/DO RAZ, w konstruktorze — `set_project()` odświeża
+  wyłącznie sekcje analogowe i "używane/wszystkie" oznaczenia, nigdy
+  samą listę adresów ani widżety. Dodanie drugiego urządzenia przez
+  Project Settings NIE pojawi się jeszcze w interaktywnej symulacji w tej
+  samej sesji — silnik/kompilator/eksport poprawnie obsłużą taki projekt,
+  ale nie da się go jeszcze wygodnie klikać z panelu. Wymaga realnego
+  przepisania budowy siatki na coś przebudowywalnego, nie tylko
+  dopisania argumentu `project`.
+- **Katalog sygnałów systemowych** (`core/system_signals_catalog.json`)
+  ma STATYCZNE wpisy `"ELA01.ONLINE"`/`"ELA01.FAULT"`/`"ADA01.ONLINE"`/
+  `"ADA01.FAULT"`/`"ADA01.SAFE_PATH_OK"` — drugie urządzenie nie dostaje
+  odpowiadających sygnałów diagnostycznych automatycznie. Wymagałoby
+  zamiany statycznego pliku JSON na generowanie części katalogu
+  programowo, z listy urządzeń projektu — osobna zmiana architektoniczna.

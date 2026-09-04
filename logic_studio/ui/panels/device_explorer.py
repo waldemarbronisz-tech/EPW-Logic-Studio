@@ -101,19 +101,24 @@ class DeviceExplorerPanel(QWidget):
         root = QTreeWidgetItem(self.tree, ["EPW Controller"])
         root.setExpanded(True)
 
-        # ELA-01 Module
-        ela_module = QTreeWidgetItem(root, ["ELA-01"])
-        ela_module.setExpanded(True)
-        di_group = QTreeWidgetItem(ela_module, ["Digital Inputs (Input Module / Acquisition)"])
-        for addr in DeviceModel.get_ela_addresses():
-            self._add_leaf(di_group, addr, "input.di", addr)
+        # feat/multi-device-io: one branch PER DEVICE the project actually
+        # defines (project.settings["ela_devices"]/["ada_devices"]) rather
+        # than a single hardcoded "ELA-01"/"ADA-01" — a project with
+        # ELA01+ELA02 gets two separate, independently-expandable Input
+        # Module branches, each with its own 32 channels.
+        for dev in DeviceModel.get_ela_devices(self.project):
+            ela_module = QTreeWidgetItem(root, [f"{dev} (Input Module / Acquisition)"])
+            ela_module.setExpanded(True)
+            for i in range(1, DeviceModel.ELA_CHANNELS + 1):
+                addr = f"{dev}.DI{i:02d}"
+                self._add_leaf(ela_module, addr, "input.di", addr)
 
-        # ADA-01 Module
-        ada_module = QTreeWidgetItem(root, ["ADA-01"])
-        ada_module.setExpanded(True)
-        do_group = QTreeWidgetItem(ada_module, ["Digital Outputs (Output Module / Actuator)"])
-        for addr in DeviceModel.get_ada_addresses():
-            self._add_leaf(do_group, addr, "output.do", addr)
+        for dev in DeviceModel.get_ada_devices(self.project):
+            ada_module = QTreeWidgetItem(root, [f"{dev} (Output Module / Actuator)"])
+            ada_module.setExpanded(True)
+            for i in range(1, DeviceModel.ADA_CHANNELS + 1):
+                addr = f"{dev}.DO{i:02d}"
+                self._add_leaf(ada_module, addr, "output.do", addr)
 
         # Analog points — fully project-defined, empty tree when the project
         # has none. No example/placeholder entries.

@@ -1,10 +1,10 @@
 # EPW Logic Studio — Pełny raport audytowy (dla Claude.ai)
 
-**Data:** 2026-09-03 (migawka §1-§10 odświeżona do stanu `main`, commit
-`65b06c9` — branch `docs/refresh-audit-report`, po scaleniu PR #13/#14/#15;
-wszystkie liczby poniżej wyliczone bezpośrednio z repozytorium, nie
-przepisane z poprzedniej wersji — polecenia użyte do ich wyliczenia podane
-w każdej sekcji).
+**Data:** 2026-09-04 (migawka §1-§10 odświeżona do stanu na branchu
+`feat/multi-device-io`, zbudowanym na `main` commit `c9e5c86` — po
+scaleniu PR #13/#14/#15/#16; wszystkie liczby poniżej wyliczone
+bezpośrednio z repozytorium na tym branchu, nie przepisane z poprzedniej
+wersji — polecenia użyte do ich wyliczenia podane w każdej sekcji).
 **Zakres:** wyłącznie warstwa logiki — `EPW-Logic-Studio/` (moduł `logic_studio`, testy, przykłady `.epwlogic`). Pozostałe moduły platformy (`EPW-OS`, `EPW-Synoptic-Editor`) celowo pominięte.
 **Cel dokumentu:** dać modelowi bez dostępu do repo pełny, samodzielny obraz architektury, stanu i znanych problemów, żeby mógł doradzać / kontynuować pracę bez dodatkowych pytań.
 **Struktura dokumentu:** §1-§10 to opisowa migawka BIEŻĄCEGO stanu — ma być
@@ -19,7 +19,7 @@ dziennik napraw, jeden wpis na branch/PR, w kolejności chronologicznej,
 
 EPW Logic Studio to wizualny edytor schematów blokowych (FBD — Function Block Diagram) i kompilator/runtime dla platformy automatyki EPW OS. Użytkownik układa bloki logiczne (bramki, timery, liczniki, przerzutniki, bloki I/O, matematyczne, porównania) na kanwie PySide6, łączy je "drutami", a Studio:
 
-1. zapisuje projekt inżynierski jako plik `.epwlogic` (JSON, `format: EPW_LOGIC`, `schema_version: 4`),
+1. zapisuje projekt inżynierski jako plik `.epwlogic` (JSON, `format: EPW_LOGIC`, `schema_version: 5`),
 2. kompiluje go do porządku wykonania (topological sort) i formatu `EPW_RUNTIME_LOGIC` (`schema_version: 4`), z sumą kontrolną SHA-256,
 3. wykonuje go w headless silniku PLC-podobnym (`ExecutionEngine`) — deterministycznie, bez zależności od Qt/zegara systemowego, gotowym do symulacji lub docelowo do uruchomienia na sterowniku EPW.
 
@@ -27,21 +27,21 @@ Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) 
 
 ## 2. Status repozytorium
 
-- Gałąź: `main`, commit `65b06c9` (merge PR #15 `feat/signals-panel-tree`).
-- **Testy: 789/789 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~8-11s.
-- **35 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **8874 linie** testów — `find tests -name "test_*.py" | xargs wc -l`.
-- **Kod produkcyjny (`logic_studio/`): 11658 linii w 59 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
+- Gałąź: `feat/multi-device-io` (na `main` commit `c9e5c86`, merge PR #16 `docs/refresh-audit-report`), jeszcze niescalona.
+- **Testy: 810/810 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~9-11s.
+- **36 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **9164 linie** testów — `find tests -name "test_*.py" | xargs wc -l`.
+- **Kod produkcyjny (`logic_studio/`): 11905 linii w 59 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
   - `blocks/`: 2278
-  - `ui/`: 7006
-  - `core/`: 1002
+  - `ui/`: 7130
+  - `core/`: 1125
   - `compiler/`: 694
   - `engine/`: 458
   - `app.py`/`__init__.py` (top-level): 220
 - **69 zarejestrowanych typów bloków w 12 kategoriach** — patrz §5 (polecenie i pełna lista tam).
 - **10 przykładowych projektów** w `examples/*.epwlogic` — wszystkie otwierają się, kompilują i eksportują z bieżącym kodem (zweryfikowane przy każdym PR, patrz dziennik).
-- **87 commitów** w historii (`git log --oneline | wc -l`) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
+- **91 commitów** w historii (`git log --oneline | wc -l`) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
 
-Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §15), `REPORT.md` (log kamieni milowych, obecnie do Phase 8).
+Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §16), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
 
 ## 3. Struktura katalogów
 
@@ -53,7 +53,7 @@ EPW-Logic-Studio/
 ├── README.md / ARCHITECTURE.md / REPORT.md / AUDIT_REPORT.md
 ├── .github/workflows/pytest.yml    # CI — patrz §19 dziennika
 ├── examples/                       # 10 przykładowych projektów .epwlogic
-├── tests/                          # 35 plików test_*.py, 789 testów
+├── tests/                          # 36 plików test_*.py, 810 testów
 └── logic_studio/
     ├── app.py                      # bootstrap Qt, main window wiring
     ├── blocks/                     # definicje bloków logicznych (17 plików)
@@ -123,21 +123,33 @@ EPW-Logic-Studio/
 Rejestr dekoratorowy: `@BlockRegistry.register` na klasie bloku → wpis w `_blocks[category][type_id]`. `create_block(type_id)` tworzy nową instancję; `get_categories()`/`get_blocks_in_category()` — używane przez `LibraryPanel` i przez ten dokument (§5) do wyliczenia inwentarza. Rejestracja tworzy tymczasową instancję (`dummy = block_class()`) przy imporcie — każdy blok musi mieć bezargumentowy konstruktor.
 
 ### 4.4 `Project` ([logic_studio/core/project.py](logic_studio/core/project.py))
-- `blocks: list`, `settings: dict`, stos `undo_stack`/`redo_stack` (max 50 wpisów, pełny snapshot JSON projektu — patrz §9.3 niżej).
-- `settings` — cztery projekt-poziomowe rejestry poza `name`/`version`/`cycle_time_ms`:
+- `blocks: list`, `settings: dict`, stos `undo_stack`/`redo_stack` (max 50 wpisów, pełny snapshot JSON projektu — patrz §9.1 niżej).
+- `settings` — pięć projekt-poziomowych rejestrów poza `name`/`version`/`cycle_time_ms`:
   - `analog_points: []` — punkty analogowe (AI/AO są project-defined, nie stałe kanały sprzętowe jak DI/DO).
   - `internal_bits: []` — rejestr sygnałów wewnętrznych (feat/internal-bits §1) — typ BOOL/REAL + flaga retencji, referencjonowany przez `virtual.input`/`virtual.output`/`internal.reg_in`/`internal.reg_out`. Derywowany id: `M.`/`MR.`/`MW.`/`MWR.<name>` (`core/internal_bits.py::internal_bit_id()`).
   - `io_labels: {}` — etykiety opisowe adres→tekst (feat/io-labels-and-ids §1), np. `"ELA01.DI01" -> "Wyłącznik Q1 zamknięty"`, czytane/pisane wyłącznie przez `DeviceModel.get_io_label()`/`set_io_label()`.
+  - `ela_devices: ["ELA01"]`/`ada_devices: ["ADA01"]` — lista urządzeń ELA/ADA (feat/multi-device-io, §16 ARCHITECTURE.md) — projekt-definiowana od v5, wcześniej trwale jedno-elementowa. Czytane/pisane wyłącznie przez `DeviceModel.get_ela_devices()`/`get_ada_devices()`/`set_ela_devices()`/`set_ada_devices()`.
   - `short_id_counters` — licznik per-prefiks, dodawany leniwie przy pierwszym bloku.
-- `serialize()` → `{format: "EPW_LOGIC", schema_version: 4, settings, blocks:[...]}`.
-- `deserialize()`: odrzuca nieznany `format` lub `schema_version` nowszy niż obsługiwany; **łańcuch migracji** `_MIGRATIONS = {1: v1→v2, 2: v2→v3, 3: v3→v4}` sekwencyjnie podnosi starszy plik do bieżącej wersji przed dalszym przetwarzaniem:
+- `serialize()` → `{format: "EPW_LOGIC", schema_version: 5, settings, blocks:[...]}`.
+- `deserialize()`: odrzuca nieznany `format` lub `schema_version` nowszy niż obsługiwany; **łańcuch migracji** `_MIGRATIONS = {1: v1→v2, 2: v2→v3, 3: v3→v4, 4: v4→v5}` sekwencyjnie podnosi starszy plik do bieżącej wersji przed dalszym przetwarzaniem:
   - v1→v2: wprowadza `analog_points`; usuwa błędnie zapisywane "Force State" z właściwości bloku (przenosi do `simulation_state` przy wczytaniu — runtime-only, nigdy nie powinno trafić do pliku).
   - v2→v3: wprowadza `internal_bits`; migruje wolnotekstowe `Tag` na `virtual.input`/`virtual.output` do zwalidowanego rejestru (`Bit`), scalając duplikaty bez rozróżniania wielkości liter.
   - v3→v4: wprowadza `io_labels` (pusty domyślnie — funkcja nie istniała wcześniej).
+  - v4→v5: wprowadza `ela_devices`/`ada_devices` (domyślnie `["ELA01"]`/`["ADA01"]` — dokładnie to, co KAŻDY starszy plik już zakładał na stałe, więc migracja jest bezstratna).
   - Nieznany `type_id` w pliku **rzuca `ValueError`** z listą brakujących typów — nie jest cicho pomijany (patrz dziennik §11, pkt 3.3 — to była naprawiona regresja).
 
 ### 4.5 `DeviceModel` ([logic_studio/core/device_model.py](logic_studio/core/device_model.py))
-Statyczna topologia I/O: `ELA_DEVICES=["ELA01"]`, `ADA_DEVICES=["ADA01"]`, po 32 kanały każdy. Dodatkowo: `get_analog_input_addresses()`/`get_analog_output_addresses()` (z `project.settings["analog_points"]`), `get_io_label()`/`set_io_label()`, `get_labelled_addresses()`. **Hardcoded pojedyncze urządzenie na typ — patrz §9.2 (wciąż otwarte).**
+Topologia I/O: liczba kanałów na urządzenie stała platformowo
+(`ELA_CHANNELS`/`ADA_CHANNELS`, 32), lista urządzeń PROJEKT-DEFINIOWANA
+od feat/multi-device-io (§16 ARCHITECTURE.md, §23 dziennika) —
+`get_ela_devices(project=None)`/`get_ada_devices(project=None)`, `project`
+opcjonalny (brak → domyślne `["ELA01"]`/`["ADA01"]`, dokładnie to, co
+KAŻDY projekt miał wcześniej na stałe). `get_ela_addresses(project)`/
+`get_ada_addresses(project)` iterują po każdym zdefiniowanym urządzeniu.
+Dodatkowo: `get_analog_input_addresses()`/`get_analog_output_addresses()`
+(z `project.settings["analog_points"]`), `get_io_label()`/`set_io_label()`,
+`get_labelled_addresses()`, `is_valid_device_name()`/`set_ela_devices()`/
+`set_ada_devices()`/`next_device_name()`.
 
 ## 5. Pełny inwentarz bloków logicznych
 
@@ -218,9 +230,9 @@ Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyśc
 ### 7.3 `RuntimeSnapshot` / `RuntimeBlockState` / `RuntimePinState`
 Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 
-## 8. Testy ([tests/](tests/)) — 789/789 PASS
+## 8. Testy ([tests/](tests/)) — 810/810 PASS
 
-35 plików `test_*.py`, 8874 linie. Kilka największych/najbardziej reprezentatywnych plików:
+36 plików `test_*.py`, 9164 linie. Kilka największych/najbardziej reprezentatywnych plików:
 
 | Plik | Zakres |
 |---|---|
@@ -229,40 +241,36 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_internal_bits.py` | rejestr sygnałów wewnętrznych — 50 testów |
 | `test_export_contract.py` | kontrakt eksportu, checksum, metadane — 33 testy |
 | `test_blocks.py` | logika pojedynczych bloków — 31 testów |
+| `test_signals_panel.py` | panel "Sygnały", drzewo grupowane kategorią — 25 testów |
 | `test_short_id.py` | krótkie identyfikatory bloków — 27 testów |
 | `test_property_panel.py` | panel właściwości — 27 testów |
-| `test_signals_panel.py` | panel "Sygnały", drzewo grupowane kategorią — 25 testów |
-| `test_align.py` | wyrównywanie/rozkładanie bloków — 20 testów |
 | `test_crossref.py` | cross-reference sygnałów — 21 testów |
+| `test_align.py` | wyrównywanie/rozkładanie bloków — 20 testów |
+| `test_multi_device_io.py` | wiele urządzeń ELA/ADA (§23 dziennika) — 20 testów |
 | `test_block_disable.py` | tymczasowe wyłączanie bloku — 16 testów |
 | `test_clipboard.py` | schowek kopiuj/wytnij/wklej — 14 testów |
 | `test_wire_routing.py` | kierunek wejścia/wyjścia przewodu z pinu — 6 testów |
 | `test_e2e.py`, `test_isolation.py`, `test_compiler.py`, `test_project.py`, `test_acceptance.py`, ... | pipeline end-to-end, izolacja `CompiledProgram`, kompilator, (de)serializacja projektu, scenariusze akceptacyjne |
 
-Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **789 passed w ~8-11s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
+Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **810 passed w ~9-11s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
 
 ## 9. Znane problemy i uwagi z audytu (wyłącznie OTWARTE)
 
-Wszystkie punkty poprzedniej wersji tej sekcji poza dwoma poniższymi zostały
+Wszystkie punkty poprzedniej wersji tej sekcji poza jednym poniżej zostały
 naprawione i są już udokumentowane w dzienniku (§11, pkt 3.1/3.2/4.3/7.2) —
-usunięte stąd, nie zdublowane. Trzeci dawny punkt (kategorie
-`Zabezpieczenia *` bez bloków) został ZAMKNIĘTY decyzją produktową, nie
-implementacją — patrz §21 dziennika: logika bezpieczeństwa/blokad ma być
-komponowana z istniejących bloków przez bity wewnętrzne, nie przez nowe
-typy bloków, więc te kategorie NIE wrócą jako biblioteka — usunięty stąd
-jako rozstrzygnięty, nie jako naprawiony kodem.
+usunięte stąd, nie zdublowane. Kategorie `Zabezpieczenia *` bez bloków
+zostały ZAMKNIĘTE decyzją produktową (§21 dziennika — logika komponowana
+przez bity wewnętrzne, nie nowe typy bloków). `DeviceModel` na jedno
+urządzenie ZAMKNIĘTE implementacją (§23 dziennika, branch
+`feat/multi-device-io` — wiele urządzeń ELA/ADA jest teraz
+projekt-definiowane), choć zostawiła po sobie dwa węższe, wciąż otwarte
+punkty (§9.2/§9.3 poniżej). Duplikat adresu na `input.di` ZAMKNIĘTY
+implementacją innej formy niż pierwotnie rozważana — hiperłącze między
+blokami, nie błąd walidacji (branch `feat/duplicate-address-hyperlink`,
+PR otwarty, jeszcze bez własnego wpisu w tym dzienniku — dopisze się przy
+scaleniu).
 
-### 9.1 `DeviceModel` — pojedyncze urządzenie na typ (PRIORYTET — zmieniony status)
-Tylko `ELA01`/`ADA01`, po 32 kanały, hardcoded jako lista jednoelementowa
-(`ELA_DEVICES = ["ELA01"]`). Wcześniej świadomie odłożone (dziennik §11:
-"nie zgłoszone w zleceniu, brak ryzyka bezpieczeństwa, zostawione bez
-zmian") — **status zmieniony 2026-09-03**: właściciel produktu potwierdził,
-że realne wdrożenia będą miały WIELE takich urządzeń, nie jedno. To już nie
-bezpieczne, niskopriorytetowe założenie architektoniczne — generalizacja
-`DeviceModel` (adresacja, walidacja, Device Explorer, eksport) jest
-rzeczywistą, priorytetową pracą do zaplanowania.
-
-### 9.2 Undo/redo pełnym snapshotem, nie różnicowo (PRIORYTET — zmieniony status)
+### 9.1 Undo/redo pełnym snapshotem, nie różnicowo (PRIORYTET — zmieniony status)
 `Project.push_state()` serializuje CAŁY projekt do JSON przy każdej realnej
 zmianie (limit 50 wpisów, najstarszy odrzucany — limit już wdrożony).
 Zmierzony rozmiar pojedynczego zrzutu dla największego obecnie przykładu
@@ -275,22 +283,37 @@ produktu wprost nie chce, by architektura ograniczała dalszy wzrost —
 przeprojektowanie na przechowywanie różnicowe traktować jako realną,
 nieodległą pracę, nie "kiedyś, jeśli".
 
+### 9.2 Panel Symulacji nie przebudowuje siatki DI/DO na zmianę listy urządzeń
+Znalezione podczas §23 (`feat/multi-device-io`), świadomie zostawione poza
+zakresem tamtego PR. `ui/panels/simulation.py`'s DI/DO checkboxy budowane
+są RAZ, w konstruktorze `SimulationPanel.__init__()` — `set_project()`
+odświeża wyłącznie sekcje analogowe i oznaczenia "używane/wszystkie",
+nigdy samą listę adresów ani widżety. Dodanie drugiego urządzenia ELA/ADA
+przez Project Settings poprawnie działa w silniku/kompilatorze/eksporcie,
+ale NIE pojawia się jeszcze w interaktywnej symulacji tej samej sesji —
+wymaga realnego przepisania budowy siatki DI/DO na coś przebudowywalnego
+przy zmianie projektu, nie tylko dopisania argumentu `project` do
+istniejących wywołań (jak reszta §23's zmian).
+
+### 9.3 Katalog sygnałów systemowych nie generuje diagnostyki per urządzenie
+Również znalezione i świadomie odłożone podczas §23. `core/
+system_signals_catalog.json` ma STATYCZNE wpisy `"ELA01.ONLINE"`/
+`"ELA01.FAULT"`/`"ADA01.ONLINE"`/`"ADA01.FAULT"`/`"ADA01.SAFE_PATH_OK"` —
+drugie i kolejne urządzenie zdefiniowane w projekcie NIE dostają
+odpowiadających sygnałów diagnostycznych automatycznie. Wymagałoby
+zamiany (części) statycznego pliku JSON na generowanie programowe z listy
+urządzeń projektu — osobna zmiana architektoniczna, większa niż punktowa
+poprawka.
+
 ## 10. Rekomendacje / pytania otwarte do dalszej pracy
 
-1. Zaplanować generalizację `DeviceModel` na wiele urządzeń ELA/ADA (§9.1)
-   — osobna sesja projektowa, dotyka adresacji/walidacji/Device Explorer/
-   eksportu.
-2. Zaplanować przeprojektowanie undo/redo na przechowywanie różnicowe
-   (§9.2, zmierzone w dzienniku §18) — osobna sesja projektowa.
+1. Zaplanować przeprojektowanie undo/redo na przechowywanie różnicowe
+   (§9.1, zmierzone w dzienniku §18) — osobna sesja projektowa.
+2. Dokończyć wielourządzeniowość: przebudowa siatki Panelu Symulacji
+   (§9.2) i generowana diagnostyka systemowa per urządzenie (§9.3) —
+   obie mniejsze niż §23's oryginalny zakres, ale osobne od niego.
 3. Dodać w `Validator` walidację zakresów właściwości `const.*` (§6,
-   "Nadal otwarte braki"). Duplikaty adresów na `input.di` (dziś
-   sprawdzane tylko na `output.do`) świadomie NIE jako błąd walidacji —
-   właściciel produktu chce w tym miejscu hiperłącze/nawigację
-   między blokami o tym samym adresie zamiast blokady kompilacji
-   (czytelność diagramu > twarda reguła); do zaprojektowania jako osobna
-   funkcja nawigacyjna, rozszerzająca istniejący `core/crossref.py`/
-   "Pokaż użycia sygnału" (ARCHITECTURE.md §14), nie jako nowa reguła
-   `Validator`.
+   "Nadal otwarte braki").
 4. Routing przewodów (`ui/canvas/wire_item.py`) poprawnie wybiera dziś
    kierunek wyjścia/wejścia względem strony pinu (`_port_facing()`), ale
    nie unika kolizji z ciałem innego bloku przy ciasnym układzie
@@ -782,6 +805,52 @@ col)`) — to samo pokrycie co wcześniej, żaden test nie usunięty.
 Pełny zestaw: 789 passed (776 + 6 z §20 + 7 netto z §22, po odjęciu 1
 usuniętego testu rozłącznego filtra), stabilne pod `pytest-randomly` przy
 kilku ziarnach.
+
+## 23. Status napraw (branch `feat/multi-device-io`)
+
+Generalizacja `DeviceModel` z na-stałe jednego urządzenia ELA/ADA
+(`ELA_DEVICES = ["ELA01"]`) na listę projekt-definiowaną — realne
+wdrożenia mają wiele takich urządzeń (§9.1 poprzedniej wersji tej
+migawki, zmieniony status po rozmowie z właścicielem produktu
+2026-09-03).
+
+| # | Punkt | Status |
+|---|---|---|
+| 1 | Model danych | Naprawione — `project.settings["ela_devices"]`/`["ada_devices"]`, domyślnie `["ELA01"]`/`["ADA01"]` (identyczne z tym, co KAŻDY projekt miał wcześniej na stałe). Migracja schematu v4→v5 (`core/project.py`) dopisuje ten domyślny do każdego starszego pliku — "pusta migracja" w tym samym sensie co v3→v4. `EPWLOGIC_SCHEMA_VERSION` 4→5. |
+| 2 | `DeviceModel` API | Naprawione — `get_ela_devices(project=None)`/`get_ada_devices(project=None)` (opcjonalny `project`, brak → dawny jedno-urządzeniowy domyślny — miejsce, które nie zdążyło przekazać projektu, degraduje się zamiast wybuchać), `get_ela_addresses(project)`/`get_ada_addresses(project)` iterują po KAŻDYM zdefiniowanym urządzeniu, `is_valid_device_name()`/`set_ela_devices()`/`set_ada_devices()`/`next_device_name()` nowe. Liczba kanałów na urządzenie (32) zostaje stałą platformową — zmienna jest tylko liczba urządzeń. |
+| 3 | Konsumenci (walidacja/eksport/UI) | Naprawione — `compiler/validator.py`, `core/crossref.py`, `ui/panels/property_grid.py`, `ui/signal_picker.py` zaktualizowane (wszystkie już miały `project` pod ręką, zmiana to głównie dopisanie brakującego argumentu). `ui/panels/device_explorer.py` przebudowany na jedną gałąź drzewa NA URZĄDZENIE (było: jeden wspólny węzeł "ELA-01" na wszystkie razem). |
+| 4 | Edycja z UI | Naprawione — nowa zakładka "Urządzenia" w Project Settings (`ui/dialogs.py`): dwie listy (ELA/ADA), Dodaj/Usuń. Dodawanie nigdy nie wymaga ręcznego wpisywania nazwy (`next_device_name()` sugeruje pierwszy wolny numer). Usunięcie używanego urządzenia prosi o potwierdzenie z nazwami bloków — ten sam wzorzec co usunięcie używanego sygnału wewnętrznego. |
+
+### Świadomie pominięte / poza zakresem tego PR
+- Panel Symulacji (`ui/panels/simulation.py`) — siatka DI/DO budowana raz,
+  w konstruktorze, nie przebudowuje się na zmianę listy urządzeń. Nowe
+  otwarte punkty §9.2 tej migawki.
+- Katalog sygnałów systemowych (`core/system_signals_catalog.json`) —
+  statyczny, nie generuje diagnostyki `<DEV>.ONLINE`/`<DEV>.FAULT` dla
+  drugiego i kolejnych urządzeń. §9.3.
+- Lista urządzeń NIE trafia do eksportu `EPW_RUNTIME_LOGIC` wprost — nie
+  jest to potrzebne: każdy adres, którego blok faktycznie używa, i tak
+  jedzie w `"blocks"`; istnienie fizycznego urządzenia o danej nazwie to
+  konfiguracja sprzętowa EPW-OS, nie coś, co eksport logiki powinien
+  asercjonować.
+
+Testy: `tests/test_multi_device_io.py` (20 nowych) — DeviceModel
+domyślny/projekt-definiowany, adresy przez wiele urządzeń, walidacja/
+normalizacja/deduplikacja nazw, sugestia następnej wolnej nazwy, migracja
+v4→v5 i pełny łańcuch v1→v5, Validator akceptuje/odrzuca adres zależnie
+od zdefiniowanych urządzeń, `crossref` klasyfikuje adres na drugim
+urządzeniu poprawnie, combo Address w property gridzie obejmuje każde
+urządzenie, cała edycja z UI (start, dodawanie, ochrona przed usunięciem
+ostatniego, `apply_to_project()`, potwierdzenie przy usuwaniu używanego).
+Plus rozszerzone `tests/test_analog_ui.py` (Device Explorer: jedna gałąź
+na urządzenie, dwa urządzenia dają dwie niezależne gałęzie).
+
+Pełny zestaw: 810 passed na tej gałęzi (bez commitu
+`feat/duplicate-address-hyperlink`, jeszcze niescalonego — stąd niższa
+liczba niż §22's 826 na tamtej gałęzi), stabilne pod `pytest-randomly`.
+Wszystkie `examples/*.epwlogic` nadal się otwierają i kompilują
+(migrują v1/v4→v5 w locie, każdy dostaje domyślną listę
+jednoelementową).
 
 ---
 

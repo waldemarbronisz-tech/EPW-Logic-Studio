@@ -303,7 +303,7 @@ class PropertyGridPanel(QWidget):
     def _make_addressing_editor(self, block, key, value, project):
         if key == "Address" and block.type_id in ("input.di", "output.do"):
             combo = QComboBox()
-            combo.addItems(DeviceModel.get_ela_addresses() if block.type_id == "input.di" else DeviceModel.get_ada_addresses())
+            combo.addItems(DeviceModel.get_ela_addresses(project) if block.type_id == "input.di" else DeviceModel.get_ada_addresses(project))
             combo.setCurrentText(str(value))
             combo.currentTextChanged.connect(lambda text, k=key: self._commit_property(k, text))
             return combo

@@ -87,7 +87,7 @@ def test_device_explorer_analog_branch_empty_and_populated():
     panel = DeviceExplorerPanel()
     panel.set_project(p)
 
-    # Root -> [ELA-01, ADA-01, Analog]; Analog has no children yet.
+    # Root -> [ELA01 (...), ADA01 (...), Analog]; Analog has no children yet.
     root = panel.tree.topLevelItem(0)
     analog_branch = None
     for i in range(root.childCount()):
@@ -119,16 +119,18 @@ def test_device_explorer_leaves_carry_type_id_and_address():
     panel = DeviceExplorerPanel(project=p)
 
     root = panel.tree.topLevelItem(0)
-    ela = next(root.child(i) for i in range(root.childCount()) if root.child(i).text(0) == "ELA-01")
-    di_group = ela.child(0)
-    first_di = di_group.child(0)
+    # feat/multi-device-io: leaves sit directly under their device's own
+    # branch now (one branch per device, not one shared "ELA-01"/"ADA-01"
+    # node with a "Digital Inputs" sub-group) — matched by the device name
+    # being a PREFIX of the branch label, not an exact "ELA-01" string.
+    ela = next(root.child(i) for i in range(root.childCount()) if root.child(i).text(0).startswith("ELA01"))
+    first_di = ela.child(0)
     assert first_di.text(0) == "ELA01.DI01"
     assert first_di.data(0, TYPE_ID_ROLE) == "input.di"
     assert first_di.data(0, ADDRESS_ROLE) == "ELA01.DI01"
 
-    ada = next(root.child(i) for i in range(root.childCount()) if root.child(i).text(0) == "ADA-01")
-    do_group = ada.child(0)
-    first_do = do_group.child(0)
+    ada = next(root.child(i) for i in range(root.childCount()) if root.child(i).text(0).startswith("ADA01"))
+    first_do = ada.child(0)
     assert first_do.data(0, TYPE_ID_ROLE) == "output.do"
     assert first_do.data(0, ADDRESS_ROLE) == "ADA01.DO01"
 
@@ -140,7 +142,28 @@ def test_device_explorer_leaves_carry_type_id_and_address():
                    if analog_branch.child(i).data(0, ADDRESS_ROLE) == "AO.SP")
     assert ao_leaf.data(0, TYPE_ID_ROLE) == "output.ao"
 
+def test_device_explorer_shows_one_branch_per_device(qsettings):
+    """feat/multi-device-io: a project with two ELA devices gets two
+    independent branches, each with its own 32 channels — not one merged
+    64-address list under a single node."""
+    _app()
+    from logic_studio.ui.panels.device_explorer import DeviceExplorerPanel
+
+    p = Project()
+    p.settings["ela_devices"] = ["ELA01", "ELA02"]
+    panel = DeviceExplorerPanel(project=p)
+
+    root = panel.tree.topLevelItem(0)
+    ela_branches = [root.child(i) for i in range(root.childCount()) if root.child(i).text(0).startswith("ELA")]
+    assert len(ela_branches) == 2
+    for branch in ela_branches:
+        assert branch.childCount() == 32
+
 def test_device_explorer_folder_items_are_not_draggable():
+    """feat/multi-device-io: leaves sit directly under their device's own
+    branch now (no separate "Digital Inputs" sub-group node in between) —
+    the root and each device branch are still folders (no TYPE_ID_ROLE),
+    but a device branch's OWN children are real, draggable leaves."""
     _app()
     from logic_studio.ui.panels.device_explorer import DeviceExplorerPanel, TYPE_ID_ROLE
 
@@ -149,8 +172,8 @@ def test_device_explorer_folder_items_are_not_draggable():
     assert root.data(0, TYPE_ID_ROLE) is None
     ela = root.child(0)
     assert ela.data(0, TYPE_ID_ROLE) is None
-    di_group = ela.child(0)
-    assert di_group.data(0, TYPE_ID_ROLE) is None
+    first_leaf = ela.child(0)
+    assert first_leaf.data(0, TYPE_ID_ROLE) == "input.di"
 
 def test_scene_add_block_from_library_sets_address_when_given():
     _app()

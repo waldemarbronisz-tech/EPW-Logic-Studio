@@ -82,12 +82,12 @@ class Validator:
             # 3. Explicit IO Address Validation
             if block.type_id == "input.di":
                 addr = block.properties.get("Address", "")
-                if addr not in DeviceModel.get_ela_addresses():
-                    errors.append(f"[{self._block_ref(block)}] Invalid DI Address: '{addr}'. Must be valid DI01 to DI32.")
+                if addr not in DeviceModel.get_ela_addresses(self.project):
+                    errors.append(f"[{self._block_ref(block)}] Invalid DI Address: '{addr}'. Must be valid DI01 to DI32 on a defined ELA device.")
             elif block.type_id == "output.do":
                 addr = block.properties.get("Address", "")
-                if addr not in DeviceModel.get_ada_addresses():
-                    errors.append(f"[{self._block_ref(block)}] Invalid DO Address: '{addr}'. Must be valid DO01 to DO32.")
+                if addr not in DeviceModel.get_ada_addresses(self.project):
+                    errors.append(f"[{self._block_ref(block)}] Invalid DO Address: '{addr}'. Must be valid DO01 to DO32 on a defined ADA device.")
             elif block.type_id == "input.ai":
                 # Analog points are project-defined, not fixed hardware channels
                 # (AUDIT_REPORT.md §1) — the address must name a point with
