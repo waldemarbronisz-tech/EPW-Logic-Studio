@@ -1,13 +1,25 @@
 """feat/signal-crossref §2 — the "Sygnały" side panel: a read-only,
-sortable/filterable cross-reference table backed by core/crossref.py.
+sortable/filterable cross-reference tree backed by core/crossref.py.
 Never modifies the project, never touches the compiler/engine.
+
+feat/signals-panel-tree: rebuilt from a flat QTableWidget onto a
+QTreeWidget grouped by category (Fizyczne/Analogowe/Wewnętrzne/Systemowe)
+— each category is a collapsible top-level node, signals are its
+children. Categorization is now purely STRUCTURAL (collapse the
+categories you don't care about) rather than a separate filter control —
+several categories can be visible at once, which the earlier single-
+select "Wszystkie/Fizyczne/.../Systemowe" buttons never allowed, and a
+tree's indentation doesn't impose the wide fixed minimum width a row of
+category buttons did. Search and "Problemy" stay real cross-cutting
+filters (a signal can be in any category), auto-expanding a category
+whose children match while a search is active.
 """
 import csv
 from datetime import datetime
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QLabel,
-    QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView, QMenu,
+    QTreeWidget, QTreeWidgetItem, QAbstractItemView, QHeaderView, QMenu,
     QGraphicsRectItem, QFileDialog
 )
 from PySide6.QtCore import Qt, QSettings, QTimer, Signal
@@ -20,6 +32,7 @@ from logic_studio.core.crossref import (
 )
 
 SIGNAL_ID_ROLE = Qt.UserRole
+CATEGORY_LABEL_ROLE = Qt.UserRole + 1
 
 # §2.2's column order: Stan | Sygnał | Typ | Etykieta | Zapisuje | Czyta
 COL_STATE, COL_SIGNAL, COL_TYPE, COL_LABEL, COL_WRITES, COL_READS = range(6)
@@ -32,18 +45,18 @@ _KIND_SHORT = {
     KIND_SYSTEM: "SYS",
 }
 
-# §2.3: filter-group label -> the kinds it shows. "Wszystkie" (None) shows
-# every kind except the internal KIND_UNASSIGNED bookkeeping entry, which
-# never gets a row of its own (see _rebuild()) — it only ever feeds §1.4's
-# "no address assigned" issue text attached to the OFFENDING BLOCK's own
-# real signal rows, not a synthetic row of its own.
-_FILTER_GROUPS = [
-    ("Wszystkie", None),
+# feat/signals-panel-tree: category label -> the kinds grouped under it —
+# every real KIND_* a row can ever have falls into exactly one of these
+# four (KIND_UNASSIGNED never gets a row of its own, see _populate_tree()).
+# The four top-level tree nodes are built from this list, in this order,
+# and stay in this order regardless of any column sort (§ sorting below).
+_SIGNAL_CATEGORIES = [
     ("Fizyczne", (KIND_PHYSICAL_DI, KIND_PHYSICAL_DO)),
     ("Analogowe", (KIND_ANALOG_IN, KIND_ANALOG_OUT)),
     ("Wewnętrzne", (KIND_INTERNAL_BIT, KIND_INTERNAL_REG)),
     ("Systemowe", (KIND_SYSTEM,)),
 ]
+_CATEGORY_FOR_KIND = {kind: label for label, kinds in _SIGNAL_CATEGORIES for kind in kinds}
 
 _SEVERITY_RANK = {"error": 0, "warning": 1, "info": 2, None: 3}
 # §2.2's Stan column literally names 3 states — "czerwona przy błędzie,
@@ -51,7 +64,7 @@ _SEVERITY_RANK = {"error": 0, "warning": 1, "info": 2, None: 3}
 # (§1.4's "read by many blocks", not itself a problem) deliberately gets
 # no color/icon here, same as a clean row; §2.3's "tylko problemy" toggle
 # is explicit too ("wiersze ze statusem błędu albo ostrzeżenia") about
-# excluding it. It still gets a tooltip on its row (see _fill_row) since
+# excluding it. It still gets a tooltip on its row (see _fill_leaf) since
 # that costs nothing and the fact is still worth surfacing on hover.
 _ICON_SEVERITIES = ("error", "warning")
 _SEVERITY_COLOR = {"error": QColor(220, 0, 0), "warning": QColor(200, 120, 0)}
@@ -72,20 +85,34 @@ def _status_icon(color: QColor) -> QIcon:
     return QIcon(pix)
 
 
-class _SortableItem(QTableWidgetItem):
-    """QTableWidget's default sort compares Qt.DisplayRole text — wrong for
-    "Stan" (severity, not alphabetical) and "Czyta" (reader COUNT, not the
-    lexical order of "10" vs "2"). `sort_key` carries the real comparison
-    value; falls back to the same behavior as a plain item otherwise."""
+class _SortableTreeItem(QTreeWidgetItem):
+    """QTreeWidget's default sort compares each column's Qt.DisplayRole
+    text — wrong for "Stan" (severity, not alphabetical) and "Czyta"
+    (reader COUNT, not the lexical order of "10" vs "2"). `sort_keys` is a
+    {column: real_comparison_value} override map; columns not listed fall
+    back to their own displayed text, matching plain-item behavior.
 
-    def __init__(self, text: str, sort_key=None):
-        super().__init__(text)
-        self.sort_key = text if sort_key is None else sort_key
+    A category (top-level) node's sort_keys always map every real column
+    to that category's fixed registration-order index — so no matter
+    which column the user sorts children by, the four category nodes
+    themselves never reorder; only their children do."""
+
+    def __init__(self, texts, sort_keys=None):
+        super().__init__(texts)
+        self._sort_keys = sort_keys or {}
 
     def __lt__(self, other):
-        if isinstance(other, _SortableItem):
-            return self.sort_key < other.sort_key
-        return super().__lt__(other)
+        tree = self.treeWidget()
+        column = tree.sortColumn() if tree is not None else 0
+        mine = self._sort_keys.get(column, self.text(column))
+        theirs = (
+            other._sort_keys.get(column, other.text(column))
+            if isinstance(other, _SortableTreeItem) else other.text(column)
+        )
+        try:
+            return mine < theirs
+        except TypeError:
+            return str(mine) < str(theirs)
 
 
 class SignalsPanel(QWidget):
@@ -98,6 +125,7 @@ class SignalsPanel(QWidget):
         self.project = None
         self._crossref = {}
         self._issues_by_signal = {}  # signal_id -> Issue (at most one, see crossref.py)
+        self._category_items = {}  # label -> top-level _SortableTreeItem
 
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
@@ -106,14 +134,13 @@ class SignalsPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
 
-        # ---- Search + kind filter (§2.3) ----
-        # Widgets are all CONSTRUCTED first, initial state set, and only
-        # THEN wired up with signal connections and self.table built —
-        # setChecked() on a filter button/toggle emits its signal
-        # immediately when the value actually changes, and the handlers
-        # (_on_kind_filter_changed/_on_only_issues_toggled) reach into
-        # self.table via _apply_filters(); building it before any of that
-        # can fire avoids a chicken-and-egg AttributeError.
+        # ---- Search + "Problemy" (§2.3) ----
+        # feat/signals-panel-tree: no separate category-filter control any
+        # more — categorization is the tree's own structure now (collapse
+        # what you don't want to see), so this row only ever needs the two
+        # cross-cutting filters that genuinely can't be structural (a
+        # signal's category is fixed, but whether it matches a search term
+        # or has an issue isn't tied to category at all).
         search_row = QHBoxLayout()
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("Szukaj sygnału, etykiety lub identyfikatora bloku...")
@@ -121,29 +148,30 @@ class SignalsPanel(QWidget):
         layout.addLayout(search_row)
 
         filter_row = QHBoxLayout()
-        self.filter_buttons = {}
-        for label, kinds in _FILTER_GROUPS:
-            btn = QPushButton(label)
-            btn.setCheckable(True)
-            filter_row.addWidget(btn)
-            self.filter_buttons[label] = btn
-        self.only_issues_check = QPushButton("Tylko problemy")
+        self.only_issues_check = QPushButton("Problemy")
+        self.only_issues_check.setToolTip("Pokaż tylko sygnały z błędem lub ostrzeżeniem.")
         self.only_issues_check.setCheckable(True)
         filter_row.addWidget(self.only_issues_check)
         filter_row.addStretch()
         layout.addLayout(filter_row)
 
-        # ---- Table ----
-        self.table = QTableWidget(0, len(COLUMN_HEADERS))
-        self.table.setHorizontalHeaderLabels(COLUMN_HEADERS)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.verticalHeader().setVisible(False)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)  # §2: read-only
-        self.table.setSortingEnabled(True)
-        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
-        layout.addWidget(self.table)
+        # ---- Tree ----
+        self.tree = QTreeWidget()
+        self.tree.setColumnCount(len(COLUMN_HEADERS))
+        self.tree.setHeaderLabels(COLUMN_HEADERS)
+        self.tree.header().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.tree.header().setStretchLastSection(True)
+        self.tree.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.tree.setEditTriggers(QAbstractItemView.NoEditTriggers)  # §2: read-only
+        # Sorting is driven manually (see _on_sort_indicator_changed) — only
+        # a category's OWN children are ever resorted, never the four
+        # category nodes themselves, regardless of which column/direction
+        # the user clicks. setSortingEnabled(True) would resort everything
+        # recursively on every click, including the category order.
+        self.tree.header().setSortIndicatorShown(True)
+        self.tree.header().sortIndicatorChanged.connect(self._on_sort_indicator_changed)
+        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        layout.addWidget(self.tree)
 
         self.empty_label = QLabel("Brak sygnałów w projekcie — dodaj blok wejścia lub wyjścia i przypisz adres")
         self.empty_label.setWordWrap(True)
@@ -152,20 +180,22 @@ class SignalsPanel(QWidget):
         layout.addWidget(self.empty_label)
 
         # ---- Initial filter state, THEN wire signals ----
-        self._active_kind_filter = self._read_setting("kind_filter", "Wszystkie")
-        if self._active_kind_filter not in self.filter_buttons:
-            self._active_kind_filter = "Wszystkie"
-        self.filter_buttons[self._active_kind_filter].setChecked(True)
         self.only_issues_check.setChecked(self._read_bool_setting("only_issues", False))
 
         self.search_edit.textChanged.connect(self._on_search_changed)
-        for label, btn in self.filter_buttons.items():
-            btn.clicked.connect(lambda checked, l=label: self._on_kind_filter_changed(l))
         self.only_issues_check.toggled.connect(self._on_only_issues_toggled)
 
         # §3.1/§3.2: navigation.
-        self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
-        self.table.customContextMenuRequested.connect(self._on_table_context_menu)
+        self.tree.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self.tree.customContextMenuRequested.connect(self._on_tree_context_menu)
+        # feat/signals-panel-tree §4.1-style expand persistence (mirrors
+        # library.py's LibraryPanel — see its own "Expand-state
+        # persistence" section): only a REAL user click should be
+        # remembered — _apply_filters()'s own temporary force-expand/
+        # collapse during an active search blocks these signals first so
+        # it never overwrites the user's actual preference.
+        self.tree.itemExpanded.connect(self._on_item_expanded_changed)
+        self.tree.itemCollapsed.connect(self._on_item_expanded_changed)
 
         self._rebuild()
 
@@ -182,6 +212,15 @@ class SignalsPanel(QWidget):
         if isinstance(val, str):
             return val.lower() in ("true", "1")
         return bool(val)
+
+    def _is_category_expanded(self, label, default=True):
+        return self._read_bool_setting(f"expanded/{label}", default)
+
+    def _on_item_expanded_changed(self, item):
+        if item.parent() is not None:
+            return  # only category (top-level) nodes persist expand state
+        label = item.data(0, CATEGORY_LABEL_ROLE)
+        self.settings.setValue(self._setting_key(f"expanded/{label}"), item.isExpanded())
 
     # ---- Project wiring / debounced refresh (§2.4) -------------------------
 
@@ -214,58 +253,83 @@ class SignalsPanel(QWidget):
             if existing is None or _SEVERITY_RANK[issue.severity] < _SEVERITY_RANK[existing.severity]:
                 self._issues_by_signal[issue.signal_id] = issue
 
-        self._populate_table()
+        self._populate_tree()
         self._apply_filters()
 
-    def _populate_table(self):
-        self.table.setSortingEnabled(False)
-        self.table.setRowCount(0)
+    def _populate_tree(self):
+        self.tree.blockSignals(True)
+        try:
+            self.tree.clear()
+            self._category_items = {}
 
-        rows = [(sid, usage) for sid, usage in self._crossref.items() if usage.kind != KIND_UNASSIGNED]
-        self.table.setRowCount(len(rows))
+            rows = [(sid, usage) for sid, usage in self._crossref.items() if usage.kind != KIND_UNASSIGNED]
+            by_category = {label: [] for label, _kinds in _SIGNAL_CATEGORIES}
+            for signal_id, usage in rows:
+                label = _CATEGORY_FOR_KIND.get(usage.kind)
+                if label is not None:
+                    by_category[label].append((signal_id, usage))
 
-        for row, (signal_id, usage) in enumerate(rows):
-            self._fill_row(row, signal_id, usage)
+            for index, (label, _kinds) in enumerate(_SIGNAL_CATEGORIES):
+                members = by_category[label]
+                category_item = _SortableTreeItem(
+                    [f"{label} ({len(members)})"] + [""] * (len(COLUMN_HEADERS) - 1),
+                    sort_keys={col: index for col in range(len(COLUMN_HEADERS))},
+                )
+                category_item.setData(0, CATEGORY_LABEL_ROLE, label)
+                category_item.setFirstColumnSpanned(True)
+                font = category_item.font(0)
+                font.setBold(True)
+                category_item.setFont(0, font)
+                self.tree.addTopLevelItem(category_item)
+                self._category_items[label] = category_item
 
-        self.table.setSortingEnabled(True)
-        has_signals = len(rows) > 0
-        self.table.setVisible(has_signals)
-        self.empty_label.setVisible(not has_signals)
+                for signal_id, usage in members:
+                    self._fill_leaf(category_item, signal_id, usage)
 
-    def _fill_row(self, row, signal_id, usage):
+                category_item.setExpanded(self._is_category_expanded(label))
+
+            has_signals = len(rows) > 0
+            self.tree.setVisible(has_signals)
+            self.empty_label.setVisible(not has_signals)
+        finally:
+            self.tree.blockSignals(False)
+
+    def _fill_leaf(self, category_item, signal_id, usage):
         issue = self._issues_by_signal.get(signal_id)
         severity = issue.severity if issue else None
         has_icon = severity in _ICON_SEVERITIES
 
-        state_item = _SortableItem("", sort_key=_SEVERITY_RANK[severity])
-        if has_icon:
-            state_item.setIcon(_status_icon(_SEVERITY_COLOR[severity]))
-        if issue:
-            state_item.setToolTip(issue.text)  # info issues still get a tooltip, just no icon/color
-        state_item.setData(SIGNAL_ID_ROLE, signal_id)
-        self.table.setItem(row, COL_STATE, state_item)
-
-        signal_item = _SortableItem(signal_id)
-        signal_item.setFont(QFont("Consolas", 9))
-        signal_item.setData(SIGNAL_ID_ROLE, signal_id)
-        if has_icon:
-            signal_item.setForeground(QBrush(_SEVERITY_COLOR[severity]))
-        self.table.setItem(row, COL_SIGNAL, signal_item)
-
         type_text = f"{_KIND_SHORT.get(usage.kind, usage.kind)} · {usage.data_type}"
-        self.table.setItem(row, COL_TYPE, _SortableItem(type_text))
-
-        self.table.setItem(row, COL_LABEL, _SortableItem(usage.label))
-
         writes_text, writes_tooltip = self._writers_text(usage)
-        writes_item = _SortableItem(writes_text)
-        writes_item.setToolTip(writes_tooltip)
-        self.table.setItem(row, COL_WRITES, writes_item)
-
         reads_text, reads_tooltip = self._readers_text(usage)
-        reads_item = _SortableItem(reads_text, sort_key=len(usage.readers))
-        reads_item.setToolTip(reads_tooltip)
-        self.table.setItem(row, COL_READS, reads_item)
+
+        texts = [""] * len(COLUMN_HEADERS)
+        texts[COL_SIGNAL] = signal_id
+        texts[COL_TYPE] = type_text
+        texts[COL_LABEL] = usage.label
+        texts[COL_WRITES] = writes_text
+        texts[COL_READS] = reads_text
+
+        item = _SortableTreeItem(texts, sort_keys={
+            COL_STATE: _SEVERITY_RANK[severity],
+            COL_READS: len(usage.readers),
+        })
+        item.setData(0, SIGNAL_ID_ROLE, signal_id)
+
+        if has_icon:
+            item.setIcon(COL_STATE, _status_icon(_SEVERITY_COLOR[severity]))
+        if issue:
+            item.setToolTip(COL_STATE, issue.text)  # info issues still get a tooltip, just no icon/color
+
+        item.setFont(COL_SIGNAL, QFont("Consolas", 9))
+        if has_icon:
+            item.setForeground(COL_SIGNAL, QBrush(_SEVERITY_COLOR[severity]))
+
+        item.setToolTip(COL_WRITES, writes_tooltip)
+        item.setToolTip(COL_READS, reads_tooltip)
+
+        category_item.addChild(item)
+        return item
 
     @staticmethod
     def _writers_text(usage):
@@ -290,16 +354,27 @@ class SignalsPanel(QWidget):
         text = f"{len(short_ids)}: " + ", ".join(short_ids)
         return text, ", ".join(short_ids)
 
+    # ---- Iteration helpers ---------------------------------------------------
+
+    def _iter_leaves(self):
+        """Every signal (leaf) item across every category, in tree order."""
+        for category_item in self._category_items.values():
+            for i in range(category_item.childCount()):
+                yield category_item.child(i)
+
+    @staticmethod
+    def _signal_id_of(item):
+        return item.data(0, SIGNAL_ID_ROLE)
+
+    # ---- Sorting (children only — see the QTreeWidget setup above) --------
+
+    def _on_sort_indicator_changed(self, column, order):
+        for category_item in self._category_items.values():
+            category_item.sortChildren(column, order)
+
     # ---- Filtering (§2.3) --------------------------------------------------
 
     def _on_search_changed(self, _text):
-        self._apply_filters()
-
-    def _on_kind_filter_changed(self, label):
-        self._active_kind_filter = label
-        for l, btn in self.filter_buttons.items():
-            btn.setChecked(l == label)
-        self.settings.setValue(self._setting_key("kind_filter"), label)
         self._apply_filters()
 
     def _on_only_issues_toggled(self, checked):
@@ -308,42 +383,63 @@ class SignalsPanel(QWidget):
 
     def _apply_filters(self):
         text = self.search_edit.text().strip().lower()
-        kinds = dict(_FILTER_GROUPS)[self._active_kind_filter]
         only_issues = self.only_issues_check.isChecked()
+        filter_active = bool(text) or only_issues
 
-        for row in range(self.table.rowCount()):
-            signal_id = self.table.item(row, COL_SIGNAL).data(SIGNAL_ID_ROLE)
-            usage = self._crossref.get(signal_id)
-            if usage is None:
-                continue
+        # Programmatic expand/collapse below must NOT be mistaken for a
+        # real user click by _on_item_expanded_changed (which would
+        # persist it as if it were the user's own preference).
+        self.tree.blockSignals(True)
+        try:
+            for label, category_item in self._category_items.items():
+                any_visible = False
+                for i in range(category_item.childCount()):
+                    leaf = category_item.child(i)
+                    signal_id = self._signal_id_of(leaf)
+                    usage = self._crossref.get(signal_id)
+                    visible = usage is not None and self._leaf_matches(leaf, signal_id, usage, text, only_issues)
+                    leaf.setHidden(not visible)
+                    any_visible = any_visible or visible
 
-            visible = True
-            if kinds is not None and usage.kind not in kinds:
-                visible = False
-            # §2.3: "wiersze ze statusem błędu albo ostrzeżenia" —
-            # explicitly error/warning only, not "info" (matches the Stan
-            # column's own icon rule above).
-            issue = self._issues_by_signal.get(signal_id)
-            if visible and only_issues and (issue is None or issue.severity not in _ICON_SEVERITIES):
-                visible = False
-            if visible and text:
-                haystack = signal_id.lower() + " " + usage.label.lower() + " " + " ".join(
-                    s for (_u, s, _p) in usage.readers + usage.writers
-                ).lower()
-                if text not in haystack:
-                    visible = False
+                # Structural presence: a category with genuinely nothing in
+                # it (before any filter) still shows, so its "(0)" count is
+                # informative. Only hide it once a filter is ACTIVE and it
+                # has no match at all — decluttering an active search,
+                # never hiding an honestly-empty category on its own.
+                category_item.setHidden(filter_active and not any_visible)
+                if filter_active:
+                    category_item.setExpanded(any_visible)
+                else:
+                    category_item.setExpanded(self._is_category_expanded(label))
+        finally:
+            self.tree.blockSignals(False)
 
-            self.table.setRowHidden(row, not visible)
+    def _leaf_matches(self, leaf, signal_id, usage, text, only_issues) -> bool:
+        # §2.3: "wiersze ze statusem błędu albo ostrzeżenia" — explicitly
+        # error/warning only, not "info" (matches the Stan column's own
+        # icon rule above).
+        issue = self._issues_by_signal.get(signal_id)
+        if only_issues and (issue is None or issue.severity not in _ICON_SEVERITIES):
+            return False
+        if text:
+            haystack = signal_id.lower() + " " + usage.label.lower() + " " + " ".join(
+                s for (_u, s, _p) in usage.readers + usage.writers
+            ).lower()
+            if text not in haystack:
+                return False
+        return True
 
     # ---- Navigation (§3) -----------------------------------------------------
 
-    def _on_cell_double_clicked(self, row, _column):
+    def _on_item_double_clicked(self, item, _column):
         """§3.1: jumps to the WRITER of this signal, or its first reader
         when there's no writer (either it's a physical/analog input or
         system signal, whose writer is structurally always "urządzenie" —
         never a project block — or an internal signal that's read but
         never written, which §1.4 already flags as its own warning)."""
-        signal_id = self.table.item(row, COL_SIGNAL).data(SIGNAL_ID_ROLE)
+        signal_id = self._signal_id_of(item)
+        if signal_id is None:
+            return  # a category header, not a signal row
         usage = self._crossref.get(signal_id)
         if usage is None:
             return
@@ -353,24 +449,25 @@ class SignalsPanel(QWidget):
         block_uuid, _short_id, _pin = target
         self._jump_to_block(block_uuid)
 
-    def _on_table_context_menu(self, pos):
+    def _on_tree_context_menu(self, pos):
         """§3.2: right-click on a row with at least one reader opens a menu
         listing every one of them — choosing one jumps to it. A row with
         no readers (a DO/AO/write-only internal signal, or a physical
-        input read by nothing) offers nothing to jump to, so no menu is
-        shown at all."""
-        item = self.table.itemAt(pos)
+        input read by nothing), or a category header, offers nothing to
+        jump to, so no menu is shown at all."""
+        item = self.tree.itemAt(pos)
         if item is None:
             return
-        row = item.row()
-        signal_id = self.table.item(row, COL_SIGNAL).data(SIGNAL_ID_ROLE)
+        signal_id = self._signal_id_of(item)
+        if signal_id is None:
+            return
         menu = self._build_reader_menu(signal_id)
         if menu is None:
             return
-        menu.exec(self.table.viewport().mapToGlobal(pos))
+        menu.exec(self.tree.viewport().mapToGlobal(pos))
 
     def _build_reader_menu(self, signal_id):
-        """Split out from _on_table_context_menu() so it's testable without
+        """Split out from _on_tree_context_menu() so it's testable without
         ever calling QMenu.exec() (a modal call — invoking it in an
         automated/headless test would block forever waiting for a click
         that never comes)."""
@@ -461,39 +558,37 @@ class SignalsPanel(QWidget):
         highlight = QBrush(QColor(200, 220, 255))
         clear = QBrush()
 
-        for row in range(self.table.rowCount()):
-            signal_id = self.table.item(row, COL_SIGNAL).data(SIGNAL_ID_ROLE)
+        for leaf in self._iter_leaves():
+            signal_id = self._signal_id_of(leaf)
             usage = self._crossref.get(signal_id)
             matches = bool(usage) and bool(short_ids) and any(
                 s in short_ids for (_u, s, _p) in usage.readers + usage.writers
             )
             brush = highlight if matches else clear
-            for col in range(self.table.columnCount()):
-                self.table.item(row, col).setBackground(brush)
+            for col in range(len(COLUMN_HEADERS)):
+                leaf.setBackground(col, brush)
 
     # ---- §4: entry point from the block context menu -----------------------
 
     # ---- §5: CSV export -------------------------------------------------------
 
     def _is_filter_applied(self) -> bool:
-        return (
-            bool(self.search_edit.text().strip())
-            or self._active_kind_filter != "Wszystkie"
-            or self.only_issues_check.isChecked()
-        )
+        return bool(self.search_edit.text().strip()) or self.only_issues_check.isChecked()
 
     def export_csv(self, path: str):
         """§5.1/§5.2: writes exactly the rows CURRENTLY VISIBLE in the
-        table (i.e. after every active filter), in the table's own column
-        order plus a trailing "Problemy" column — reads straight off the
-        rendered cell text rather than re-deriving anything from
-        core/crossref.py, so the export can never disagree with what's
-        actually on screen. UTF-8 with a BOM ("utf-8-sig") and a ";"
-        delimiter, so the file opens correctly in Excel with Polish
-        characters with no manual import-wizard step. First line is a "#"
-        comment (project name, ISO date, whether a filter was applied) —
-        not a csv.writer row, so spreadsheet tools that treat a leading
-        "#" as a comment skip it automatically."""
+        tree (i.e. after search/"Problemy", exactly like the old table's
+        filters — collapsing a category is a display convenience and does
+        NOT affect what's exported, only setHidden()/leaf visibility
+        does), in the tree's own column order plus a trailing "Problemy"
+        column — reads straight off the rendered cell text rather than
+        re-deriving anything from core/crossref.py, so the export can
+        never disagree with what's actually on screen. UTF-8 with a BOM
+        ("utf-8-sig") and a ";" delimiter, so the file opens correctly in
+        Excel with Polish characters with no manual import-wizard step.
+        First line is a "#" comment (project name, ISO date, whether a
+        filter was applied) — not a csv.writer row, so spreadsheet tools
+        that treat a leading "#" as a comment skip it automatically."""
         project_name = self.project.settings.get("name", "") if self.project else ""
         timestamp = datetime.now().isoformat(timespec="seconds")
         filter_applied = "tak" if self._is_filter_applied() else "nie"
@@ -503,19 +598,19 @@ class SignalsPanel(QWidget):
             writer = csv.writer(f, delimiter=";")
             writer.writerow(list(COLUMN_HEADERS) + ["Problemy"])
 
-            for row in range(self.table.rowCount()):
-                if self.table.isRowHidden(row):
+            for leaf in self._iter_leaves():
+                if leaf.isHidden():
                     continue
-                signal_id = self.table.item(row, COL_SIGNAL).data(SIGNAL_ID_ROLE)
+                signal_id = self._signal_id_of(leaf)
                 issue = self._issues_by_signal.get(signal_id)
                 state_text = _SEVERITY_LABEL_PL[issue.severity] if issue else ""
                 writer.writerow([
                     state_text,
-                    self.table.item(row, COL_SIGNAL).text(),
-                    self.table.item(row, COL_TYPE).text(),
-                    self.table.item(row, COL_LABEL).text(),
-                    self.table.item(row, COL_WRITES).text(),
-                    self.table.item(row, COL_READS).text(),
+                    leaf.text(COL_SIGNAL),
+                    leaf.text(COL_TYPE),
+                    leaf.text(COL_LABEL),
+                    leaf.text(COL_WRITES),
+                    leaf.text(COL_READS),
                     issue.text if issue else "",
                 ])
 
@@ -529,17 +624,16 @@ class SignalsPanel(QWidget):
 
     def focus_signal(self, signal_id: str):
         """Called from the canvas block context menu's "Pokaż użycia
-        sygnału" (block_item.py) — resets the kind/only-issues filters
-        (whatever the target signal's kind or issue state, it must end up
-        VISIBLE — a stale "Fizyczne"/"Tylko problemy" filter from earlier
-        browsing could otherwise hide the very row this is supposed to
-        reveal), sets the search filter to this signal's id, and selects
-        + scrolls to its row, if found."""
-        self._on_kind_filter_changed("Wszystkie")
+        sygnału" (block_item.py) — resets the "Problemy" filter (whatever
+        the target signal's issue state, it must end up VISIBLE — a stale
+        "Tylko problemy" from earlier browsing could otherwise hide the
+        very row this is supposed to reveal), sets the search filter to
+        this signal's id (which also auto-expands its category, see
+        _apply_filters()), and selects + scrolls to its row, if found."""
         self.only_issues_check.setChecked(False)
         self.search_edit.setText(signal_id)
-        for row in range(self.table.rowCount()):
-            if self.table.item(row, COL_SIGNAL).data(SIGNAL_ID_ROLE) == signal_id:
-                self.table.selectRow(row)
-                self.table.scrollToItem(self.table.item(row, COL_SIGNAL))
+        for leaf in self._iter_leaves():
+            if self._signal_id_of(leaf) == signal_id:
+                self.tree.setCurrentItem(leaf)
+                self.tree.scrollToItem(leaf)
                 break
