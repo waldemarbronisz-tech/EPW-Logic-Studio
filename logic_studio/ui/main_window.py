@@ -767,7 +767,7 @@ class MainWindow(QMainWindow):
         """UI (DI checkboxes + analog input sliders/spinboxes) -> IOProvider."""
         from logic_studio.core.device_model import DeviceModel
 
-        for idx, addr in enumerate(DeviceModel.get_ela_addresses()):
+        for idx, addr in enumerate(DeviceModel.get_ela_addresses(self.project)):
             self.io_provider.set_digital_input(addr, self.simulation_panel.get_ela_state(idx))
 
         for point in DeviceModel.get_analog_points(self.project):
@@ -779,7 +779,7 @@ class MainWindow(QMainWindow):
         """IOProvider -> UI (DO LEDs + analog output readouts)."""
         from logic_studio.core.device_model import DeviceModel
 
-        for idx, addr in enumerate(DeviceModel.get_ada_addresses()):
+        for idx, addr in enumerate(DeviceModel.get_ada_addresses(self.project)):
             self.simulation_panel.set_ada_state(idx, self.io_provider.read_digital_output(addr))
 
         for point in DeviceModel.get_analog_points(self.project):
@@ -823,8 +823,8 @@ class MainWindow(QMainWindow):
     def _update_simulation_panel(self):
         # Sync ELA/ADA block states to the UI
         from logic_studio.core.device_model import DeviceModel
-        ela_addrs = DeviceModel.get_ela_addresses()
-        ada_addrs = DeviceModel.get_ada_addresses()
+        ela_addrs = DeviceModel.get_ela_addresses(self.project)
+        ada_addrs = DeviceModel.get_ada_addresses(self.project)
 
         for block in self.project.blocks:
             if block.__class__.__name__ == "DigitalInputBlock":

@@ -1,8 +1,8 @@
 # EPW Logic Studio — Pełny raport audytowy (dla Claude.ai)
 
 **Data:** 2026-09-04 (migawka §1-§10 odświeżona do stanu na branchu
-`feat/undo-diff-storage`, zbudowanym na `main` commit `6581946` — po
-scaleniu PR #18 `feat/wire-routing-obstacle-avoidance`; wszystkie liczby
+`fix/audit-followups-multidevice-const`, zbudowanym na `main` commit
+`d480313` — po scaleniu PR #19 `feat/undo-diff-storage`; wszystkie liczby
 poniżej wyliczone bezpośrednio z repozytorium na tym branchu, nie
 przepisane z poprzedniej wersji — polecenia użyte do ich wyliczenia
 podane w każdej sekcji).
@@ -28,21 +28,21 @@ Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) 
 
 ## 2. Status repozytorium
 
-- Gałąź: `feat/undo-diff-storage` (na `main` commit `6581946`, merge PR #18 `feat/wire-routing-obstacle-avoidance`), jeszcze niescalona.
-- **Testy: 849/849 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~9-11s.
-- **40 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **9771 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
-- **Kod produkcyjny (`logic_studio/`): 12293 linie w 61 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
-  - `blocks/`: 2278
-  - `ui/`: 7354
-  - `core/`: 1289
-  - `compiler/`: 694
+- Gałąź: `fix/audit-followups-multidevice-const` (na `main` commit `d480313`, merge PR #19 `feat/undo-diff-storage`), jeszcze niescalona.
+- **Testy: 874/874 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~16-17s.
+- **41 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **10087 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
+- **Kod produkcyjny (`logic_studio/`): 12464 linie w 61 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
+  - `blocks/`: 2283
+  - `ui/`: 7421
+  - `core/`: 1352
+  - `compiler/`: 730
   - `engine/`: 458
   - `app.py`/`__init__.py` (top-level): 220
 - **69 zarejestrowanych typów bloków w 12 kategoriach** — patrz §5 (polecenie i pełna lista tam), bez zmian w tym PR.
 - **10 przykładowych projektów** w `examples/*.epwlogic` — wszystkie otwierają się, kompilują i eksportują z bieżącym kodem (zweryfikowane przy każdym PR, patrz dziennik).
-- **96 commitów** w historii (`git log --oneline | wc -l`) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
+- **97 commitów** w historii (`git log --oneline | wc -l`) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
 
-Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §18), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
+Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §20), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
 
 ## 3. Struktura katalogów
 
@@ -269,8 +269,11 @@ zostały ZAMKNIĘTE decyzją produktową (§21 dziennika — logika komponowana
 przez bity wewnętrzne, nie nowe typy bloków). `DeviceModel` na jedno
 urządzenie ZAMKNIĘTE implementacją (§23 dziennika, branch
 `feat/multi-device-io` — wiele urządzeń ELA/ADA jest teraz
-projekt-definiowane), choć zostawiła po sobie dwa węższe, wciąż otwarte
-punkty (§9.1/§9.2 poniżej). Duplikat adresu na `input.di` ZAMKNIĘTY
+projekt-definiowane); dwa węższe punkty ten branch zostawił otwarte — Panel
+Symulacji nie przebudowujący siatki DI/DO (poprzedni §9.1) i katalog
+sygnałów systemowych bez diagnostyki per urządzenie (poprzedni §9.2) —
+oba ZAMKNIĘTE implementacją (§26 dziennika, branch
+`fix/audit-followups-multidevice-const`). Duplikat adresu na `input.di` ZAMKNIĘTY
 implementacją innej formy niż pierwotnie rozważana — hiperłącze między
 blokami, nie błąd walidacji (branch `feat/duplicate-address-hyperlink`,
 PR otwarty, jeszcze bez własnego wpisu w tym dzienniku — dopisze się przy
@@ -278,44 +281,19 @@ scaleniu). Router przewodów bez omijania przeszkód (poprzedni §10, pkt 4)
 ZAMKNIĘTY implementacją (§24 dziennika, branch
 `feat/wire-routing-obstacle-avoidance`). Undo/redo pełnym snapshotem
 zamiast różnicowo (poprzedni §9.1, PRIORYTET) ZAMKNIĘTY implementacją
-(§25 dziennika, branch `feat/undo-diff-storage`).
-
-### 9.1 Panel Symulacji nie przebudowuje siatki DI/DO na zmianę listy urządzeń
-Znalezione podczas §23 (`feat/multi-device-io`), świadomie zostawione poza
-zakresem tamtego PR. `ui/panels/simulation.py`'s DI/DO checkboxy budowane
-są RAZ, w konstruktorze `SimulationPanel.__init__()` — `set_project()`
-odświeża wyłącznie sekcje analogowe i oznaczenia "używane/wszystkie",
-nigdy samą listę adresów ani widżety. Dodanie drugiego urządzenia ELA/ADA
-przez Project Settings poprawnie działa w silniku/kompilatorze/eksporcie,
-ale NIE pojawia się jeszcze w interaktywnej symulacji tej samej sesji —
-wymaga realnego przepisania budowy siatki DI/DO na coś przebudowywalnego
-przy zmianie projektu, nie tylko dopisania argumentu `project` do
-istniejących wywołań (jak reszta §23's zmian).
-
-### 9.2 Katalog sygnałów systemowych nie generuje diagnostyki per urządzenie
-Również znalezione i świadomie odłożone podczas §23. `core/
-system_signals_catalog.json` ma STATYCZNE wpisy `"ELA01.ONLINE"`/
-`"ELA01.FAULT"`/`"ADA01.ONLINE"`/`"ADA01.FAULT"`/`"ADA01.SAFE_PATH_OK"` —
-drugie i kolejne urządzenie zdefiniowane w projekcie NIE dostają
-odpowiadających sygnałów diagnostycznych automatycznie. Wymagałoby
-zamiany (części) statycznego pliku JSON na generowanie programowe z listy
-urządzeń projektu — osobna zmiana architektoniczna, większa niż punktowa
-poprawka.
+(§25 dziennika, branch `feat/undo-diff-storage`). Brak walidacji zakresów
+właściwości `const.*` (poprzedni §10, pkt 1) ZAMKNIĘTY implementacją (§26
+dziennika, branch `fix/audit-followups-multidevice-const`).
 
 ## 10. Rekomendacje / pytania otwarte do dalszej pracy
 
-1. Dokończyć wielourządzeniowość: przebudowa siatki Panelu Symulacji
-   (§9.1) i generowana diagnostyka systemowa per urządzenie (§9.2) —
-   obie mniejsze niż §23's oryginalny zakres, ale osobne od niego.
-2. Dodać w `Validator` walidację zakresów właściwości `const.*` (§6,
-   "Nadal otwarte braki").
-3. A* router (§17 ARCHITECTURE.md, §24 dziennika) przelicza się od zera
+1. A* router (§17 ARCHITECTURE.md, §24 dziennika) przelicza się od zera
    przy każdym `update_path()` dla przewodu, który go potrzebuje — brak
    cache'owania wyniku między klatkami przeciągania tego samego bloku.
    Nie zmierzone jako realny problem dzisiaj (pojedynczy przewód: ~kilka
    ms), ale warto obserwować przy projekcie, gdzie przeciągane bloki mają
    wiele "trudnych" przewodów jednocześnie.
-4. `diff_project_state()` (§18 ARCHITECTURE.md, §25 dziennika) porównuje
+2. `diff_project_state()` (§18 ARCHITECTURE.md, §25 dziennika) porównuje
    każdy blok base-vs-target na każdym `push_state()` — O(N) względem
    liczby bloków, ten sam rząd co `Project.serialize()` już dziś, więc
    nie jest to regresja, ale nie zoptymalizowane na wyrost (np. śledzenie
@@ -944,6 +922,44 @@ przeszedł BEZ ŻADNEJ modyfikacji — potwierdza, że przechowywanie
 różnicowe jest niewidoczne z zewnątrz.
 
 ---
+
+## 26. Status napraw (branch `fix/audit-followups-multidevice-const`)
+
+Dwa niezależne, mniejsze punkty z §9/§10 poprzedniej migawki, zrobione na
+jednej gałęzi w jednej sesji: dokończenie wielourządzeniowości ELA/ADA
+(dwie luki celowo zostawione przez §23 `feat/multi-device-io`) i
+walidacja właściwości bloków `const.*` (jeden z "Nadal otwartych braków"
+§6). Zero wspólnego kodu między nimi — połączone na jednej gałęzi z
+wygody sesji, nie z zależności między zmianami.
+
+| # | Punkt | Status |
+|---|---|---|
+| 1 | Panel Symulacji nie przebudowywał siatki DI/DO (poprzedni §9.1) | Naprawione — `SimulationPanel._rebuild_di_do_channels()`, wołane z `set_project()`, rebuduje wiersze/grupy TYLKO gdy `DeviceModel.get_ela_addresses(project)`/`get_ada_addresses(project)` faktycznie się zmieniły względem poprzedniego stanu; `_teardown_di_do_widgets()` odpina i planuje usunięcie starych widgetów. Wymuszony stan zachowany dla kanałów, które przetrwały zmianę. Zobacz ARCHITECTURE.md §19.1. |
+| 2 | Trzy miejsca w `main_window.py` ignorowały projekt przy mapowaniu indeksów DI/DO | Naprawione — `_push_inputs_to_io`/`_pull_outputs_from_io`/`_update_simulation_panel` przekazują teraz `self.project` do `DeviceModel.get_ela_addresses()`/`get_ada_addresses()` (były wołane bez argumentu — drugie urządzenie było poprawnie skompilowane/wyeksportowane, ale nigdy realnie sterowane/odczytywane podczas symulacji). |
+| 3 | Katalog sygnałów systemowych bez diagnostyki per urządzenie (poprzedni §9.2) | Naprawione — pięć statycznych wpisów ELA01/ADA01 usunięte z `system_signals_catalog.json`, generowane programowo w `core/system_signals.py::_device_signals(project)` z projektu własnej listy urządzeń. `get_categories()`/`get_all_signals()`/`get_signal()` przyjmują opcjonalny `project` (brak → jedno-urządzeniowy domyślny, identyczny ze starą treścią statyczną). Trzej konsumenci zaktualizowani: `signal_picker.py`, `validator.py`, `crossref.py`. Zobacz ARCHITECTURE.md §19.2. |
+| 4 | Walidacja właściwości `const.*` (§6, "Nadal otwarte braki") | Naprawione — `Validator.run()` odrzuca (ERROR) nieparsowalną `Value`/`Time (ms)` dla `const.real`/`const.int`/`const.time`, `NaN`/`Infinity` dla `const.real`, i ujemny czas dla `const.time`. Przy okazji naprawiony rzeczywisty, choć wcześniej nieodkryty, bug: `ConstantBase.evaluate()` łapało tylko `ValueError`, więc `None`/lista/słownik w tych właściwościach rzucałby nieprzechwyconym `TypeError` i wywalał skan silnika — teraz `except (TypeError, ValueError)` w evaluate() jako obrona warstwowa pod Validatorem. Zobacz ARCHITECTURE.md §20. |
+
+### Świadomie pominięte / poza zakresem tego PR
+- `blocks/system_signals.py`'s `SystemBooleanSignalBlock._sync_output_type()`
+  wciąż woła `system_signals.get_signal(signal_id)` BEZ projektu (blok/silnik
+  celowo nigdy nie trzyma żywej referencji do `Project`, §1) — sygnał
+  drugiego urządzenia ewaluuje się poprawnie w symulacji, ale nie dostaje
+  podświetlenia `safety_relevant` w `ElementPreviewPanel`. Ten sam wzorzec
+  "rozwiąż raz, w compile time" co `input.ai`'s zakres/sygnały wewnętrzne
+  rozwiązałby to w pełni — nie zaimplementowany tutaj, bez zmierzonego dziś
+  realnego wpływu (żaden istniejący projekt nie ma drugiego urządzenia).
+- `const.int`/`const.time` nie odrzucają float-a z niezerową częścią
+  ułamkową (np. `Value: 3.7` dla `const.int`) — `evaluate()` ucina ją po
+  cichu do `3` dokładnie jak przed tym PR; walidacja tutaj celowo pokrywa
+  wyłącznie przypadki, gdzie stara `except ValueError:` NIE łapała błędu
+  wcale (crash) albo gdzie wynik jest jawnie bez sensu (NaN/Inf/ujemny
+  czas), nie każde możliwe zaskoczenie przy konwersji typu.
+
+Testy: rozszerzone `tests/test_simulation_panel.py` (4 nowe) i
+`tests/test_multi_device_io.py` (5 nowych) dla punktów 1-3; nowy plik
+`tests/test_const_validation.py` (16) dla punktu 4.
+
+Pełny zestaw: 874 passed (849 + 9 z punktów 1-3 + 16 z punktu 4).
 
 ## Zasada utrzymania tego dokumentu
 

@@ -744,7 +744,8 @@ używanego sygnału wewnętrznego (§7.2 istniejącego kodu) — zamiast po
 cichu zostawić blok z adresem wskazującym donikąd.
 
 **Świadomie odłożone (poza zakresem tego PR)** — dwie luki znalezione po
-drodze, obie realne, żadna cicho nie zignorowana:
+drodze, obie realne, żadna cicho nie zignorowana. **Obie ZAMKNIĘTE
+implementacją w §19 poniżej (branch `fix/audit-followups-multidevice-const`).**
 - **Panel Symulacji** (`ui/panels/simulation.py`) buduje siatkę
   checkboxów DI/DO RAZ, w konstruktorze — `set_project()` odświeża
   wyłącznie sekcje analogowe i "używane/wszystkie" oznaczenia, nigdy
@@ -970,3 +971,138 @@ zachowanego najstarszego wpisu po odrzuceniu starszych, oba testy
 regresyjne aliasowania (properties/settings), brak aliasowania między
 DWOMA wypchniętymi snapshotami, oraz że pojedyncza zmiana jednego bloku
 zapisuje w różnicy wyłącznie TEN blok niezależnie od rozmiaru projektu.
+
+## 19. Dokończenie wielourządzeniowości ELA/ADA (feat/multi-device-followups)
+
+§16 (feat/multi-device-io) uczyniło listę urządzeń ELA/ADA projekt-
+definiowaną w modelu/kompilatorze/eksporcie, ale świadomie zostawiło dwie
+węższe luki (poprzedni AUDIT_REPORT.md §9.1/§9.2) — ten branch domyka obie.
+
+### 19.1 Panel Symulacji przebudowuje siatkę DI/DO na zmianę urządzeń
+
+`SimulationPanel.__init__()` budował `_di_addrs`/`_do_addrs` (i każdy
+wiersz/grupę pochodną) RAZ, wołając `DeviceModel.get_ela_addresses()` BEZ
+projektu — `set_project()` odświeżał tylko sekcje analogowe i oznaczenia
+"używane/wszystkie", nigdy samą listę adresów ani widżety. Drugie
+urządzenie zdefiniowane w Project Settings działało poprawnie w silniku/
+kompilatorze/eksporcie, ale nigdy nie stawało się klikalne w tej samej
+sesji edytora.
+
+**Naprawa**: `_di_addrs`/`_do_addrs` zaczynają jako puste listy w
+`__init__` — cała pierwsza (i każda kolejna) budowa idzie przez nową
+`SimulationPanel._rebuild_di_do_channels()`, wołaną z początku
+`set_project()`. Metoda porównuje `DeviceModel.get_ela_addresses(self.project)`/
+`get_ada_addresses(self.project)` z bieżącymi listami — **rebuduje wiersze/
+grupy tylko gdy lista faktycznie się zmieniła**, nigdy przy zwykłej edycji
+projektu (dodanie bloku, zmiana właściwości), która też woła `set_project()`
+i inaczej bezsensownie niszczyłaby i odtwarzała 64+ widgetów przy każdej
+takiej edycji. `_teardown_di_do_widgets()` odpina (`setParent(None)`) i
+planuje usunięcie (`deleteLater()`) każdego wiersza/grupy pochodnej ze
+starej listy adresów przed zbudowaniem nowej. Wymuszony stan kanału
+(`_di_state`/`_do_state`) jest zachowywany dla adresów, które przetrwały
+zmianę — nowo dodany kanał startuje jak w świeżym projekcie (`False`), a
+usunięty jest po prostu zapomniany.
+
+Trzy miejsca w `main_window.py` (`_push_inputs_to_io`/
+`_pull_outputs_from_io`/`_update_simulation_panel`) miały ten sam błąd na
+poziomie mapowania indeksów — wołały `DeviceModel.get_ela_addresses()`/
+`get_ada_addresses()` bez `self.project`, więc drugie urządzenie było
+poprawnie skompilowane/wyeksportowane, ale nigdy realnie napędzane ani
+odczytywane podczas symulacji tej samej sesji (indeksy 0-31 zawsze
+wskazywały tylko na pierwsze urządzenie). Naprawione identycznie —
+dopisanie `self.project` do każdego z sześciu wywołań.
+
+### 19.2 Katalog sygnałów systemowych generuje diagnostykę per urządzenie
+
+`core/system_signals_catalog.json`'s kategoria "Komunikacja" miała
+STATYCZNE wpisy `ELA01.ONLINE`/`ELA01.FAULT`/`ADA01.ONLINE`/`ADA01.FAULT`/
+`ADA01.SAFE_PATH_OK` — drugie i kolejne urządzenie zdefiniowane w projekcie
+nie dostawało odpowiadających sygnałów diagnostycznych wcale: nie dało się
+ich wybrać w `SignalPickerDialog`, a odwołanie się do nich ręcznie (np. we
+wcześniej zmigrowanym projekcie) fałszywie zgłaszało "sygnał spoza
+katalogu" mimo że semantycznie było poprawne dla tamtego projektu.
+
+**Naprawa**: te pięć wpisów usunięte z pliku JSON (zostają tam wyłącznie
+`SYS.COMMS_OK`/`SYS.TIME_SYNC_OK`, żadne z nich nie jest specyficzne dla
+urządzenia); generowane teraz programowo w `core/system_signals.py::
+_device_signals(project)`, z TEJ SAMEJ listy `DeviceModel.get_ela_devices(project)`/
+`get_ada_devices(project)`, którą już czyta wszystko inne związane z
+urządzeniami — jedna lista urządzeń, nie dwie niezależne. Treść (opis/
+etykieta/typ/flaga bezpieczeństwa) jest identyczna z dawnymi statycznymi
+wpisami dla domyślnego pojedynczego urządzenia — to mechaniczna zmiana
+SKĄD te wpisy pochodzą, nie zmiana tego, co mówią.
+
+`get_categories()`/`get_all_signals()`/`get_signal()` (`core/
+system_signals.py`) przyjmują teraz OPCJONALNY `project` — pominięty (albo
+`None`), degradują się do jedno-urządzeniowego domyślnego, dokładnie ten
+sam wzorzec co `DeviceModel` używa wszędzie indziej. Trzej konsumenci
+zaktualizowani, żeby przekazywać projekt, który już mieli pod ręką:
+`ui/signal_picker.py` (sekcja "Sygnały systemowe"), `compiler/
+validator.py` (sprawdzenie "sygnał spoza katalogu"), `core/crossref.py`
+(`_resolve_system_signal()`).
+
+**Świadomie NIE zrobione w tym PR**: `blocks/system_signals.py`'s
+`SystemBooleanSignalBlock._sync_output_type()` (typ pinu wyjściowego +
+flaga `safety_relevant` na podstawie wpisu katalogowego) wciąż woła
+`system_signals.get_signal(signal_id)` BEZ projektu, bo sam blok (a więc i
+silnik wykonawczy) celowo nigdy nie trzyma żywej referencji do `Project`
+(§1). Dla bloku odwołującego się do sygnału drugiego urządzenia (np.
+`ELA02.FAULT`) oznacza to: WARTOŚĆ w symulacji jest poprawna (idzie przez
+`IOProvider.read_system_signal()`, który nie sprawdza przynależności do
+katalogu), ale pin nie zostanie podświetlony jako `safety_relevant` w
+`ElementPreviewPanel`, tak jak `ELA01.FAULT` już jest. Ten sam wzorzec
+"rozwiąż raz, w compile time" co `input.ai`'s zakres (§8) i sygnały
+wewnętrzne (§10) rozwiązałby to w pełni — nie zaimplementowany tutaj,
+zostawiony jako punkt obserwacji, bez zmierzonego dziś realnego wpływu
+(żaden istniejący projekt nie ma jeszcze drugiego urządzenia ELA/ADA).
+
+Testy: rozszerzone `tests/test_simulation_panel.py` (4 nowe — siatka
+rebuduje się przy zmianie urządzeń, stan przetrwa dla kanałów, które
+przetrwały, BRAK rebudowy przy zwykłej edycji projektu, trzy miejsca w
+`main_window.py` faktycznie przekazują projekt) i `tests/
+test_multi_device_io.py` (5 nowych — katalog domyślny bez projektu
+identyczny ze starym statycznym, drugie urządzenie dostaje własną
+diagnostykę, `get_categories()` nie mutuje cache'owanego katalogu,
+Validator przestaje ostrzegać o sygnale drugiego urządzenia,
+`SignalPickerDialog` go wylistowuje).
+
+## 20. Walidacja właściwości bloków `const.*` (feat/const-property-validation)
+
+AUDIT_REPORT.md §10 (dawny pkt 1, przed tym PR): "Nadal otwarte braki: ...
+brak walidacji zakresów właściwości `const.*`." `ConstantBase.evaluate()`
+(`blocks/constants.py`) łapał tylko `ValueError` wokół `float()`/`int()` —
+właściwość `Value`/`Time (ms)` będąca `None`, listą, albo słownikiem
+(niemożliwe przez własny `QDoubleSpinBox`/`QSpinBox` panelu właściwości,
+ale możliwe z ręcznie edytowanego albo uszkodzonego pliku `.epwlogic`)
+rzucała nieprzechwyconym `TypeError` — silnik wywalałby się w trakcie
+skanu zamiast bezpiecznie spaść na wartość domyślną.
+
+**Naprawa**: `Validator.run()` (krok 3, obok istniejącej walidacji adresów
+DI/DO/AI/AO) dostaje trzy nowe gałęzie — dokładnie ten sam "sprawdzone na
+żywo w UI, ale TAKŻE wymuszone w compile time" wzorzec:
+- `const.real`: `Value` musi parsować się jako `float` (ERROR w
+  przeciwnym razie) I musi być liczbą skończoną — `math.isfinite()`
+  odrzuca `NaN`/`Infinity`, które `float()` przyjmuje bez wyjątku, ale
+  które jako "stała" wpompowana w bloki matematyczne dalej w schemacie są
+  bez sensu.
+- `const.int`: `Value` musi parsować się jako `int` (ERROR w przeciwnym
+  razie).
+- `const.time`: `"Time (ms)"` musi parsować się jako `int` (ERROR) ORAZ
+  być nieujemne (ERROR) — czas ujemny nie ma znaczenia fizycznego, ten
+  sam floor co "nieujemne właściwości czasu/liczników" panelu właściwości
+  (feat/io-labels-and-ids §5.2) egzekwuje już na żywo w UI; zero jest
+  dozwolone.
+
+`ConstantBase`'s trzy podklasy z właściwością numeryczną łapią teraz
+`except (TypeError, ValueError)` zamiast samego `ValueError` — obrona
+warstwowa: Validator odrzuca to na etapie kompilacji, więc `evaluate()`
+nigdy nie powinno dostać złej wartości w praktyce, ale blok wywołany poza
+tą ścieżką (osobny skrypt, przyszły wywołujący) i tak bezpiecznie spada na
+wartość domyślną zamiast wywalać skan.
+
+Testy: nowy plik `tests/test_const_validation.py` (16) — poprawna wartość
+bez błędów dla każdego z trzech typów, string nienumeryczny, `None`,
+lista, `NaN`, `Infinity`, ujemny czas, zero jako dozwolona granica,
+`Compiler.compile()` faktycznie zwraca `None` na złej wartości `const.real`,
+i trzy testy `evaluate()` bezpośrednio potwierdzające, że `TypeError` nigdy
+nie ucieka poza blok.

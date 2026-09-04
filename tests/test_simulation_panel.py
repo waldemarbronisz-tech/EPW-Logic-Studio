@@ -215,3 +215,76 @@ def test_get_ela_state_and_set_ada_state_are_index_based(qsettings):
     row_addr = panel._di_detail_rows and "ELA01.DI05"
     panel._toggle_di("ELA01.DI05")
     assert panel.get_ela_state(4) is True
+
+
+# ---- feat/multi-device-followups: DI/DO grid rebuilds on device changes --
+# Closes ARCHITECTURE.md §9.1 — the grid used to be built once in __init__
+# from DeviceModel's single-device default and never rebuilt, so a second
+# ELA/ADA device defined in Project Settings worked in the engine/compiler/
+# export but never became visible or clickable here.
+
+def test_grid_rebuilds_when_a_second_device_is_defined(qsettings):
+    _app()
+    p = Project()
+    panel = SimulationPanel(settings=qsettings)
+    panel.set_project(p)
+    assert len(panel._di_detail_rows) == 32
+    assert "ELA02.DI01" not in panel._di_detail_rows
+
+    p.settings["ela_devices"] = ["ELA01", "ELA02"]
+    panel.set_project(p)
+
+    assert len(panel._di_detail_rows) == 64
+    assert "ELA02.DI01" in panel._di_detail_rows
+    assert "ELA02.DI32" in panel._di_detail_rows
+    # The compact ("wszystkie") grouped view grows too — a full extra bank
+    # of 4 groups-of-8 for ELA02's 32 channels.
+    assert len(panel._di_group_widgets) == 8
+
+def test_forced_state_survives_a_device_list_change_for_still_present_channels(qsettings):
+    _app()
+    p = Project()
+    panel = SimulationPanel(settings=qsettings)
+    panel.set_project(p)
+    panel._toggle_di("ELA01.DI01")
+    assert panel.get_ela_state(0) is True
+
+    p.settings["ela_devices"] = ["ELA01", "ELA02"]
+    panel.set_project(p)
+
+    assert panel.get_ela_state(0) is True  # ELA01.DI01 unchanged
+    assert panel._di_state["ELA02.DI01"] is False  # newly added, safe default
+
+def test_no_rebuild_widgets_recreated_when_device_list_is_unchanged(qsettings):
+    """An ordinary project edit (no device-list change) must NOT tear down
+    and recreate the DI/DO row widgets — set_project() is called on every
+    such edit, and doing so would be wasteful and would also lose whatever
+    the engineer had just clicked."""
+    _app()
+    p = Project()
+    p.add_block(_di_block("ELA01.DI01"))
+    panel = SimulationPanel(settings=qsettings)
+    panel.set_project(p)
+    row_before = panel._di_detail_rows["ELA01.DI01"]
+
+    p.add_block(_di_block("ELA01.DI02"))  # unrelated edit, same device list
+    panel.set_project(p)
+
+    assert panel._di_detail_rows["ELA01.DI01"] is row_before
+
+def test_main_window_di_do_sync_respects_projects_device_list():
+    """The three main_window.py call sites that sync DI/DO state between
+    SimulationPanel and IOProvider (_push_inputs_to_io/_pull_outputs_from_io/
+    _update_simulation_panel) must key off the PROJECT's own device list,
+    not DeviceModel's single-device default — otherwise a second device's
+    channels are correctly compiled/exported but silently never driven or
+    read back during simulation."""
+    import inspect
+    from logic_studio.ui import main_window
+
+    source = inspect.getsource(main_window.MainWindow)
+    for line in (
+        "DeviceModel.get_ela_addresses(self.project)",
+        "DeviceModel.get_ada_addresses(self.project)",
+    ):
+        assert source.count(line) >= 2, line
