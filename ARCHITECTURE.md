@@ -482,10 +482,38 @@ każda edycja właściwości, Ustawienia projektu) — więc panel nie wymagał
 kiedy przebudować się na nowo.
 
 **Eksport CSV** (`SignalsPanel.export_csv()`) czyta bezpośrednio z
-WYRENDEROWANYCH komórek tabeli dla wierszy aktualnie widocznych (po
-filtrach) — nigdy nie odtwarza wyniku z `crossref`/`find_issues()` od nowa
-— więc eksport z zasady nie może się rozjechać z tym, co inżynier widzi na
+WYRENDEROWANYCH komórek dla wierszy aktualnie widocznych (po filtrach) —
+nigdy nie odtwarza wyniku z `crossref`/`find_issues()` od nowa — więc
+eksport z zasady nie może się rozjechać z tym, co inżynier widzi na
 ekranie w chwili eksportu.
+
+**feat/signals-panel-tree**: panel przebudowany z płaskiego
+`QTableWidget` na `QTreeWidget` grupowany po kategorii (Fizyczne/
+Analogowe/Wewnętrzne/Systemowe, `_SIGNAL_CATEGORIES` w `signals.py`) —
+każda kategoria to zwijalny węzeł najwyższego poziomu, sygnały są jej
+dziećmi. Kategoryzacja jest teraz WYŁĄCZNIE STRUKTURALNA — nie ma już
+osobnego filtra kategorii (wcześniej: 5 rozłącznych przycisków, których
+suma minimalnych szerokości uniemożliwiała zawężenie panelu poniżej
+~830px, mimo że dokuje się domyślnie na 300px) — kilka kategorii może być
+widocznych naraz przez samo ich nierozwijanie/rozwijanie, czego wcześniejszy
+model "jedna kategoria na raz" nigdy nie pozwalał. Wyszukiwanie i "Problemy"
+zostają prawdziwymi filtrami przekrojowymi (sygnał może być w dowolnej
+kategorii): podczas aktywnego wyszukiwania kategoria bez dopasowań jest
+ukrywana, kategoria z dopasowaniem — wymuszenie rozwijana (bez nadpisywania
+zapamiętanego stanu użytkownika — `_apply_filters()` blokuje sygnały drzewa
+na czas tej operacji, tak by nie zostało to pomylone z prawdziwym kliknięciem
+i zapisane do `QSettings`). Stan rozwinięcia każdej kategorii jest
+persystowany analogicznie do `LibraryPanel`'s `library/expanded/<kategoria>`
+(§4.1 tamtej sekcji) — tu jako `signals_panel/expanded/<kategoria>`.
+Sortowanie jest sterowane ręcznie (`_on_sort_indicator_changed` woła
+`category_item.sortChildren(column, order)` na każdej kategorii z osobna)
+— dzięki temu kliknięcie nagłówka kolumny zmienia kolejność sygnałów
+WEWNĄTRZ każdej kategorii, ale nigdy kolejność samych czterech kategorii
+(`QTreeWidget.setSortingEnabled(True)` sortowałoby rekurencyjnie
+wszystko, w tym węzły najwyższego poziomu). Zwinięcie kategorii jest
+wyłącznie wygodą wyświetlania — `export_csv()`/liczba sygnałów nie zależą
+od stanu rozwinięcia, tylko od rzeczywistej widoczności (`isHidden()`)
+poszczególnych wierszy.
 
 ## 15. Schowek, wyrównywanie bloków i tymczasowe wyłączanie (feat/clipboard-and-align)
 

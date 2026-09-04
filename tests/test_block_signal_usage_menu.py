@@ -132,23 +132,24 @@ def test_show_signal_usage_with_empty_signal_id_does_nothing(qsettings):
 
 def test_focus_signal_resets_stale_filters_so_the_row_stays_visible(qsettings):
     """§4's whole point ("gdzie jeszcze jest używany X") fails silently if
-    an old "Tylko problemy"/kind filter hides the very row it's supposed
-    to reveal."""
+    an old "Tylko problemy" filter, or a collapsed category (the tree's
+    equivalent of the old kind filter — feat/signals-panel-tree), hides
+    the very row it's supposed to reveal."""
     _app()
     window = _make_window(qsettings)
     window.scene.add_block_from_library("input.di", 0, 0)
     window.project.blocks[0].properties["Address"] = "ELA01.DI01"
     window.signals_panel.set_project(window.project)
     window.signals_panel.only_issues_check.setChecked(True)  # this DI has no issue -> would hide it
-    window.signals_panel._on_kind_filter_changed("Systemowe")  # wrong kind too
+    window.signals_panel._category_items["Fizyczne"].setExpanded(False)  # collapsed too
 
     from logic_studio.ui.canvas.block_item import BlockItem as BI
     item = next(i for i in window.scene.items() if isinstance(i, BI))
     item._show_signal_usage(item._current_signal_reference())
 
-    row = next(
-        r for r in range(window.signals_panel.table.rowCount())
-        if window.signals_panel.table.item(r, 1).text() == "ELA01.DI01"
+    leaf = next(
+        leaf for leaf in window.signals_panel._iter_leaves()
+        if window.signals_panel._signal_id_of(leaf) == "ELA01.DI01"
     )
-    assert window.signals_panel.table.isRowHidden(row) is False
+    assert leaf.isHidden() is False
     _close(window)
