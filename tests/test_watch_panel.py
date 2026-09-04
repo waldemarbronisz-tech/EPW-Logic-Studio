@@ -1,7 +1,7 @@
 """feat/signal-watch — ui/panels/watch.py's WatchPanel, built on
 core/watch.py. Table + SignalPickerDialog-driven add + sparkline trend.
 """
-from PySide6.QtWidgets import QApplication, QDialog
+from PySide6.QtWidgets import QApplication, QDialog, QHeaderView
 
 from logic_studio.core.project import Project
 from logic_studio.core.device_model import DeviceModel
@@ -10,7 +10,9 @@ from logic_studio.core.crossref import (
     KIND_PHYSICAL_DI, KIND_PHYSICAL_DO, KIND_ANALOG_IN, KIND_SYSTEM,
 )
 from logic_studio.engine.io_provider import SimulationIOProvider
-from logic_studio.ui.panels.watch import WatchPanel, _COL_KIND, _COL_ID, _COL_DESC, _COL_VALUE, _COL_TREND
+from logic_studio.ui.panels.watch import (
+    WatchPanel, _TrendDialog, _COL_KIND, _COL_ID, _COL_DESC, _COL_VALUE, _COL_TREND,
+)
 from logic_studio.blocks import register_builtin_blocks
 
 register_builtin_blocks()
@@ -220,3 +222,163 @@ def test_run_scan_refreshes_the_watch_panel(qsettings):
     m._run_scan()
 
     assert m.watch_panel.table.item(0, _COL_VALUE).text() == "1"
+
+
+# ---- column resizing (§ user feedback) --------------------------------------
+# The first version force-stretched Opis, leaving Trend pinned to a small
+# fixed width the user had no way to enlarge. Every column must now be
+# individually draggable — none Stretch.
+
+def test_every_column_is_individually_resizable(qsettings):
+    _app()
+    panel = WatchPanel(settings=qsettings)
+    header = panel.table.horizontalHeader()
+    for col in (_COL_KIND, _COL_ID, _COL_DESC, _COL_VALUE, _COL_TREND):
+        assert header.sectionResizeMode(col) == QHeaderView.Interactive
+    assert header.stretchLastSection() is False
+
+def test_resizing_the_trend_column_resizes_the_sparkline_widget(qsettings):
+    """The sparkline must fill its cell, not sit as a fixed-size island
+    inside a wider column — otherwise widening the column just adds blank
+    padding, defeating the point of making it resizable at all."""
+    _app()
+    p = Project()
+    watch.add_watch(p, KIND_PHYSICAL_DI, "ELA01.DI01")
+    panel = WatchPanel(settings=qsettings)
+    panel.set_project(p)
+
+    panel.table.setColumnWidth(_COL_TREND, 500)
+    sparkline = panel.table.cellWidget(0, _COL_TREND)
+    sparkline.resize(500, sparkline.height())
+    assert sparkline.width() == 500
+
+
+# ---- trend popup (§ user feedback) ------------------------------------------
+
+def test_double_click_trend_cell_opens_a_popup(qsettings):
+    _app()
+    p = Project()
+    watch.add_watch(p, KIND_PHYSICAL_DI, "ELA01.DI01")
+    panel = WatchPanel(settings=qsettings)
+    panel.set_project(p)
+
+    io = SimulationIOProvider()
+    io.set_digital_input("ELA01.DI01", True)
+    panel.refresh_values(io)
+
+    panel._on_cell_double_clicked(0, _COL_TREND)
+    key = (KIND_PHYSICAL_DI, "ELA01.DI01")
+    assert key in panel._trend_dialogs
+    dialog = panel._trend_dialogs[key]
+    assert isinstance(dialog, _TrendDialog)
+    assert dialog.chart._samples == [True]  # seeded from the inline sparkline's history
+
+def test_double_click_non_trend_column_does_nothing(qsettings):
+    _app()
+    p = Project()
+    watch.add_watch(p, KIND_PHYSICAL_DI, "ELA01.DI01")
+    panel = WatchPanel(settings=qsettings)
+    panel.set_project(p)
+
+    panel._on_cell_double_clicked(0, _COL_ID)
+    assert panel._trend_dialogs == {}
+
+def test_double_click_again_reuses_the_open_dialog(qsettings):
+    _app()
+    p = Project()
+    watch.add_watch(p, KIND_PHYSICAL_DI, "ELA01.DI01")
+    panel = WatchPanel(settings=qsettings)
+    panel.set_project(p)
+
+    panel._on_cell_double_clicked(0, _COL_TREND)
+    first = panel._trend_dialogs[(KIND_PHYSICAL_DI, "ELA01.DI01")]
+    panel._on_cell_double_clicked(0, _COL_TREND)
+    assert panel._trend_dialogs[(KIND_PHYSICAL_DI, "ELA01.DI01")] is first
+
+def test_refresh_values_feeds_an_open_trend_dialog(qsettings):
+    _app()
+    p = Project()
+    watch.add_watch(p, KIND_PHYSICAL_DI, "ELA01.DI01")
+    panel = WatchPanel(settings=qsettings)
+    panel.set_project(p)
+    panel._on_cell_double_clicked(0, _COL_TREND)
+    dialog = panel._trend_dialogs[(KIND_PHYSICAL_DI, "ELA01.DI01")]
+
+    io = SimulationIOProvider()
+    io.set_digital_input("ELA01.DI01", True)
+    panel.refresh_values(io)
+
+    assert dialog.chart._samples == [True]
+
+def test_removing_a_watched_row_closes_its_open_trend_dialog(qsettings):
+    _app()
+    p = Project()
+    watch.add_watch(p, KIND_PHYSICAL_DI, "ELA01.DI01")
+    panel = WatchPanel(settings=qsettings)
+    panel.set_project(p)
+    panel._on_cell_double_clicked(0, _COL_TREND)
+    assert len(panel._trend_dialogs) == 1
+
+    panel.table.selectRow(0)
+    panel._on_remove_clicked()
+    assert panel._trend_dialogs == {}
+
+def test_set_project_closes_all_open_trend_dialogs(qsettings):
+    _app()
+    p = Project()
+    watch.add_watch(p, KIND_PHYSICAL_DI, "ELA01.DI01")
+    panel = WatchPanel(settings=qsettings)
+    panel.set_project(p)
+    panel._on_cell_double_clicked(0, _COL_TREND)
+    assert len(panel._trend_dialogs) == 1
+
+    panel.set_project(p)  # e.g. an undo/redo swap
+    assert panel._trend_dialogs == {}
+
+def test_boolean_trend_dialog_has_no_manual_scale_controls(qsettings):
+    _app()
+    p = Project()
+    watch.add_watch(p, KIND_PHYSICAL_DI, "ELA01.DI01")
+    panel = WatchPanel(settings=qsettings)
+    panel.set_project(p)
+    panel._on_cell_double_clicked(0, _COL_TREND)
+    dialog = panel._trend_dialogs[(KIND_PHYSICAL_DI, "ELA01.DI01")]
+    assert not hasattr(dialog, "auto_check")
+
+def test_analog_trend_dialog_manual_scale_overrides_the_chart_range(qsettings):
+    _app()
+    p = Project()
+    p.settings["analog_points"] = [
+        {"address": "AI01", "name": "Temp", "unit": "°C", "min": 0.0, "max": 100.0, "direction": "input"},
+    ]
+    watch.add_watch(p, KIND_ANALOG_IN, "AI01")
+    panel = WatchPanel(settings=qsettings)
+    panel.set_project(p)
+    panel._on_cell_double_clicked(0, _COL_TREND)
+    dialog = panel._trend_dialogs[(KIND_ANALOG_IN, "AI01")]
+
+    assert dialog.chart.manual_range is None  # auto by default
+    dialog.auto_check.setChecked(False)
+    dialog.min_spin.setValue(10.0)
+    dialog.max_spin.setValue(20.0)
+    assert dialog.chart.manual_range == (10.0, 20.0)
+
+    dialog.auto_check.setChecked(True)
+    assert dialog.chart.manual_range is None
+
+def test_trend_dialog_clear_button_empties_the_chart_buffer(qsettings):
+    _app()
+    p = Project()
+    watch.add_watch(p, KIND_PHYSICAL_DI, "ELA01.DI01")
+    panel = WatchPanel(settings=qsettings)
+    panel.set_project(p)
+
+    io = SimulationIOProvider()
+    io.set_digital_input("ELA01.DI01", True)
+    panel.refresh_values(io)
+    panel._on_cell_double_clicked(0, _COL_TREND)
+    dialog = panel._trend_dialogs[(KIND_PHYSICAL_DI, "ELA01.DI01")]
+    assert dialog.chart._samples == [True]
+
+    dialog.chart.clear_samples()
+    assert dialog.chart._samples == []

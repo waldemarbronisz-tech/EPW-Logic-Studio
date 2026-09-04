@@ -7,13 +7,18 @@ core-logic/Qt-panel split as core/crossref.py vs. ui/panels/signals.py.
 The trend column is a small, procedurally-drawn (QPainter) strip chart —
 zero charting-library dependency, the same philosophy already used for
 ui/canvas/shapes.py's block shapes and ui/icons.py's library icons.
+Double-clicking a Trend cell opens an enlarged, live-updating, rescalable
+copy of the same widget in a non-modal popup (§ user feedback after the
+first version shipped: the inline strip is necessarily too small to read
+closely at table-row height).
 """
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTableWidget,
-    QTableWidgetItem, QAbstractItemView, QHeaderView, QDialog,
+    QTableWidgetItem, QAbstractItemView, QHeaderView, QDialog, QCheckBox,
+    QDoubleSpinBox,
 )
-from PySide6.QtGui import QPainter, QPen, QColor, QKeySequence
-from PySide6.QtCore import Qt, Signal, QSettings, QPointF
+from PySide6.QtGui import QPainter, QPen, QKeySequence
+from PySide6.QtCore import Qt, Signal, QSettings, QPointF, QSize
 
 from logic_studio.ui.canvas import style as canvas_style
 from logic_studio.core import watch
@@ -42,29 +47,44 @@ _COL_KIND, _COL_ID, _COL_DESC, _COL_VALUE, _COL_TREND = range(5)
 
 
 class _Sparkline(QWidget):
-    """Fixed-size scrolling strip chart of one watched signal's recent
-    samples. Boolean signals draw a 0/1 step trace; analog signals scale to
-    the min/max actually SEEN so far (not a declared range — a watch can
-    point at any signal, most of which have no declared range at all)."""
+    """Scrolling strip chart of one watched signal's recent samples.
+    Boolean signals draw a 0/1 step trace; analog signals scale to the
+    min/max actually SEEN so far (a watch can point at any signal, most of
+    which have no declared range at all) unless `manual_range` overrides
+    it — set by _TrendDialog's rescale controls.
 
-    # feat/signal-watch: sized for the bottom output_panel strip (canvas-
-    # width, shared with Compiler/Warnings/Errors/Runtime), not the 300px
-    # left sidebar this panel originally lived in — see main_window.py's
-    # WatchPanel wiring comment.
-    WIDTH = 240
-    HEIGHT = 32
-    MAX_SAMPLES = 200
+    Sized by the table CELL (or the popup dialog's layout) it's placed in,
+    not a fixed pixel size — paintEvent reads self.width()/self.height()
+    fresh every time, so dragging a column border (or resizing the popup)
+    actually resizes the chart itself, not just blank padding around a
+    fixed-size widget. `sizeHint()` only supplies the STARTING size."""
 
-    def __init__(self, is_boolean: bool, parent=None):
+    DEFAULT_WIDTH = 260
+    DEFAULT_HEIGHT = 32
+    DEFAULT_MAX_SAMPLES = 200
+
+    def __init__(self, is_boolean: bool, max_samples: int = None, parent=None):
         super().__init__(parent)
-        self.setFixedSize(self.WIDTH, self.HEIGHT)
         self.is_boolean = is_boolean
+        self.max_samples = max_samples or self.DEFAULT_MAX_SAMPLES
+        self.manual_range = None  # None -> auto-scale; else (lo, hi) override
+        self.setMinimumSize(60, 18)
         self._samples = []  # newest last; entries may be None (unresolved)
+
+    def sizeHint(self):
+        return QSize(self.DEFAULT_WIDTH, self.DEFAULT_HEIGHT)
 
     def add_sample(self, value):
         self._samples.append(value)
-        if len(self._samples) > self.MAX_SAMPLES:
+        if len(self._samples) > self.max_samples:
             self._samples.pop(0)
+        self.update()
+
+    def set_samples(self, samples):
+        """Replace the whole buffer at once — _TrendDialog seeds its bigger
+        chart from the inline widget's current history when opened, instead
+        of starting from an empty trace."""
+        self._samples = list(samples)[-self.max_samples:]
         self.update()
 
     def clear_samples(self):
@@ -72,19 +92,20 @@ class _Sparkline(QWidget):
         self.update()
 
     def paintEvent(self, event):
+        w, h = self.width(), self.height()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, False)
         painter.fillRect(self.rect(), canvas_style.COLOR_BACKGROUND)
         painter.setPen(QPen(canvas_style.COLOR_GRID_MINOR, 1))
-        painter.drawRect(0, 0, self.WIDTH - 1, self.HEIGHT - 1)
+        painter.drawRect(0, 0, w - 1, h - 1)
 
         n = len(self._samples)
         if n < 2:
             return
 
-        step = (self.WIDTH - 4) / max(1, self.MAX_SAMPLES - 1)
-        start_x = self.WIDTH - 2 - (n - 1) * step
-        top, bottom = 3, self.HEIGHT - 3
+        step = (w - 4) / max(1, self.max_samples - 1)
+        start_x = w - 2 - (n - 1) * step
+        top, bottom = 3, h - 3
 
         if self.is_boolean:
             painter.setPen(QPen(canvas_style.COLOR_LOGIC_HIGH, 1.5))
@@ -102,7 +123,10 @@ class _Sparkline(QWidget):
         numeric = [v for v in self._samples if isinstance(v, (int, float))]
         if len(numeric) < 2:
             return
-        lo, hi = min(numeric), max(numeric)
+        if self.manual_range is not None:
+            lo, hi = self.manual_range
+        else:
+            lo, hi = min(numeric), max(numeric)
         span = (hi - lo) or 1.0
         painter.setPen(QPen(canvas_style.COLOR_ANALOG_VALUE, 1.5))
         points = []
@@ -111,16 +135,90 @@ class _Sparkline(QWidget):
                 continue
             x = start_x + i * step
             y = bottom - ((v - lo) / span) * (bottom - top)
+            y = max(top, min(bottom, y))  # clip — a manual range narrower than the data must not draw outside the frame
             points.append(QPointF(x, y))
         for a, b in zip(points, points[1:]):
             painter.drawLine(a, b)
+
+
+class _TrendDialog(QDialog):
+    """Enlarged trend popup for one watched signal, opened by double-
+    clicking its Trend cell. Non-modal (show(), not exec()) — the engineer
+    keeps working the rest of the app, including running the simulation,
+    while it's open; WatchPanel.refresh_values() pushes it live samples
+    exactly like the inline sparkline for as long as it stays open."""
+
+    def __init__(self, kind: str, signal_id: str, description: str,
+                 is_boolean: bool, initial_samples: list, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Trend — {signal_id}")
+        self.setModal(False)
+        # A transient popup must actually be destroyed on close(), not just
+        # hidden — an orphaned, never-deleted top-level QDialog left behind
+        # by every open-without-explicit-teardown call site (tests included)
+        # accumulates for the life of the process.
+        self.setAttribute(Qt.WA_DeleteOnClose)
+        self.resize(640, 320)
+
+        layout = QVBoxLayout(self)
+        title = f"[{_KIND_LABELS.get(kind, kind)}] {signal_id}"
+        if description:
+            title += f" — {description}"
+        header = QLabel(title)
+        header.setStyleSheet("font-weight: bold;")
+        layout.addWidget(header)
+
+        self.chart = _Sparkline(is_boolean, max_samples=600)
+        self.chart.set_samples(initial_samples)
+        layout.addWidget(self.chart, 1)
+
+        bottom_row = QHBoxLayout()
+        if not is_boolean:
+            self.auto_check = QCheckBox("Skala automatyczna")
+            self.auto_check.setChecked(True)
+            self.auto_check.toggled.connect(self._on_auto_toggled)
+            self.min_spin = QDoubleSpinBox()
+            self.min_spin.setRange(-1e9, 1e9)
+            self.min_spin.setEnabled(False)
+            self.max_spin = QDoubleSpinBox()
+            self.max_spin.setRange(-1e9, 1e9)
+            self.max_spin.setValue(1.0)
+            self.max_spin.setEnabled(False)
+            self.min_spin.valueChanged.connect(self._on_manual_range_changed)
+            self.max_spin.valueChanged.connect(self._on_manual_range_changed)
+            bottom_row.addWidget(self.auto_check)
+            bottom_row.addWidget(QLabel("Min"))
+            bottom_row.addWidget(self.min_spin)
+            bottom_row.addWidget(QLabel("Maks"))
+            bottom_row.addWidget(self.max_spin)
+        bottom_row.addStretch()
+        clear_btn = QPushButton("Wyczyść bufor")
+        clear_btn.clicked.connect(self.chart.clear_samples)
+        bottom_row.addWidget(clear_btn)
+        layout.addLayout(bottom_row)
+
+    def add_sample(self, value):
+        self.chart.add_sample(value)
+
+    def _on_auto_toggled(self, checked):
+        self.min_spin.setEnabled(not checked)
+        self.max_spin.setEnabled(not checked)
+        self.chart.manual_range = None if checked else (self.min_spin.value(), self.max_spin.value())
+        self.chart.update()
+
+    def _on_manual_range_changed(self):
+        if not self.auto_check.isChecked():
+            self.chart.manual_range = (self.min_spin.value(), self.max_spin.value())
+            self.chart.update()
 
 
 class WatchPanel(QWidget):
     """Table of pinned signals: kind, address/name, description, live
     value, trend. "Dodaj..." reuses SignalPickerDialog (the same picker
     every "Bit"/"Sygnał"/"Address" property already uses) so adding a watch
-    never means a second, independently-maintained way to browse signals."""
+    never means a second, independently-maintained way to browse signals.
+    Every column is individually resizable by the engineer (§ user
+    feedback) — none is forced to Stretch."""
 
     # Emitted after a watch is added/removed (project.settings mutated) —
     # MainWindow connects this to set_dirty(), the same pattern SimulationPanel's
@@ -131,6 +229,7 @@ class WatchPanel(QWidget):
         super().__init__(parent)
         self.settings = settings if settings is not None else QSettings("BroniszLabs", "EPW Logic Studio")
         self.project = project
+        self._trend_dialogs = {}  # (kind, signal_id) -> open _TrendDialog
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -152,23 +251,23 @@ class WatchPanel(QWidget):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        # feat/signal-watch: this panel lives in the bottom output_panel
-        # strip (canvas width), not a 300px sidebar — column widths sized
-        # accordingly: Typ/Wartość narrow-fixed, Sygnał a sensible fixed
-        # default (still user-resizable), Opis takes whatever's left, Trend
-        # fixed to the sparkline's own size plus a little breathing room.
+        # feat/signal-watch (§ user feedback): every column is Interactive
+        # (draggable), none Stretch — the first version force-stretched
+        # Opis to fill the panel, which just made an often-empty column
+        # huge while Trend stayed pinned to a small fixed width the user
+        # had no way to enlarge. Widths below are only STARTING points.
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(_COL_KIND, QHeaderView.Fixed)
-        header.setSectionResizeMode(_COL_ID, QHeaderView.Interactive)
-        header.setSectionResizeMode(_COL_DESC, QHeaderView.Stretch)
-        header.setSectionResizeMode(_COL_VALUE, QHeaderView.Fixed)
-        header.setSectionResizeMode(_COL_TREND, QHeaderView.Fixed)
+        for col in (_COL_KIND, _COL_ID, _COL_DESC, _COL_VALUE, _COL_TREND):
+            header.setSectionResizeMode(col, QHeaderView.Interactive)
+        header.setStretchLastSection(False)
         self.table.setColumnWidth(_COL_KIND, 48)
         self.table.setColumnWidth(_COL_ID, 160)
+        self.table.setColumnWidth(_COL_DESC, 260)
         self.table.setColumnWidth(_COL_VALUE, 90)
-        self.table.setColumnWidth(_COL_TREND, _Sparkline.WIDTH + 12)
-        self.table.verticalHeader().setDefaultSectionSize(_Sparkline.HEIGHT + 8)
+        self.table.setColumnWidth(_COL_TREND, _Sparkline.DEFAULT_WIDTH + 12)
+        self.table.verticalHeader().setDefaultSectionSize(_Sparkline.DEFAULT_HEIGHT + 8)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
+        self.table.cellDoubleClicked.connect(self._on_cell_double_clicked)
         layout.addWidget(self.table)
 
         self.empty_label = QLabel('Brak obserwowanych sygnałów — kliknij "Dodaj...".')
@@ -182,7 +281,10 @@ class WatchPanel(QWidget):
     def set_project(self, project):
         """Rebuild every row from project.settings["watched_signals"] — call
         on load/new/undo/redo, exactly like every other project-derived
-        panel's set_project()."""
+        panel's set_project(). Closes any open trend popups first: they
+        refer to a specific (project, kind, signal_id) that a whole-project
+        swap may have invalidated entirely."""
+        self._close_all_trend_dialogs()
         self.project = project
         self.table.setRowCount(0)
         watches = watch.get_watches(project) if project else []
@@ -193,11 +295,11 @@ class WatchPanel(QWidget):
 
     def refresh_values(self, io_provider, now_ms: int = 0):
         """Pulls one fresh sample for every row from `io_provider` and
-        appends it to that row's sparkline — called once per scan
-        (MainWindow._run_scan(), the same choke point SimulationPanel's
-        DI/DO/AI/AO sync already goes through). A no-op with zero rows, so
-        it's always safe to call regardless of whether anything is
-        watched."""
+        appends it to that row's sparkline (and its trend popup, if one is
+        open) — called once per scan (MainWindow._run_scan(), the same
+        choke point SimulationPanel's DI/DO/AI/AO sync already goes
+        through). A no-op with zero rows, so it's always safe to call
+        regardless of whether anything is watched."""
         if self.project is None:
             return
         for row in range(self.table.rowCount()):
@@ -208,6 +310,19 @@ class WatchPanel(QWidget):
             sparkline = self.table.cellWidget(row, _COL_TREND)
             if sparkline is not None:
                 sparkline.add_sample(value)
+            dialog = self._trend_dialogs.get((kind, signal_id))
+            if dialog is not None:
+                try:
+                    dialog.add_sample(value)
+                except RuntimeError:
+                    # Defensive, mirrors ui/canvas/navigation.py's
+                    # pulse_highlight(): the popup's C++ object was
+                    # destroyed out from under this dict entry (should be
+                    # unreachable — close()'s finished signal removes the
+                    # entry synchronously before deleteLater() runs — but
+                    # a stray access to a torn-down window is exactly the
+                    # class of crash worth guarding against here).
+                    self._trend_dialogs.pop((kind, signal_id), None)
 
     # ---- row construction -----------------------------------------------------
 
@@ -248,6 +363,42 @@ class WatchPanel(QWidget):
         self.table.setVisible(not empty)
         self.empty_label.setVisible(empty)
 
+    # ---- trend popup (§ user feedback) -----------------------------------------
+
+    def _on_cell_double_clicked(self, row: int, column: int):
+        if column != _COL_TREND:
+            return
+        kind = self.table.item(row, _COL_KIND).data(KIND_ROLE)
+        signal_id = self.table.item(row, _COL_ID).data(SIGNAL_ID_ROLE)
+        key = (kind, signal_id)
+
+        existing = self._trend_dialogs.get(key)
+        if existing is not None:
+            try:
+                existing.raise_()
+                existing.activateWindow()
+                return
+            except RuntimeError:
+                self._trend_dialogs.pop(key, None)  # fall through, open a fresh one
+
+        description = self.table.item(row, _COL_DESC).text()
+        sparkline = self.table.cellWidget(row, _COL_TREND)
+        is_boolean = sparkline.is_boolean if sparkline is not None else True
+        initial_samples = sparkline._samples if sparkline is not None else []
+
+        dialog = _TrendDialog(kind, signal_id, description, is_boolean, initial_samples, parent=self)
+        dialog.finished.connect(lambda _result, k=key: self._trend_dialogs.pop(k, None))
+        self._trend_dialogs[key] = dialog
+        dialog.show()
+
+    def _close_all_trend_dialogs(self):
+        for dialog in list(self._trend_dialogs.values()):
+            try:
+                dialog.close()
+            except RuntimeError:
+                pass
+        self._trend_dialogs.clear()
+
     # ---- add / remove ---------------------------------------------------------
 
     def _on_add_clicked(self):
@@ -286,6 +437,12 @@ class WatchPanel(QWidget):
             signal_id = self.table.item(row, _COL_ID).data(SIGNAL_ID_ROLE)
             if watch.remove_watch(self.project, kind, signal_id):
                 removed_any = True
+            dialog = self._trend_dialogs.pop((kind, signal_id), None)
+            if dialog is not None:
+                try:
+                    dialog.close()
+                except RuntimeError:
+                    pass
             self.table.removeRow(row)
         self._update_empty_state()
         if removed_any:

@@ -1331,11 +1331,43 @@ tu tykają w tym samym rytmie symulacji co reszta aplikacji.
 paskowy — zero zależności od biblioteki wykresów, ta sama filozofia co
 `ui/canvas/shapes.py`/`ui/icons.py` (zero plików graficznych, zero
 zewnętrznych bibliotek). Sygnał boolowski rysuje przebieg schodkowy
-(0/1); sygnał analogowy skaluje się do minimum/maksimum FAKTYCZNIE
-ZAOBSERWOWANEGO w buforze próbek (nie do zadeklarowanego zakresu punktu
-analogowego) — obserwacja może wskazywać na dowolny sygnał, większość z
-nich nie ma żadnego zadeklarowanego zakresu w ogóle (np. rejestr
-wewnętrzny). Bufor: ostatnie 100 próbek, FIFO.
+(0/1); sygnał analogowy skaluje się domyślnie do minimum/maksimum
+FAKTYCZNIE ZAOBSERWOWANEGO w buforze próbek (nie do zadeklarowanego
+zakresu punktu analogowego) — obserwacja może wskazywać na dowolny
+sygnał, większość z nich nie ma żadnego zadeklarowanego zakresu w ogóle
+(np. rejestr wewnętrzny).
+
+**Wszystkie kolumny tabeli są niezależnie regulowalne** (§ uwaga
+użytkownika po pierwszej wersji): pierwsza iteracja wymuszała `Stretch`
+na kolumnie Opis (rozciągała się na całą resztę miejsca, często pustą,
+gdy adres nie ma etykiety) i sztywną szerokość na Trend, którą nie dało
+się powiększyć. Wszystkie pięć kolumn ma teraz
+`QHeaderView.Interactive` — startowe szerokości są tylko punktem wyjścia.
+Kluczowe dla samego Trendu: `_Sparkline.paintEvent()` czyta
+`self.width()`/`self.height()` NA ŻYWO, nie przechowuje stałego rozmiaru
+— przeciągnięcie krawędzi kolumny faktycznie powiększa sam wykres, a nie
+tylko puste tło wokół widżetu o stałym rozmiarze (ta druga opcja byłaby
+uczciwsza "widocznie regulowalna, ale bez efektu" pułapką).
+
+**Podgląd trendu w powiększeniu (`_TrendDialog`)** — dwuklik w komórkę
+Trend otwiera niemodalne (`setModal(False)`, `show()` nie `exec()`) okno
+popup z większą kopią tego samego `_Sparkline` (bufor 600 próbek zamiast
+domyślnych 200, zasiany historią z widżetu w tabeli — nie zaczyna pusty),
+etykietą sygnału/opisu, przyciskiem "Wyczyść bufor", i — dla sygnałów
+analogowych — kontrolką ręcznego przeskalowania osi Y (checkbox "Skala
+automatyczna" + dwa `QDoubleSpinBox` min/max, nieaktywne dopóki
+automatyczna skala jest włączona). `WatchPanel._trend_dialogs` (słownik
+`(kind, signal_id) -> dialog`) pilnuje, żeby dwuklik na już otwarty trend
+podniósł istniejące okno zamiast otwierać duplikat, a
+`refresh_values()`/`_on_remove_clicked()`/`set_project()` odpowiednio
+dokarmiają/zamykają/sprzątają otwarte popupy — dokładnie tak, jak
+`refresh_values()` już dokarmia sparkline w samej tabeli, ten sam wywoływany co skan mechanizm.
+`_TrendDialog` ma `Qt.WA_DeleteOnClose` (transient popup musi być
+faktycznie usuwany przy zamknięciu, nie tylko ukrywany), a każde miejsce
+odwołujące się do otwartego popupu jest opakowane w `except RuntimeError`
+— dokładnie ten sam defensywny wzorzec co
+`ui/canvas/navigation.py::pulse_highlight()` dla obiektu Qt zniszczonego
+spod ręki.
 
 ### 23.3 Świadomie NIE zrobione w tym PR
 
@@ -1357,14 +1389,19 @@ od Qt: dodawanie/usuwanie/idempotencja, kopia (nie żywa referencja) z
 `get_watches()`, przetrwanie serializacji, migracja v5→v6,
 `describe_watch()`/`is_boolean_kind()`/`read_value()` dla wszystkich
 czterech `kind`, wliczając wyprowadzenie id sygnału wewnętrznego i sygnał
-usunięty z rejestru. Nowy `tests/test_watch_panel.py` (13) — pusty stan,
+usunięty z rejestru. Nowy `tests/test_watch_panel.py` (24) — pusty stan,
 budowa wierszy, sparkline boolowski vs. analogowy, `refresh_values()`
 (w tym myślnik dla nierozwiązanej wartości i no-op bez projektu), dodanie
 przez zamockowany `SignalPickerDialog.exec()` (jeden wpis cofania,
 sygnał `changed`), anulowanie dialogu nic nie zmienia, usunięcie
 zaznaczenia (jeden wpis cofania), stan przycisku "Usuń", umiejscowienie w
-`output_panel` (nie w `left_tabs`) i faktyczne odświeżenie wartości przez
-`MainWindow._run_scan()` end-to-end. Rozszerzone
+`output_panel` (nie w `left_tabs`), faktyczne odświeżenie wartości przez
+`MainWindow._run_scan()` end-to-end, wszystkie kolumny w trybie
+`Interactive`, zmiana rozmiaru kolumny Trend faktycznie zmienia rozmiar
+sparkline'a, otwarcie/ponowne-użycie/dokarmianie/zamknięcie
+`_TrendDialog` (usunięcie wiersza, `set_project()`), kontrolki
+ręcznej skali dla sygnału analogowego, ich brak dla boolowskiego,
+przycisk "Wyczyść bufor". Rozszerzone
 `tests/test_crossref.py` (6) — `classify_signal_id()` dla wszystkich
 czterech `kind` i nieznanej grubszej kategorii. Rozszerzone
 `tests/test_internal_bits.py` (2) — `SignalPickerDialog.selected_kind()`.
