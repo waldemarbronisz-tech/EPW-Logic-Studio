@@ -10,9 +10,16 @@ from logic_studio.ui.icons import block_icon
 # (both here and from the tree — see _populate_tree()'s standard_categories
 # below, which no longer includes them): declaring a feature that doesn't
 # exist is the same class of problem as a UI element showing a fabricated
-# value. They return, as real categories with real blocks, once something
-# is registered under them — until then the roadmap belongs in REPORT.md,
-# not in the running application:
+# value.
+#
+# 2026-09: confirmed with the product owner these are NOT coming back as
+# dedicated block types — safety/interlock logic is meant to be composed
+# from the existing block library (gates, comparators, timers, ...) wired
+# through internal bits (project.settings["internal_bits"], ARCHITECTURE.md
+# §10), not built as new block categories. Don't propose re-adding these as
+# empty scaffolding, and don't propose implementing new block TYPES under
+# these names — if this comes up again, the actual ask is internal-bit-based
+# composition support, not a library category:
 #   "Zabezpieczenia Analogowe", "Zabezpieczenia Dwustanowe",
 #   "Zabezpieczenia Technologiczne", "Łączniki", "Banki Nastaw",
 #   "Zabezpieczenia silnikowe"
