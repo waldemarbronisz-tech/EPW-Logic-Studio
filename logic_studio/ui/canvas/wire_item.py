@@ -4,6 +4,25 @@ from PySide6.QtCore import Qt, QPointF
 
 from logic_studio.ui.canvas import style
 
+
+def _port_facing(port) -> int:
+    """+1 if `port` is mounted on the RIGHT edge of its parent block, -1
+    if on the LEFT edge — every port in this app sits at local x=0 or
+    x=width (see BlockItem's own pin-layout code), so this threshold is
+    safe regardless of block type, and regardless of whether the port is
+    nominally an input or an output: a WireItem's source_port/dest_port
+    only record which end the user clicked FIRST/SECOND while dragging a
+    new wire, not which one is logically the output — routing off of each
+    port's own mounted side, rather than off source-vs-dest or relative
+    on-screen position, is what makes a wire always leave/enter a module
+    from the side its own connector is actually on."""
+    parent = port.parentItem()
+    width = getattr(parent, 'width', None)
+    if not width:
+        return 1
+    return 1 if port.pos().x() >= width / 2.0 else -1
+
+
 class WireItem(QGraphicsPathItem):
     def __init__(self, source_port, dest_port=None, parent=None):
         super().__init__(parent)
@@ -55,29 +74,46 @@ class WireItem(QGraphicsPathItem):
 
         path = QPainterPath(start_pos)
 
-        # Orthogonal Manhattan Routing
-        # We go right from source, then up/down, then right to dest.
-        # To make it rigid and classic: Flat/Square joins, no rounding.
+        # Orthogonal Manhattan routing, rigid/square (no rounding), built
+        # from a padded "stub" at each end that always points OUT of its
+        # own connector — rightward from a right-mounted port, leftward
+        # from a left-mounted one (see _port_facing()) — instead of
+        # deciding direction from which end is source vs dest or from
+        # their relative on-screen X. That old relative-position test
+        # (previously: route straight across only when the dest was
+        # comfortably to the right; loop around otherwise) could make a
+        # module's own wires leave/enter from whichever side happened to
+        # face the other end that particular time, and looked especially
+        # wrong for a short vertical offset with little horizontal room:
+        # the "loop around" shape's own 15px final approach segment is
+        # easy to miss at a glance next to a 40px+ forced detour, reading
+        # as "enters from below" even though it technically still entered
+        # from the left. Padding BOTH ends first and only THEN connecting
+        # the two stub points (which — since both already face the right
+        # way — can always be joined by a plain 2-bend Manhattan path, no
+        # separate "is there room" case) makes every wire's own
+        # first/last segment the same fixed length in the correct
+        # direction regardless of geometry, forward or backward.
+        offset = 15  # Minimum extension before turning
 
-        offset = 15 # Minimum extension before turning
+        start_stub = QPointF(start_pos.x() + offset * _port_facing(self.source_port), start_pos.y())
 
-        # If destination is to the right
-        if end_pos.x() > start_pos.x() + offset:
-            mid_x = start_pos.x() + (end_pos.x() - start_pos.x()) / 2
-            path.lineTo(mid_x, start_pos.y())
-            path.lineTo(mid_x, end_pos.y())
-            path.lineTo(end_pos.x(), end_pos.y())
+        if self.dest_port is not None:
+            end_stub = QPointF(end_pos.x() + offset * _port_facing(self.dest_port), end_pos.y())
         else:
-            # Destination is to the left (feedback loop)
-            # Route down and around
-            mid_y = start_pos.y() + (end_pos.y() - start_pos.y()) / 2
-            if abs(start_pos.y() - end_pos.y()) < 40:
-                mid_y = start_pos.y() + 40 # Force it to go around the block
+            # Dragging a new wire with no real pin at the far end yet —
+            # just follow the cursor directly, no padding to fake.
+            end_stub = end_pos
 
-            path.lineTo(start_pos.x() + offset, start_pos.y())
-            path.lineTo(start_pos.x() + offset, mid_y)
-            path.lineTo(end_pos.x() - offset, mid_y)
-            path.lineTo(end_pos.x() - offset, end_pos.y())
+        path.lineTo(start_stub.x(), start_stub.y())
+        if abs(start_stub.y() - end_stub.y()) < 0.5:
+            path.lineTo(end_stub.x(), end_stub.y())
+        else:
+            mid_x = (start_stub.x() + end_stub.x()) / 2.0
+            path.lineTo(mid_x, start_stub.y())
+            path.lineTo(mid_x, end_stub.y())
+            path.lineTo(end_stub.x(), end_stub.y())
+        if end_stub != end_pos:
             path.lineTo(end_pos.x(), end_pos.y())
 
         self.setPath(path)
