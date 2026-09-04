@@ -1,11 +1,8 @@
 """feat/signal-crossref §3 — navigation from the Sygnały panel to the
 canvas, and back (canvas selection highlighting rows).
 """
-import time
-
 import pytest
 from PySide6.QtWidgets import QApplication
-from PySide6.QtTest import QTest
 
 from logic_studio.blocks import register_builtin_blocks
 
@@ -199,39 +196,6 @@ def test_highlight_is_never_a_scroll():
 
 
 # ---- pulse highlight --------------------------------------------------------
-
-def test_pulse_highlight_overlay_is_added_then_removed(qsettings):
-    _app()
-    window = _make_window(qsettings)
-    window.scene.add_block_from_library("output.do", 0, 0)
-    window.project.blocks[0].properties["Address"] = "ADA01.DO01"
-    window.signals_panel.set_project(window.project)
-
-    from logic_studio.ui.canvas.block_item import BlockItem
-    item = next(i for i in window.scene.items() if isinstance(i, BlockItem))
-
-    from PySide6.QtWidgets import QGraphicsRectItem
-    before = len([i for i in window.scene.items() if isinstance(i, QGraphicsRectItem)])
-    window.signals_panel._pulse_highlight(window.scene, item, cycles=2, interval_ms=20)
-    during = len([i for i in window.scene.items() if isinstance(i, QGraphicsRectItem)])
-    assert during == before + 1
-
-    # CI flake fix (feat/clipboard-and-align, diagnosed from a real CI
-    # failure — the SAME commit passed on `pull_request` and failed on
-    # `push` 39 minutes later): a single fixed QTest.qWait(150) then one
-    # check is exactly the shape of test that goes flaky under runner
-    # contention — the ~40ms animation (cycles=2 * interval_ms=20) is
-    # normally done well within 150ms, but a stalled/throttled CI runner
-    # can occasionally miss even a 3.75x margin. Poll instead, with a much
-    # larger ceiling than the animation could plausibly need, breaking out
-    # the moment the overlay is actually gone rather than waiting a fixed
-    # span and checking exactly once.
-    deadline = time.monotonic() + 2.0
-    after = during
-    while time.monotonic() < deadline:
-        QTest.qWait(20)
-        after = len([i for i in window.scene.items() if isinstance(i, QGraphicsRectItem)])
-        if after == before:
-            break
-    assert after == before
-    _close(window)
+# Moved to tests/test_canvas_navigation.py — pulse_highlight() itself now
+# lives in ui/canvas/navigation.py (feat/duplicate-address-hyperlink),
+# shared with BlockItem's own context menu, not SignalsPanel-specific.

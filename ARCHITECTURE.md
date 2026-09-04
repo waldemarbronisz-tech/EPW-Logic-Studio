@@ -1106,3 +1106,38 @@ lista, `NaN`, `Infinity`, ujemny czas, zero jako dozwolona granica,
 `Compiler.compile()` faktycznie zwraca `None` na złej wartości `const.real`,
 i trzy testy `evaluate()` bezpośrednio potwierdzające, że `TypeError` nigdy
 nie ucieka poza blok.
+
+## 21. Hiperłącze do duplikatów adresu (feat/duplicate-address-hyperlink)
+
+Dwa bloki czytające ten sam fizyczny adres (np. dwa `input.di` z
+`Address="ELA01.DI01"`) to legalny, częsty wzorzec — ten sam sygnał
+narysowany ponownie w innym miejscu dużego diagramu, żeby uniknąć
+długiego przewodu przez całą kanwę — nie zawsze pomyłka. Świadomie NIE
+jest to błąd `Validator`-a (w przeciwieństwie do duplikatu adresu
+WYJŚCIOWEGO, `output.do`, gdzie dwa zapisujące ten sam adres NAPRAWDĘ są
+błędem) — zamiast blokować kompilację, `BlockItem`'s menu kontekstowe
+dostaje podmenu **"Inne bloki tego samego sygnału"**, pozwalające
+bezpośrednio skoczyć między duplikatami z kanwy, żeby inżynier mógł
+szybko potwierdzić, że to zamierzone powtórzenie, nie kolizja.
+
+**`BlockItem._duplicate_reference_blocks()`** ponownie używa
+`core/crossref.py`'s własnej rezolucji sygnału (`build_crossref()`,
+czytelnicy+zapisujący danego `signal_id`) — dokładnie ten sam zestaw, który
+panel Sygnały/"Pokaż użycia sygnału" już traktują jako "ten sam sygnał" —
+zamiast osobnego, potencjalnie rozjeżdżającego się porównania adresów.
+Działa jednolicie dla Address/Bit/Sygnał (nie tylko DI), bo dziedziczy tę
+jednolitość wprost z `crossref.py`.
+
+**`populate_duplicate_reference_menu(menu)`** — wydzielone z
+`contextMenuEvent()` tym samym wzorcem co `scene.py`'s
+`populate_align_menu()`/`SignalsPanel`'s `_build_reader_menu()`: testowalne
+bez wołania `QMenu.exec()` (modalne, zawiesiłoby test headless). Podmenu
+jest zawsze obecne (odkrywalność), ale wyłączone, gdy blok nie ma żadnego
+sygnału albo nic go nie powiela.
+
+**`ui/canvas/navigation.py`** (nowy moduł) — `find_block_item()`/
+`pulse_highlight()`/`jump_to_block()` wydzielone z `SignalsPanel` (były
+tam od feat/signal-crossref §3.1), żeby ten sam "zaznacz + wyśrodkuj +
+podświetl pulsowaniem" mógł wołać też `BlockItem` bez duplikowania kodu —
+oba miejsca teraz importują z jednego źródła zamiast dwa razy pisać to
+samo.

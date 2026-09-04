@@ -393,6 +393,22 @@ class BlockItem(QGraphicsItem):
         props = self.logic_block.properties
         return props.get("Address", "") or props.get("Tag", "")
 
+    def _current_window(self):
+        """The MainWindow this block's canvas view belongs to, or None if
+        not attached to a real scene/view (mid-construction, or a test
+        that never adds it to a real window). feat/duplicate-address-
+        hyperlink: pulled out once every method below reaching for
+        `self.scene().views()[0].window()` needed the exact same guard a
+        third time."""
+        try:
+            return self.scene().views()[0].window()
+        except Exception:
+            return None
+
+    def _current_project(self):
+        window = self._current_window()
+        return getattr(window, 'project', None) if window is not None else None
+
     def _resolved_internal_signal_id(self) -> str:
         """Best-effort M./MR./MW./MWR.<name> id for on-canvas display
         (§2.4) — UI-only, reaches into the live Project like
@@ -404,8 +420,7 @@ class BlockItem(QGraphicsItem):
         if not name:
             return ""
         try:
-            window = self.scene().views()[0].window()
-            project = getattr(window, 'project', None)
+            project = self._current_project()
             if project is None:
                 return name
             from logic_studio.core.device_model import DeviceModel
@@ -881,6 +896,12 @@ class BlockItem(QGraphicsItem):
         show_usage_action = menu.addAction("Pokaż użycia sygnału")
         show_usage_action.setEnabled(bool(signal_ref))
 
+        # feat/duplicate-address-hyperlink: direct canvas-to-canvas jump
+        # between blocks sharing this same signal — populate_duplicate_
+        # reference_menu() wires its own actions straight to this block,
+        # so no separate dispatch entry is needed below either.
+        self.populate_duplicate_reference_menu(menu)
+
         # feat/clipboard-and-align §2.3: canvas context menu, when 2+
         # blocks are selected — populate_align_menu() (scene.py) wires its
         # own actions straight to the scene, so nothing further is needed
@@ -927,9 +948,8 @@ class BlockItem(QGraphicsItem):
     def _show_signal_usage(self, signal_id: str):
         if not signal_id:
             return
-        try:
-            window = self.scene().views()[0].window()
-        except Exception:
+        window = self._current_window()
+        if window is None:
             return
         signals_panel = getattr(window, 'signals_panel', None)
         if signals_panel is None:
@@ -938,6 +958,76 @@ class BlockItem(QGraphicsItem):
         if left_tabs is not None:
             left_tabs.setCurrentWidget(signals_panel)
         signals_panel.focus_signal(signal_id)
+
+    # ---- feat/duplicate-address-hyperlink ----------------------------------
+    # A duplicate address (two DI blocks both reading "ELA01.DI01", say) is
+    # a legitimate, common pattern — the same physical signal redrawn in
+    # more than one place to avoid long wire runs across a large diagram —
+    # not necessarily a mistake, so this is deliberately NOT a Validator
+    # error (see AUDIT_REPORT.md §10). What it needs instead is a direct
+    # way to jump between the duplicates from the canvas itself, so an
+    # engineer can quickly confirm they're intentional restatements of the
+    # same signal rather than an actual collision.
+
+    def _duplicate_reference_blocks(self):
+        """Every OTHER block in the project referencing the EXACT SAME
+        signal as this one. Reuses core/crossref.py's own signal
+        resolution (readers+writers of the signal_id build_crossref()
+        assigns) — the identical set the Signals panel/"Pokaż użycia
+        sygnału" already treat as "the same signal" — rather than a fresh,
+        possibly-diverging ad-hoc address comparison. Returns a list of
+        (block_uuid, short_id) tuples, in crossref's own order."""
+        signal_ref = self._current_signal_reference()
+        if not signal_ref:
+            return []
+        project = self._current_project()
+        if project is None:
+            return []
+        from logic_studio.core.crossref import build_crossref
+        usage = build_crossref(project).get(signal_ref)
+        if usage is None:
+            return []
+        seen = {self.logic_block.uuid}
+        others = []
+        for block_uuid, short_id, _pin in usage.readers + usage.writers:
+            if block_uuid in seen:
+                continue
+            seen.add(block_uuid)
+            others.append((block_uuid, short_id))
+        return others
+
+    def _duplicate_reference_label(self, block_uuid, short_id):
+        """Same "short_id — Tag/Comment" shape as SignalsPanel's own
+        reader-menu labels (_block_menu_label) — one convention for "name
+        a block in a jump-to-it menu", not two."""
+        project = self._current_project()
+        block = next((b for b in (project.blocks if project else []) if b.uuid == block_uuid), None)
+        if block is None:
+            return short_id
+        extra = block.properties.get("Tag", "") or block.properties.get("Comment", "")
+        return f"{short_id} — {extra}" if extra else short_id
+
+    def populate_duplicate_reference_menu(self, menu):
+        """Adds the "Inne bloki tego samego sygnału" submenu to `menu` —
+        split out from contextMenuEvent() so it's testable without ever
+        calling QMenu.exec() (mirrors scene.py's populate_align_menu() /
+        SignalsPanel's _build_reader_menu()). Always present (so it's
+        discoverable) but disabled with nothing to choose when this block
+        has no signal reference at all, or nothing else shares it."""
+        others = self._duplicate_reference_blocks()
+        submenu = menu.addMenu("Inne bloki tego samego sygnału")
+        submenu.menuAction().setEnabled(bool(others))
+        for block_uuid, short_id in others:
+            action = submenu.addAction(self._duplicate_reference_label(block_uuid, short_id))
+            action.triggered.connect(lambda checked=False, u=block_uuid: self._jump_to_duplicate_reference(u))
+        return submenu
+
+    def _jump_to_duplicate_reference(self, block_uuid):
+        scene = self.scene()
+        if scene is None or not scene.views():
+            return
+        from logic_studio.ui.canvas.navigation import jump_to_block
+        jump_to_block(scene, scene.views()[0], block_uuid)
 
     def mousePressEvent(self, event):
         if self._is_doc_note_resizable() and self._in_resize_handle(event.pos()):
