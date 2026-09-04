@@ -2,10 +2,12 @@
 project-defined (project.settings["ela_devices"]/["ada_devices"]),
 previously permanently fixed at one of each. Covers the core model,
 schema migration, and the design/compile-time consumers (Validator,
-core/crossref.py, property_grid's Address combobox) — the live
-Simulation panel grid and per-device system diagnostic signals
-(ELA01.ONLINE etc.) are a deliberately separate, tracked follow-up, not
-covered here (see MEMORY.md / AUDIT_REPORT.md).
+core/crossref.py, property_grid's Address combobox). The live Simulation
+panel grid and per-device system diagnostic signals (ELA01.ONLINE etc.)
+were a deliberately separate, tracked follow-up (ARCHITECTURE.md
+§9.1/§9.2) — closed by feat/multi-device-followups, covered in
+tests/test_simulation_panel.py and the "system-signal catalog, per
+device" section at the end of this file, respectively.
 """
 import pytest
 from PySide6.QtWidgets import QApplication
@@ -263,3 +265,102 @@ def test_removing_a_used_device_prompts_for_confirmation(qsettings, monkeypatch)
     assert asked["count"] == 1
     assert dialog.result() != QDialog.Accepted
     assert p.settings["ela_devices"] == before_ela_devices  # nothing applied yet either way
+
+
+# ---- System-signal catalog, per device (ARCHITECTURE.md §9.2) ------------
+# core/system_signals_catalog.json used to hardcode ELA01/ADA01's own
+# ONLINE/FAULT/SAFE_PATH_OK entries — a project defining a second device got
+# no corresponding diagnostic signals. Generated instead from the project's
+# own ela_devices/ada_devices list (system_signals.py::_device_signals()).
+
+def test_no_project_generates_only_the_default_single_device_signals():
+    """project=None (or a project that never left the single-device
+    default) must reproduce the catalog's old static content exactly —
+    same ids, same text, same safety flags."""
+    from logic_studio.core import system_signals
+
+    expected = {
+        "ELA01.ONLINE": ("Moduł ELA01 komunikuje się poprawnie", "ELA OK", False),
+        "ELA01.FAULT": ("Awaria modułu ELA01", "ELA AW", True),
+        "ADA01.ONLINE": ("Moduł ADA01 komunikuje się poprawnie", "ADA OK", False),
+        "ADA01.FAULT": ("Awaria modułu ADA01", "ADA AW", True),
+        "ADA01.SAFE_PATH_OK": ("Sprzętowa droga wyłączenia sprawna", "DROGA OK", True),
+    }
+    for sig_id, (desc, label, safety) in expected.items():
+        entry = system_signals.get_signal(sig_id)
+        assert entry is not None, sig_id
+        assert entry["description"] == desc
+        assert entry["label"] == label
+        assert entry["type"] == "BOOL"
+        assert entry["safety_relevant"] is safety
+
+def test_second_device_gets_its_own_diagnostic_signals():
+    from logic_studio.core import system_signals
+
+    p = Project()
+    p.settings["ela_devices"] = ["ELA01", "ELA02"]
+    p.settings["ada_devices"] = ["ADA01", "ADA02"]
+
+    assert system_signals.get_signal("ELA02.ONLINE") is None  # not visible without the project
+    entry = system_signals.get_signal("ELA02.ONLINE", p)
+    assert entry is not None
+    assert entry["description"] == "Moduł ELA02 komunikuje się poprawnie"
+    assert entry["safety_relevant"] is False
+
+    fault = system_signals.get_signal("ELA02.FAULT", p)
+    assert fault["description"] == "Awaria modułu ELA02"
+    assert fault["safety_relevant"] is True
+
+    safe_path = system_signals.get_signal("ADA02.SAFE_PATH_OK", p)
+    assert safe_path is not None
+    assert safe_path["label"] == "DROGA OK"
+    assert safe_path["safety_relevant"] is True
+
+def test_get_categories_places_device_signals_under_komunikacja():
+    from logic_studio.core import system_signals
+
+    p = Project()
+    p.settings["ela_devices"] = ["ELA01", "ELA02"]
+
+    comms = next(c for c in system_signals.get_categories(p) if c["id"] == "SYS.COMMS")
+    ids = [s["id"] for s in comms["signals"]]
+    assert "SYS.COMMS_OK" in ids  # non-device-specific signal untouched
+    assert "ELA02.ONLINE" in ids
+    assert "ELA02.FAULT" in ids
+
+    # The cached static catalog itself must never be mutated by this.
+    default_comms = next(c for c in system_signals.get_categories() if c["id"] == "SYS.COMMS")
+    assert "ELA02.ONLINE" not in [s["id"] for s in default_comms["signals"]]
+
+def test_validator_recognizes_second_device_signal_instead_of_warning(qsettings=None):
+    _app()
+    p = Project()
+    p.settings["ela_devices"] = ["ELA01", "ELA02"]
+    sig_block = BlockRegistry.create_block("system.signal")
+    sig_block.properties["Sygnał"] = "ELA02.ONLINE"
+    p.add_block(sig_block)
+
+    from logic_studio.compiler.validator import Validator
+    errors, warnings = [], []
+    Validator(p).run(errors, warnings)
+
+    assert not any("Nierozpoznany sygnał systemowy" in w for w in warnings)
+
+def test_signal_picker_lists_second_device_signal(qsettings):
+    _app()
+    from logic_studio.ui.signal_picker import SignalPickerDialog, SIGNAL_ID_ROLE
+
+    p = Project()
+    p.settings["ada_devices"] = ["ADA01", "ADA02"]
+
+    dialog = SignalPickerDialog(p, value_type="BOOL", sections=("system",))
+    ids = []
+    def _walk(item):
+        ids.append(item.data(0, SIGNAL_ID_ROLE))
+        for i in range(item.childCount()):
+            _walk(item.child(i))
+    for i in range(dialog.tree.topLevelItemCount()):
+        _walk(dialog.tree.topLevelItem(i))
+
+    assert "ADA02.ONLINE" in ids
+    assert "ADA02.SAFE_PATH_OK" in ids

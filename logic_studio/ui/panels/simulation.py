@@ -196,11 +196,17 @@ class SimulationPanel(QWidget):
         self.ai_sliders = {}     # address -> QSlider
         self.ao_labels = {}      # address -> QLabel
 
-        from logic_studio.core.device_model import DeviceModel
-        self._di_addrs = DeviceModel.get_ela_addresses()
-        self._do_addrs = DeviceModel.get_ada_addresses()
-        self._di_state = {a: False for a in self._di_addrs}
-        self._do_state = {a: False for a in self._do_addrs}
+        # feat/multi-device-followups (closes ARCHITECTURE.md §9.1): the
+        # DI/DO address lists — and every row/group widget derived from
+        # them — are project-dependent (a project can define more than one
+        # ELA/ADA device) and must be able to change after construction.
+        # Left empty here; _rebuild_di_do_channels(), called from the
+        # set_project(project) at the end of __init__, does the actual
+        # first build against whatever project (or None) was passed in.
+        self._di_addrs = []
+        self._do_addrs = []
+        self._di_state = {}
+        self._do_state = {}
 
         # §0A.2: default ON — a real project uses a handful of the 32
         # available channels; showing all 32 by default is exactly the
@@ -225,7 +231,8 @@ class SimulationPanel(QWidget):
         self._di_compact_rows = {}  # addr -> ChannelRow (compact=True)
         self._do_detail_rows = {}
         self._do_compact_rows = {}
-        self._build_di_do_rows()
+        self._di_group_widgets = []
+        self._do_group_widgets = []
 
         # "tylko użyte" (detailed, flat) sections
         self.di_used_group = QGroupBox("Wejścia dwustanowe (DI)")
@@ -240,8 +247,6 @@ class SimulationPanel(QWidget):
         self.di_all_grid = QGridLayout(self.di_all_group)
         self.do_all_group = QGroupBox("Wyjścia dwustanowe (DO) — wszystkie")
         self.do_all_grid = QGridLayout(self.do_all_group)
-        self._di_group_widgets = self._build_channel_groups(self._di_addrs, self._di_compact_rows)
-        self._do_group_widgets = self._build_channel_groups(self._do_addrs, self._do_compact_rows)
 
         for w in (self.di_used_group, self.do_used_group, self.di_all_group, self.do_all_group):
             self._content_layout.addWidget(w)
@@ -321,6 +326,67 @@ class SimulationPanel(QWidget):
             rows = [compact_rows[a] for a in chunk]
             groups.append(_ChannelGroup(header, rows))
         return groups
+
+    # ---- DI/DO device-list rebuild (feat/multi-device-followups) -----------
+    # Closes ARCHITECTURE.md §9.1: the DI/DO grid used to be built exactly
+    # once, in __init__, from DeviceModel's single-device default — adding a
+    # second ELA/ADA device via Project Settings worked correctly in the
+    # engine/compiler/export but never became visible or clickable here.
+
+    def _rebuild_di_do_channels(self):
+        """Recomputes the DI/DO address lists from `self.project`'s ELA/ADA
+        device lists and rebuilds every row/group widget derived from them
+        — but ONLY when that list actually changed. Called from
+        set_project() on every project change, so guarding on an actual
+        difference matters: without it, every ordinary edit (add a block,
+        change a property) would tear down and recreate 64+ widgets for
+        nothing."""
+        from logic_studio.core.device_model import DeviceModel
+
+        new_di = DeviceModel.get_ela_addresses(self.project)
+        new_do = DeviceModel.get_ada_addresses(self.project)
+        if new_di == self._di_addrs and new_do == self._do_addrs:
+            return
+
+        # A channel that still exists after the change keeps its current
+        # forced value; one dropped by removing a device is simply
+        # forgotten; one newly added starts at the same False a fresh
+        # project would show it as.
+        old_di_state, old_do_state = self._di_state, self._do_state
+        self._teardown_di_do_widgets()
+
+        self._di_addrs = new_di
+        self._do_addrs = new_do
+        self._di_state = {a: old_di_state.get(a, False) for a in new_di}
+        self._do_state = {a: old_do_state.get(a, False) for a in new_do}
+
+        self._build_di_do_rows()
+        self._di_group_widgets = self._build_channel_groups(self._di_addrs, self._di_compact_rows)
+        self._do_group_widgets = self._build_channel_groups(self._do_addrs, self._do_compact_rows)
+        # Force the _recompute_group_columns() that set_project() triggers
+        # right after this (via _apply_view_mode()) to actually place the
+        # brand-new group widgets into the grid, even if the computed
+        # column count happens to equal the stale one from before rebuild
+        # (its early-return guard compares against this value).
+        self._group_columns = None
+
+    def _teardown_di_do_widgets(self):
+        """Discards every row/group widget derived from the current DI/DO
+        address lists, ahead of rebuilding them for a new device list.
+        setParent(None) detaches a widget from whatever layout currently
+        holds it (a used-list QVBoxLayout for a detail row, an all-channels
+        QGridLayout for a group) before scheduling its actual deletion."""
+        for rows in (self._di_detail_rows, self._di_compact_rows,
+                     self._do_detail_rows, self._do_compact_rows):
+            for w in rows.values():
+                w.setParent(None)
+                w.deleteLater()
+            rows.clear()
+        for group in self._di_group_widgets + self._do_group_widgets:
+            group.setParent(None)
+            group.deleteLater()
+        self._di_group_widgets = []
+        self._do_group_widgets = []
 
     # ---- Only-used toggle (§0A.2) ------------------------------------------
 
@@ -489,6 +555,7 @@ class SimulationPanel(QWidget):
         removed, an Address property edited (§0A.2) — see refresh(), the
         lightweight alias for "same project object, something changed"."""
         self.project = project
+        self._rebuild_di_do_channels()
 
         self._clear_layout(self.ai_layout)
         self._clear_layout(self.ao_layout)

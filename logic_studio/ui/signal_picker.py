@@ -165,7 +165,7 @@ class SignalPickerDialog(QDialog):
         if "system" in self.sections:
             from logic_studio.core import system_signals
             sys_root = QTreeWidgetItem(self.tree, ["Sygnały systemowe"])
-            for cat in system_signals.get_categories():
+            for cat in system_signals.get_categories(self.project):
                 matching = [s for s in cat["signals"] if self.value_type is None or s["type"] == self.value_type]
                 if not matching:
                     continue

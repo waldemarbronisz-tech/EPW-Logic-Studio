@@ -21,14 +21,10 @@
     {
       "id": "SYS.COMMS",
       "name": "Komunikacja",
+      "_comment": "Per-device diagnostics (<dev>.ONLINE/<dev>.FAULT/<dev>.SAFE_PATH_OK) are NOT listed here — feat/multi-device-followups generates them programmatically in core/system_signals.py::_device_signals(), from the project's own ela_devices/ada_devices list, so every ELA/ADA device a project defines gets its diagnostics, not just a hardcoded ELA01/ADA01. See ARCHITECTURE.md §9.2/§20.",
       "signals": [
         {"id": "SYS.COMMS_OK", "description": "Komunikacja z nadrzędnym sprawna", "label": "KOM OK", "type": "BOOL", "source": "runtime", "safety_relevant": false},
-        {"id": "SYS.TIME_SYNC_OK", "description": "Synchronizacja czasu poprawna", "label": "CZAS OK", "type": "BOOL", "source": "runtime", "safety_relevant": false},
-        {"id": "ELA01.ONLINE", "description": "Moduł ELA01 komunikuje się poprawnie", "label": "ELA OK", "type": "BOOL", "source": "runtime", "safety_relevant": false},
-        {"id": "ELA01.FAULT", "description": "Awaria modułu ELA01", "label": "ELA AW", "type": "BOOL", "source": "runtime", "safety_relevant": true},
-        {"id": "ADA01.ONLINE", "description": "Moduł ADA01 komunikuje się poprawnie", "label": "ADA OK", "type": "BOOL", "source": "runtime", "safety_relevant": false},
-        {"id": "ADA01.FAULT", "description": "Awaria modułu ADA01", "label": "ADA AW", "type": "BOOL", "source": "runtime", "safety_relevant": true},
-        {"id": "ADA01.SAFE_PATH_OK", "description": "Sprzętowa droga wyłączenia sprawna", "label": "DROGA OK", "type": "BOOL", "source": "runtime", "safety_relevant": true}
+        {"id": "SYS.TIME_SYNC_OK", "description": "Synchronizacja czasu poprawna", "label": "CZAS OK", "type": "BOOL", "source": "runtime", "safety_relevant": false}
       ]
     },
     {

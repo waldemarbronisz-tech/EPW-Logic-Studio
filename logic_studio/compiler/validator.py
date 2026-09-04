@@ -23,6 +23,7 @@ class Validator:
         return ref
 
     def run(self, errors: list, warnings: list):
+        import math
         from logic_studio.core.device_model import DeviceModel
 
         blocks = self.project.blocks
@@ -107,8 +108,43 @@ class Validator:
                 sig_id = block.properties.get("Sygnał", "")
                 if sig_id:
                     from logic_studio.core import system_signals
-                    if system_signals.get_signal(sig_id) is None:
+                    if system_signals.get_signal(sig_id, self.project) is None:
                         warnings.append(f"[{self._block_ref(block)}] Nierozpoznany sygnał systemowy: '{sig_id}' (spoza katalogu).")
+            elif block.type_id == "const.real":
+                # feat/const-property-validation: ConstantBase.evaluate()
+                # (blocks/constants.py) only catches ValueError around
+                # float()/int() — a property holding None/a list/a dict
+                # (possible from a hand-edited or corrupted .epwlogic file;
+                # the property panel's own QDoubleSpinBox/QSpinBox can never
+                # produce one) raises TypeError instead, uncaught, crashing
+                # the engine mid-scan rather than falling back to the safe
+                # default. Caught here as a compile ERROR instead — the same
+                # "type checked live in the UI, but ALSO enforced at compile
+                # time" belt-and-suspenders already applied to DI/DO/AI/AO
+                # addresses above.
+                raw = block.properties.get("Value", 0.0)
+                try:
+                    value = float(raw)
+                except (TypeError, ValueError):
+                    errors.append(f"[{self._block_ref(block)}] Wartość stałej REAL nie jest poprawną liczbą: {raw!r}.")
+                else:
+                    if not math.isfinite(value):
+                        errors.append(f"[{self._block_ref(block)}] Wartość stałej REAL musi być liczbą skończoną (nie NaN/Inf): {raw!r}.")
+            elif block.type_id == "const.int":
+                raw = block.properties.get("Value", 0)
+                try:
+                    int(raw)
+                except (TypeError, ValueError):
+                    errors.append(f"[{self._block_ref(block)}] Wartość stałej INT nie jest poprawną liczbą całkowitą: {raw!r}.")
+            elif block.type_id == "const.time":
+                raw = block.properties.get("Time (ms)", 1000)
+                try:
+                    value = int(raw)
+                except (TypeError, ValueError):
+                    errors.append(f"[{self._block_ref(block)}] Czas stałej TIME nie jest poprawną liczbą całkowitą (ms): {raw!r}.")
+                else:
+                    if value < 0:
+                        errors.append(f"[{self._block_ref(block)}] Czas stałej TIME nie może być ujemny: {value} ms.")
 
         # 4. Duplicate Output Detection
         output_addresses = {}

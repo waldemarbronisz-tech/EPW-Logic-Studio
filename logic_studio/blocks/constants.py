@@ -36,7 +36,12 @@ class RealConstant(ConstantBase):
     def evaluate(self, engine=None):
         try:
             self.outputs[0].value = float(self.properties.get("Value", 0.0))
-        except ValueError:
+        except (TypeError, ValueError):
+            # feat/const-property-validation: Validator now rejects this at
+            # compile time (see compiler/validator.py) — caught here too so
+            # a block evaluated outside that path (a stray script, a future
+            # caller) degrades to the safe default instead of crashing the
+            # scan on a bad property value.
             self.outputs[0].value = 0.0
 
 @BlockRegistry.register
@@ -48,7 +53,7 @@ class IntConstant(ConstantBase):
     def evaluate(self, engine=None):
         try:
             self.outputs[0].value = int(self.properties.get("Value", 0))
-        except ValueError:
+        except (TypeError, ValueError):
             self.outputs[0].value = 0
 
 @BlockRegistry.register
@@ -60,7 +65,7 @@ class TimeConstant(ConstantBase):
     def evaluate(self, engine=None):
         try:
             self.outputs[0].value = int(self.properties.get("Time (ms)", 1000))
-        except ValueError:
+        except (TypeError, ValueError):
             self.outputs[0].value = 1000
 
 @BlockRegistry.register

@@ -157,7 +157,7 @@ def _scan_block(project, block, get_or_create):
 
     sygnal = props.get("Sygnał", "")
     if sygnal:
-        usage = _resolve_system_signal(sygnal, get_or_create)
+        usage = _resolve_system_signal(project, sygnal, get_or_create)
         _record(usage, block)
 
 
@@ -204,8 +204,8 @@ def _resolve_bit(project, block, bit_name, get_or_create):
     return get_or_create(bit_name, kind, "REAL" if is_real else "BOOL", defined=False)
 
 
-def _resolve_system_signal(sig_id, get_or_create):
-    entry = system_signals.get_signal(sig_id)
+def _resolve_system_signal(project, sig_id, get_or_create):
+    entry = system_signals.get_signal(sig_id, project)
     if entry is not None:
         data_type = entry.get("type", "BOOL")
         label = entry.get("description", "") or entry.get("label", "")
