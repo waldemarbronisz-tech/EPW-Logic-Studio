@@ -864,3 +864,109 @@ bloku-przeszkody, regresja "ścieżka bez przeszkód renderuje się
 DOKŁADNIE tak samo jak przed tym modułem" (punkt-po-punkcie), własny
 blok źródłowy/docelowy nigdy nie jest przeszkodą, przeciąganie nowego
 przewodu nigdy nie próbuje omijania.
+
+## 18. Historia undo/redo przechowywana różnicowo (feat/undo-diff-storage)
+
+§9.1 poprzedniej migawki oznaczyło to jako PRIORYTET: `Project.push_state()`
+zapisywał PEŁNY zrzut JSON całego projektu (`Project.serialize()`) na
+KAŻDĄ zmianę, do 50 wpisów na stosie — zmierzone ~9,2 KiB dla 11-blokowego
+przykładu, rosnące w przybliżeniu liniowo z liczbą bloków, mimo że
+typowa pojedyncza edycja (przesunięcie bloku, zmiana właściwości,
+podłączenie przewodu) dotyka JEDNEGO bloku albo kilku, nie wszystkich.
+Właściciel produktu wprost nie chciał, by architektura ograniczała dalszy
+wzrost projektów.
+
+**Nowy moduł `core/state_diff.py`** — para czystych funkcji na gołych
+słownikach (bez `Project`/Qt, testowalna w pełnej izolacji):
+- `diff_project_state(base, target)` — zwraca różnicę taką, że
+  `apply_project_diff(base, diff) == target`. Bloki dopasowywane po
+  `uuid` (nie po pozycji na liście — wstawienie/usunięcie w środku listy
+  nie sprawia, że wszystko PO nim wygląda na "zmienione"): `set` (słownik
+  uuid -> pełny słownik bloku, dla każdego bloku którego zawartość się
+  różni LUB który jest nowy), `remove` (lista uuid usuniętych bloków).
+  Kolejność listy (`order`) jest zapisywana jawnie TYLKO gdy faktycznie
+  się zmieniła (dodanie/usunięcie/przestawienie) — typowa edycja
+  istniejącego bloku (zdecydowana większość) nie zmienia kolejności, więc
+  nie płaci za listę wszystkich uuid w projekcie; `apply_project_diff()`
+  wtedy po prostu używa kolejności `base`. `settings` diffowane
+  per-klucz najwyższego poziomu (nie głębiej — te klucze nie rosną z
+  liczbą bloków tak jak `blocks`, więc nie ma tam analogicznego zysku).
+- `apply_project_diff(base, diff)` — odtwarza `target`.
+
+**Integracja w `Project`**: `undo_stack`/`redo_stack` to nadal zwykłe
+listy (`len()` liczy wpisy identycznie jak wcześniej — żaden istniejący
+test/wywołujący kod tego nie zauważa), ale KAŻDY wpis to teraz
+`_HistoryEntry` (`full: dict | None`, `diff: dict | None`) zamiast gołego
+słownika. Utrzymywana niezmienniczo: **wierzchołek stosu jest ZAWSZE
+pełnym słownikiem; każdy wpis pod nim jest różnicą względem swojego
+sąsiada bezpośrednio nad nim** (`Project._stack_push()`/`_stack_pop()`):
+- `push`: materializuje NOWY wierzchołek jako pełny (zawsze mamy go w
+  ręku — to argument wejściowy), a STARY wierzchołek (jeśli był) zamienia
+  na różnicę względem nowego — O(rozmiar zmiany), NIE O(głębokości
+  stosu), bo stary wierzchołek już był pełny (ten sam niezmiennik).
+- `pop` (używane przez `undo()`/`redo()`): zwraca wierzchołek wprost (już
+  pełny, zero rekonstrukcji), a NOWO odsłonięty wierzchołek (dotąd
+  różnica względem właśnie zdjętego) materializuje z powrotem w pełny
+  słownik jednym `apply_project_diff()` — również O(1) względem
+  głębokości stosu, bo różnica ta jest liczona względem WŁAŚNIE
+  zwróconej wartości, nie czegoś dalej w łańcuchu.
+- Odrzucenie najstarszego wpisu przy przekroczeniu limitu 50
+  (`push_state()`) nigdy nie wymaga jego materializacji — nic innego w
+  łańcuchu od niego nie zależy (zależność biegnie w drugą stronę:
+  starszy wpis zależy od nowszego, nie odwrotnie).
+
+**Przy okazji naprawiony błąd aliasowania**: `BaseLogicBlock.serialize()`
+zwraca `properties` PRZEZ REFERENCJĘ (nie kopię), a `Project.settings`
+zawiera zagnieżdżone struktury (`io_labels` itd.) mutowane W MIEJSCU
+(`DeviceModel.set_io_label()` i inne). Bez kopiowania, wcześniej wypchnięty
+snapshot dzieliłby te same obiekty słownikowe z żywym projektem — PÓŹNIEJSZA
+edycja w miejscu (np. zmiana adresu we właściwościach bloku) cicho
+przepisywałaby JUŻ zapisaną historię przez współdzieloną referencję. Ten
+błąd istniał od zawsze (niezwiązany z tą przebudową), ale `_stack_push()`
+teraz wykonuje `copy.deepcopy(state)` raz, w jednym miejscu, na wejściu —
+jedyny punkt izolacji, który sprawia, że KAŻDY zapisany wpis historii jest
+w pełni niezależny od dalszych mutacji żywego projektu. Pokryte dedykowanymi
+testami regresyjnymi (`test_undo_after_a_later_in_place_property_mutation_is_not_corrupted`,
+`test_undo_after_a_later_in_place_settings_mutation_is_not_corrupted`).
+
+**Zmierzony efekt** (`tests/test_undo_diff_storage.py` + pomiar
+poglądowy, 50 edycji pojedynczego bloku, limit 50 wpisów):
+
+| Liczba bloków w projekcie | Pełny zrzut (1x) | Stos 50 wpisów — stary sposób | Stos 50 wpisów — różnicowy | Redukcja |
+|---|---|---|---|---|
+| 10 | 6 367 B | 318 350 B | 43 974 B | 7,2x |
+| 50 | 30 757 B | 1 537 850 B | 68 370 B | 22,5x |
+| 200 | 122 209 B | 6 110 450 B | 159 822 B | 38,2x |
+| 800 | 488 209 B | 24 410 450 B | 525 822 B | 46,4x |
+
+Kluczowe: koszt KAŻDEGO wpisu-różnicy jest teraz w przybliżeniu STAŁY
+(~770 B na edycję jednego bloku niezależnie od tego, czy projekt ma 10 czy
+800 bloków) — całkowity rozmiar stosu to praktycznie "jeden pełny zrzut +
+49 razy stały koszt", nie "50 pełnych zrzutów". Redukcja ROŚNIE z
+rozmiarem projektu — dokładnie odwrotność problemu z §9.1: architektura
+przestaje karać wzrost liczby bloków.
+
+**Świadomie NIE zrobione w tym PR**: `diff_project_state()` nadal
+wykonuje porównanie O(N) (budowa słownika uuid->blok dla `base`/`target`
+i porównanie każdego bloku) przy KAŻDYM push — ten sam rząd złożoności co
+istniejące już wcześniej `self.serialize()` (które i tak serializuje
+każdy blok), więc nie jest to regresja CPU, tylko dodatkowy stały-rzędu
+przebieg nad tymi samymi danymi. Dla dzisiejszych rozmiarów projektów
+(dziesiątki-setki bloków) to mikrosekundy, nieodczuwalne — nie
+zoptymalizowane na wyrost (np. przez śledzenie "brudnych" uuid wprost
+przy każdej mutacji) bez zmierzonego realnego problemu.
+
+Testy: `tests/test_state_diff.py` (11) — round-trip diff/apply dla
+identycznych stanów, jednego zmienionego bloku, dodania, usunięcia,
+przestawienia kolejności bez zmiany treści, zmiany ustawień (w tym
+klucz dodany/usunięty), pustej różnicy dla identycznych stanów, braku
+mutacji wejść przez `diff`/`apply`, przeniesienia `format`/
+`schema_version`. `tests/test_undo_diff_storage.py` (9) — trzy edycje
+cofnięte po kolei we właściwej kolejności, redo odtwarzające ten sam
+łańcuch w przód (przez pełne `Project.deserialize()` między krokami, jak
+robi `MainWindow._apply_state()`), redo_stack czyszczony po nowym push,
+limit 50 wpisów wciąż respektowany i undo nadal poprawnie cofa się do
+zachowanego najstarszego wpisu po odrzuceniu starszych, oba testy
+regresyjne aliasowania (properties/settings), brak aliasowania między
+DWOMA wypchniętymi snapshotami, oraz że pojedyncza zmiana jednego bloku
+zapisuje w różnicy wyłącznie TEN blok niezależnie od rozmiaru projektu.

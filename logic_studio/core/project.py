@@ -1,7 +1,21 @@
+import copy
 import json
 import re
 
 from logic_studio.core.grid import GRID_SIZE
+from logic_studio.core import state_diff
+
+
+class _HistoryEntry:
+    """One undo/redo stack slot. Exactly one of `full`/`diff` is set at
+    any time — see Project._stack_push()/_stack_pop() for the invariant
+    (topmost entry in a stack is always `full`; every entry below it is
+    a `diff` relative to its immediate neighbor above)."""
+    __slots__ = ("full", "diff")
+
+    def __init__(self, full: dict = None, diff: dict = None):
+        self.full = full
+        self.diff = diff
 
 # Bump when the on-disk .epwlogic schema changes in a way that requires migration.
 # Every bump needs a matching _migrate_vN_to_v(N+1)(data) function registered in
@@ -206,6 +220,48 @@ class Project:
         self.redo_stack = []
         self.is_recording = False
 
+    # ---- feat/undo-diff-storage: each stack's memory is proportional to
+    # the SIZE OF EACH EDIT, not to the size of the whole project — see
+    # AUDIT_REPORT.md §25 / §9.1 for the measured problem this replaces
+    # (a full JSON snapshot per entry, growing linearly with block count).
+    # Invariant maintained by _stack_push()/_stack_pop() on BOTH
+    # undo_stack and redo_stack: the topmost (most recently pushed) entry
+    # is always a FULL dict; every entry below it is a diff
+    # (core/state_diff.py) relative to its immediate neighbor above —
+    # i.e. "what to change on the entry one step newer to get this one".
+    # Since undo()/redo() only ever push/pop from the TOP of a stack,
+    # reconstructing the entry that becomes newly exposed on pop needs
+    # exactly one diff-apply against the value just popped — never a walk
+    # back through the whole stack.
+
+    def _stack_push(self, stack: list, state: dict):
+        """Push `state` (a full serialize()-shaped dict) onto `stack`,
+        converting the previous top (if any) from a full dict into a
+        diff first. `state` is deep-copied once here — the single
+        isolation point that keeps every stored history entry
+        independent of the live project's own mutable dicts/lists
+        (BaseLogicBlock.serialize()'s "properties" and Project.settings'
+        nested values are returned BY REFERENCE, not copied — without
+        this, a later in-place edit, e.g. DeviceModel.set_io_label(),
+        would silently rewrite already-pushed history through the
+        shared reference)."""
+        state = copy.deepcopy(state)
+        if stack:
+            old_top = stack[-1]
+            stack[-1] = _HistoryEntry(diff=state_diff.diff_project_state(base=state, target=old_top.full))
+        stack.append(_HistoryEntry(full=state))
+
+    def _stack_pop(self, stack: list) -> dict:
+        """Pop and return the topmost full state, re-materializing the
+        entry now exposed on top (previously stored as a diff relative
+        to the entry just popped) back into a full dict so the "top is
+        always full" invariant holds for the next push/pop."""
+        popped = stack.pop()
+        if stack:
+            new_top = stack[-1]
+            stack[-1] = _HistoryEntry(full=state_diff.apply_project_diff(base=popped.full, diff=new_top.diff))
+        return popped.full
+
     def push_state(self, state: dict = None):
         """Take a snapshot of the current project state for undo. Pass an
         already-serialized `state` (feat/clipboard-and-align §3.1/§3.2) to
@@ -221,8 +277,10 @@ class Project:
             return
         if state is None:
             state = self.serialize()
-        self.undo_stack.append(state)
-        # Keep stack size manageable
+        self._stack_push(self.undo_stack, state)
+        # Keep stack size manageable — dropping the oldest entry never
+        # needs to materialize it first (see _stack_push's docstring):
+        # nothing else in the chain depends on the entry being discarded.
         if len(self.undo_stack) > 50:
             self.undo_stack.pop(0)
         self.redo_stack.clear()
@@ -230,14 +288,14 @@ class Project:
     def undo(self):
         if not self.undo_stack:
             return None
-        self.redo_stack.append(self.serialize())
-        return self.undo_stack.pop()
+        self._stack_push(self.redo_stack, self.serialize())
+        return self._stack_pop(self.undo_stack)
 
     def redo(self):
         if not self.redo_stack:
             return None
-        self.undo_stack.append(self.serialize())
-        return self.redo_stack.pop()
+        self._stack_push(self.undo_stack, self.serialize())
+        return self._stack_pop(self.redo_stack)
 
     def add_block(self, block):
         if block not in self.blocks:
