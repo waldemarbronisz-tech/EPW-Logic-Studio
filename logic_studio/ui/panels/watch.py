@@ -15,7 +15,7 @@ closely at table-row height).
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTableWidget,
     QTableWidgetItem, QAbstractItemView, QHeaderView, QDialog, QCheckBox,
-    QDoubleSpinBox, QComboBox,
+    QDoubleSpinBox, QComboBox, QScrollBar,
 )
 from PySide6.QtGui import QPainter, QPen, QKeySequence
 from PySide6.QtCore import Qt, Signal, QSettings, QPointF, QSize
@@ -57,14 +57,16 @@ _TIME_WINDOWS_MS = [
     ("5 min", 300_000),
     ("15 min", 900_000),
     ("30 min", 1_800_000),
+    ("1 h", 3_600_000),
+    ("4 h", 14_400_000),
 ]
 _DEFAULT_WINDOW_INDEX = 2  # "1 min"
 
-# History retention cap, shared by WatchPanel's per-signal buffers and
-# _TrendChart's own — the longest selectable window, so switching to "30
-# min" always has data to show if the popup (or the panel) has been open
-# that long, and older samples are dropped rather than kept forever.
-_MAX_HISTORY_MS = _TIME_WINDOWS_MS[-1][1]
+# History retention cap — core/watch.py's MAX_HISTORY_MS (project-persisted
+# storage) matches this list's own longest window by construction (both are
+# 4 h; see core/watch.py's own docstring) so switching to the widest window
+# always has data to show for as long as anything has been recorded.
+_MAX_HISTORY_MS = watch.MAX_HISTORY_MS
 
 
 def _format_ago(window_ms: int) -> str:
@@ -175,8 +177,15 @@ class _TrendChart(QWidget):
     wall clock) and the chart shows a SELECTABLE TIME WINDOW, not just
     "last N samples" — the inline table _Sparkline's simpler model. Kept
     as a separate class rather than extending _Sparkline: the popup exists
-    specifically to expose controls (time range, axis labels, rescaling)
-    the tiny inline strip has no room for, and no room to need."""
+    specifically to expose controls (time range, axis labels, rescaling,
+    scrollback) the tiny inline strip has no room for, and no room to need.
+
+    `anchor_ms` is the engine-time instant the window's RIGHT edge is
+    pinned to: `None` means "live" — the window always ends at the newest
+    sample, sliding forward as new ones arrive (§_TrendDialog's scrollbar:
+    dragging it away from the live end sets a fixed anchor_ms, pausing the
+    view at that point in history even as new samples keep arriving in the
+    background; "Na żywo" clears it)."""
 
     MARGIN_LEFT = 46
     MARGIN_BOTTOM = 16
@@ -188,6 +197,7 @@ class _TrendChart(QWidget):
         self.is_boolean = is_boolean
         self.manual_range = None  # None -> auto-scale to the visible window; else (lo, hi)
         self.window_ms = _TIME_WINDOWS_MS[_DEFAULT_WINDOW_INDEX][1]
+        self.anchor_ms = None  # None -> live (track the newest sample); else a fixed right-edge instant
         self.setMinimumSize(200, 100)
         self._samples = []  # [(t_ms, value), ...], oldest first, entries may have value=None
 
@@ -221,9 +231,8 @@ class _TrendChart(QWidget):
         while self._samples and self._samples[0][0] < cutoff:
             self._samples.pop(0)
 
-    def _visible_samples(self, now_ms):
-        start = now_ms - self.window_ms
-        return [(t, v) for t, v in self._samples if t >= start]
+    def _visible_samples(self, start_ms, end_ms):
+        return [(t, v) for t, v in self._samples if start_ms <= t <= end_ms]
 
     def paintEvent(self, event):
         w, h = self.width(), self.height()
@@ -236,19 +245,29 @@ class _TrendChart(QWidget):
         painter.setPen(QPen(canvas_style.COLOR_GRID_MINOR, 1))
         painter.drawRect(left, top, max(1, right - left - 1), max(1, bottom - top - 1))
 
-        painter.setPen(QPen(canvas_style.COLOR_COMMENT_TEXT, 1))
-        painter.drawText(left, h - 3, _format_ago(self.window_ms))
-        painter.drawText(right - 28, h - 3, "teraz")
-
         if not self._samples:
+            painter.setPen(QPen(canvas_style.COLOR_COMMENT_TEXT, 1))
+            painter.drawText(left, h - 3, _format_ago(self.window_ms))
+            painter.drawText(right - 28, h - 3, "teraz")
             painter.drawText(self.rect(), Qt.AlignCenter, "Brak danych")
             return
 
-        now_ms = self._samples[-1][0]
-        visible = self._visible_samples(now_ms)
+        newest_t = self._samples[-1][0]
+        end_t = self.anchor_ms if self.anchor_ms is not None else newest_t
+        start_t = end_t - self.window_ms
+
+        painter.setPen(QPen(canvas_style.COLOR_COMMENT_TEXT, 1))
+        painter.drawText(left, h - 3, _format_ago(self.window_ms))
+        # "teraz" only when truly at the live edge — a paused/scrolled-back
+        # view instead shows how far behind the true latest sample this
+        # window's right edge is, so scrolling back is legible at a glance.
+        lag_ms = newest_t - end_t
+        right_label = "teraz" if lag_ms < 500 else _format_ago(lag_ms)
+        painter.drawText(right - 40, h - 3, right_label)
+
+        visible = self._visible_samples(start_t, end_t)
         if len(visible) < 2:
             return
-        start_t = now_ms - self.window_ms
 
         def x_of(t):
             return left + ((t - start_t) / self.window_ms) * (right - left)
@@ -296,7 +315,14 @@ class _TrendDialog(QDialog):
     clicking its Trend cell. Non-modal (show(), not exec()) — the engineer
     keeps working the rest of the app, including running the simulation,
     while it's open; WatchPanel.refresh_values() pushes it live samples
-    exactly like the inline sparkline for as long as it stays open."""
+    exactly like the inline sparkline for as long as it stays open.
+
+    The scrollbar (§ user feedback: "and scrolling back") lets the
+    engineer pause the view at any point in the RECORDED history (persisted
+    by core/watch.py — not just what's arrived since this popup opened) and
+    scroll through it; "Na żywo" snaps back to following the newest
+    sample. Scrolling never stops new samples from being recorded — it
+    only changes what the chart currently shows."""
 
     def __init__(self, kind: str, signal_id: str, description: str,
                  is_boolean: bool, initial_samples: list, parent=None):
@@ -308,7 +334,8 @@ class _TrendDialog(QDialog):
         # by every open-without-explicit-teardown call site (tests included)
         # accumulates for the life of the process.
         self.setAttribute(Qt.WA_DeleteOnClose)
-        self.resize(640, 320)
+        self.resize(640, 360)
+        self._live = True
 
         layout = QVBoxLayout(self)
         title = f"[{_KIND_LABELS.get(kind, kind)}] {signal_id}"
@@ -321,6 +348,18 @@ class _TrendDialog(QDialog):
         self.chart = _TrendChart(is_boolean)
         self.chart.set_samples(initial_samples)
         layout.addWidget(self.chart, 1)
+
+        scroll_row = QHBoxLayout()
+        self.scrollbar = QScrollBar(Qt.Horizontal)
+        self.scrollbar.valueChanged.connect(self._on_scrollbar_value_changed)
+        scroll_row.addWidget(self.scrollbar, 1)
+        self.live_btn = QPushButton("⏵ Na żywo")
+        self.live_btn.setCheckable(True)
+        self.live_btn.setChecked(True)
+        self.live_btn.toggled.connect(self._on_live_toggled)
+        scroll_row.addWidget(self.live_btn)
+        layout.addLayout(scroll_row)
+        self._update_scrollbar_range()
 
         bottom_row = QHBoxLayout()
         bottom_row.addWidget(QLabel("Zakres czasu"))
@@ -352,15 +391,93 @@ class _TrendDialog(QDialog):
             bottom_row.addWidget(self.max_spin)
         bottom_row.addStretch()
         clear_btn = QPushButton("Wyczyść bufor")
-        clear_btn.clicked.connect(self.chart.clear_samples)
+        clear_btn.clicked.connect(self._on_clear_clicked)
         bottom_row.addWidget(clear_btn)
         layout.addLayout(bottom_row)
 
     def add_sample(self, t_ms: int, value):
         self.chart.add_sample(t_ms, value)
+        self._update_scrollbar_range()  # re-pins to the live edge itself, when live
+        if self._live:
+            self.chart.anchor_ms = None
+            self.chart.update()
+
+    def _update_scrollbar_range(self):
+        """Range spans the full RECORDED history (oldest sample .. newest),
+        in absolute engine-time milliseconds — the scrollbar's value IS the
+        chart's anchor_ms directly, no separate unit conversion. Called
+        after every new sample (the range keeps growing) and after a window
+        change (the page step, i.e. how far one click of the trough jumps,
+        tracks the currently selected window width)."""
+        samples = self.chart._samples
+        if not samples:
+            return
+        oldest_t, newest_t = samples[0][0], samples[-1][0]
+        # `self.scrollbar.value()` (read BEFORE touching the range below) is
+        # only actually used in the paused branch — reaching this method
+        # while paused means the scrollbar was already initialized with a
+        # real range by an earlier live call, so it's always meaningful there.
+        current = newest_t if self._live else self.scrollbar.value()
+        self.scrollbar.blockSignals(True)
+        self.scrollbar.setRange(oldest_t, newest_t)
+        self.scrollbar.setPageStep(max(1, self.chart.window_ms))
+        self.scrollbar.setSingleStep(max(1, self.chart.window_ms // 10))
+        self.scrollbar.setValue(current)
+        self.scrollbar.blockSignals(False)
 
     def _on_window_changed(self, index: int):
         self.chart.set_window_ms(self.window_combo.itemData(index))
+        self._update_scrollbar_range()
+
+    def _on_scrollbar_value_changed(self, value: int):
+        """Every programmatic setValue() call elsewhere in this class wraps
+        itself in blockSignals(True/False) (add_sample()'s live-tracking,
+        _update_scrollbar_range()'s clamped restore, _on_live_toggled()'s
+        snap-to-live) — so a valueChanged that actually reaches here is BY
+        DEFINITION user-initiated (drag, trough click, arrow key, Home/
+        End...), and any of those pauses live tracking, even a drag that
+        happens to land back on the maximum (the "Na żywo" button is the
+        explicit, unambiguous way back to live)."""
+        if self._live:
+            self._live = False
+            self.live_btn.blockSignals(True)
+            self.live_btn.setChecked(False)
+            self.live_btn.blockSignals(False)
+        self.chart.anchor_ms = value
+        self.chart.update()
+
+    def _on_live_toggled(self, checked: bool):
+        self._live = checked
+        if checked:
+            # blockSignals: _on_scrollbar_value_changed treats any
+            # unblocked valueChanged as a user drag that should turn live
+            # back OFF — this setValue() is the opposite, a programmatic
+            # snap-to-live, so it must not re-trigger that logic. anchor_ms
+            # is set directly rather than relying on the signal anyway:
+            # if the scrollbar already sits at its maximum, Qt never emits
+            # valueChanged for a no-op set, and anchor_ms would otherwise
+            # stay stuck at its old (paused) value.
+            self.chart.anchor_ms = None
+            self.scrollbar.blockSignals(True)
+            self.scrollbar.setValue(self.scrollbar.maximum())
+            self.scrollbar.blockSignals(False)
+        else:
+            self.chart.anchor_ms = self.scrollbar.value()
+        self.chart.update()
+
+    def _on_clear_clicked(self):
+        self.chart.clear_samples()
+        self.chart.anchor_ms = None
+        # Reset the scrollbar's range BEFORE (possibly) checking live_btn:
+        # if it was unchecked (paused), setChecked(True) fires
+        # _on_live_toggled(), which snaps to scrollbar.maximum() — that
+        # must already reflect the just-cleared, empty range, not the
+        # stale one from before clearing.
+        self.scrollbar.blockSignals(True)
+        self.scrollbar.setRange(0, 0)
+        self.scrollbar.blockSignals(False)
+        self.live_btn.setChecked(True)
+        self._live = True
 
     def _on_auto_toggled(self, checked):
         self.min_spin.setEnabled(not checked)
@@ -392,12 +509,11 @@ class WatchPanel(QWidget):
         self.settings = settings if settings is not None else QSettings("BroniszLabs", "EPW Logic Studio")
         self.project = project
         self._trend_dialogs = {}  # (kind, signal_id) -> open _TrendDialog
-        # (kind, signal_id) -> [(t_ms, value), ...], oldest first — the
-        # source of truth _TrendDialog seeds itself from when opened (the
-        # inline _Sparkline's own buffer carries no timestamps, only
-        # arrival order). Capped at _MAX_HISTORY_MS, reset on a project
-        # swap or a detected engine-clock rollback (see refresh_values()).
-        self._history = {}
+        # Recorded history itself lives in project.settings["watch_history"]
+        # (core/watch.py's append_history_sample()/get_history()/etc.) —
+        # persisted as part of the project file itself (§ user feedback:
+        # "let the program save these runs"), not a panel-local dict. Only
+        # bookkeeping that doesn't belong in the project stays here.
         self._last_now_ms = None
 
         layout = QVBoxLayout(self)
@@ -454,7 +570,6 @@ class WatchPanel(QWidget):
         refer to a specific (project, kind, signal_id) that a whole-project
         swap may have invalidated entirely."""
         self._close_all_trend_dialogs()
-        self._history = {}
         self._last_now_ms = None
         self.project = project
         self.table.setRowCount(0)
@@ -477,11 +592,11 @@ class WatchPanel(QWidget):
         # A restarted engine (start() after stop()) resets its TimeProvider
         # to 0 — every existing timestamped sample would then read as "in
         # the future" relative to the new clock, breaking every open
-        # trend's time window (and _visible_samples()'s pruning). Detected
-        # by the clock going backwards; the only sane response is to start
-        # every history over, not try to reconcile two incomparable clocks.
+        # trend's time window. Detected by the clock going backwards; the
+        # only sane response is to start every recorded history over, not
+        # try to reconcile two incomparable clocks.
         if self._last_now_ms is not None and now_ms < self._last_now_ms:
-            self._history = {}
+            watch.clear_all_history(self.project)
         self._last_now_ms = now_ms
 
         for row in range(self.table.rowCount()):
@@ -493,14 +608,12 @@ class WatchPanel(QWidget):
             if sparkline is not None:
                 sparkline.add_sample(value)
 
-            key = (kind, signal_id)
-            history = self._history.setdefault(key, [])
-            history.append((now_ms, value))
-            cutoff = now_ms - _MAX_HISTORY_MS
-            while history and history[0][0] < cutoff:
-                history.pop(0)
+            # Persisted straight into project.settings["watch_history"] —
+            # rides along with the project's own save/load, no separate
+            # file or save trigger needed (§ user feedback).
+            watch.append_history_sample(self.project, kind, signal_id, now_ms, value)
 
-            dialog = self._trend_dialogs.get(key)
+            dialog = self._trend_dialogs.get((kind, signal_id))
             if dialog is not None:
                 try:
                     dialog.add_sample(now_ms, value)
@@ -512,7 +625,7 @@ class WatchPanel(QWidget):
                     # entry synchronously before deleteLater() runs — but
                     # a stray access to a torn-down window is exactly the
                     # class of crash worth guarding against here).
-                    self._trend_dialogs.pop(key, None)
+                    self._trend_dialogs.pop((kind, signal_id), None)
 
     # ---- row construction -----------------------------------------------------
 
@@ -574,7 +687,10 @@ class WatchPanel(QWidget):
         description = self.table.item(row, _COL_DESC).text()
         sparkline = self.table.cellWidget(row, _COL_TREND)
         is_boolean = sparkline.is_boolean if sparkline is not None else True
-        initial_samples = self._history.get(key, [])  # timestamped — the inline sparkline's own buffer isn't
+        # The FULL recorded (persisted) history, not just what's arrived
+        # since this popup opened — the inline sparkline's own buffer
+        # carries no timestamps either way, only arrival order.
+        initial_samples = watch.get_history(self.project, kind, signal_id)
 
         dialog = _TrendDialog(kind, signal_id, description, is_boolean, initial_samples, parent=self)
         dialog.finished.connect(lambda _result, k=key: self._trend_dialogs.pop(k, None))
@@ -627,7 +743,7 @@ class WatchPanel(QWidget):
             signal_id = self.table.item(row, _COL_ID).data(SIGNAL_ID_ROLE)
             if watch.remove_watch(self.project, kind, signal_id):
                 removed_any = True
-            self._history.pop((kind, signal_id), None)
+            watch.clear_history(self.project, kind, signal_id)
             dialog = self._trend_dialogs.pop((kind, signal_id), None)
             if dialog is not None:
                 try:

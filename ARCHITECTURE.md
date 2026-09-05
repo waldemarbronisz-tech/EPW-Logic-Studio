@@ -31,7 +31,7 @@ migration chain. Never conflate them, and never bump one to fix a problem in
 the other.
 
 ### 3.1 `.epwlogic` (engineering project) — `EPWLOGIC_SCHEMA_VERSION`
-Currently **6** (`core/project.py`). Bumping it requires adding a
+Currently **7** (`core/project.py`). Bumping it requires adding a
 `_migrate_vN_to_v(N+1)(data)` function and registering it in `_MIGRATIONS`,
 keyed by the version it upgrades *from*. `Project.deserialize()` applies the
 chain sequentially —
@@ -42,7 +42,7 @@ while schema_version in _MIGRATIONS:
 ```
 — so a file several versions behind today's still loads correctly by walking
 every intermediate step; a future v6 → v7 migration slots in exactly the way
-v1 → v2 through v5 → v6 did, with no change to `deserialize()` itself.
+v1 → v2 through v6 → v7 did, with no change to `deserialize()` itself.
 
 `_migrate_v1_to_v2` defaults a missing `settings.analog_points` to `[]`, and
 absorbs what used to be a separate `_migrate_legacy_force_state` helper: it
@@ -88,6 +88,10 @@ ever have addressed a second device in the first place.
 `settings.watched_signals` to `[]` — otherwise an empty migration, since
 no v5 project could have had any entries (the feature didn't exist yet),
 same reasoning as v3→v4's `io_labels`.
+
+`_migrate_v6_to_v7` (feat/signal-watch, § "let the program save these
+runs", §23.2) defaults missing `settings.watch_history` to `{}` — same
+empty-migration reasoning.
 
 `short_id` (§13) is deliberately NOT gated behind a schema-version bump —
 `Project.add_block()`, the single choke point every block passes through
@@ -1248,6 +1252,14 @@ nad tym modułem, dokładnie ten sam podział co `core/crossref.py` vs.
 `ui/panels/signals.py`). `EPWLOGIC_SCHEMA_VERSION` 5→6, migracja
 `_migrate_v5_to_v6` (§3.1).
 
+Drugi rejestr w tym samym module, dopisany przy okazji przewijania
+wstecz (§23.2): `project.settings["watch_history"]` — nagrane próbki
+`(t_ms, wartość)` per obserwowany sygnał, klucz `"<kind>|<signal_id>"`
+(zwykły string — klucz obiektu JSON nie może być krotką). API:
+`append_history_sample()`/`get_history()`/`clear_history()`/
+`clear_all_history()`, `MAX_HISTORY_MS` (4 godziny — limit przycinania,
+patrz §23.2). `EPWLOGIC_SCHEMA_VERSION` 6→7, migracja `_migrate_v6_to_v7`.
+
 `kind` używa TYCH SAMYCH stałych `KIND_*` co `core/crossref.py` — jedna
 klasyfikacja czterech przestrzeni nazw sygnałów (§10/§14) w całej
 aplikacji, nie druga, niezależna. `signal_id` jest ZAWSZE tym samym
@@ -1358,38 +1370,67 @@ na które mała tabela nie ma miejsca ani potrzeby:
 
 - **Prawdziwa oś czasu**: próbki to pary `(t_ms, wartość)` — `t_ms` z
   własnego zegara silnika (`TimeProvider`), nigdy zegara systemowego,
-  dokładnie jak wszędzie indziej w tym repo. `WatchPanel._history`
-  (słownik `(kind, signal_id) -> [(t_ms, wartość), ...]`) jest ŹRÓDŁEM
-  PRAWDY dla zasiewu popupu — sparkline w samej tabeli nie ma czasu, tylko
-  kolejność napływu, więc świeżo otwarty popup zasiewany jest z
-  `_history`, nie z widżetu w tabeli.
+  dokładnie jak wszędzie indziej w tym repo.
 - **Regulowalny zakres czasu** (§ uwaga użytkownika: "chcę edytować skalę,
-  czasy") — `QComboBox` "Zakres czasu" (10 s / 30 s / 1 min / 2 min /
-  5 min / 15 min / 30 min, domyślnie 1 min), przełącza
-  `_TrendChart.window_ms`; wykres pokazuje tylko próbki z tego okna
-  względem NAJNOWSZEJ próbki (`_visible_samples()`), z podpisem "-1 min …
-  teraz" na osi X. Bufor historii jest przycinany do najdłuższego
-  wybieralnego zakresu (`_MAX_HISTORY_MS` = 30 min) — dłużej trzymane
-  próbki i tak nigdy nie byłyby wyświetlone.
+  czasy") — `QComboBox` "Zakres czasu" (10 s … 4 h, domyślnie 1 min),
+  przełącza `_TrendChart.window_ms`; wykres pokazuje tylko próbki z tego
+  okna, z podpisami czasu na obu krawędziach osi X.
 - **Etykiety osi**: wartości min/max (albo "1"/"0" dla boolowskich) na osi
   Y, opisane wprost na wykresie — poprzednia wersja nie miała żadnych
   liczb, tylko gołą linię.
 - **Ręczne przeskalowanie osi Y** dla sygnałów analogowych (checkbox
   "Skala automatyczna" + dwa `QDoubleSpinBox` min/max, nieaktywne dopóki
-  automatyczna skala jest włączona) — bez zmian względem poprzedniej
-  wersji.
-- **Zegar silnika cofnięty (restart)**: `WatchPanel.refresh_values()`
-  wykrywa `now_ms` mniejsze niż poprzednio widziane i czyści CAŁĄ
-  `_history` od zera zamiast próbować pogodzić dwa nieporównywalne zegary
-  — inaczej każda historyczna próbka sprzed restartu "z przyszłości"
-  psułaby okno czasowe każdego otwartego trendu.
+  automatyczna skala jest włączona).
+
+**Przewijanie wstecz i "Na żywo"** (§ uwaga użytkownika: "i jeszcze
+przewijanie wstecz") — `QScrollBar` poziomy pod wykresem, którego WARTOŚĆ
+JEST BEZPOŚREDNIO znacznikiem czasu (`anchor_ms`) prawej krawędzi okna
+(zakres scrollbara = `[najstarsza zarejestrowana próbka, najnowsza]`, bez
+osobnej konwersji jednostek):
+- **Na żywo (domyślnie)**: `_TrendChart.anchor_ms is None` — prawa
+  krawędź okna zawsze podąża za najnowszą próbką; `_TrendDialog.add_sample()`
+  po każdej nowej próbce dopina scrollbar do jego własnego maksimum.
+- **Przewinięcie**: dowolna interakcja użytkownika ze scrollbarem
+  (przeciągnięcie, klik w tor, strzałki) ustawia `anchor_ms` na
+  konkretną, STAŁĄ chwilę w przeszłości — widok zostaje tam nawet gdy w
+  tle wciąż napływają nowe próbki (`_TrendDialog._on_scrollbar_value_changed()`
+  wykrywa to jako "każda zmiana wartości, która nie pochodzi z
+  zablokowanego sygnałowo, programowego `setValue()` gdzie indziej w tej
+  klasie, jest z definicji inicjowana przez użytkownika" — jeden spójny
+  mechanizm zamiast osobnej obsługi przeciągania/kliku w tor/klawiatury).
+  Prawy podpis osi X pokazuje wtedy "-X" (jak daleko w tyle jest ta chwila
+  względem PRAWDZIWIE najnowszej próbki), nie "teraz".
+- **"⏵ Na żywo"** — przycisk-przełącznik obok scrollbara wraca do śledzenia
+  najnowszej próbki. `_on_clear_clicked()` ("Wyczyść bufor") też resetuje
+  do trybu Na żywo — wyczyszczony bufor nie ma sensownej "zapamiętanej
+  chwili", do której miałby wracać.
+
+**Trwały zapis nagrań** (§ uwaga użytkownika: "niech te przebiegi program
+zapisuje") — historia NIE żyje już w pamięci panelu (poprzednia wersja:
+`WatchPanel._history`, ginęła przy zamknięciu aplikacji), tylko w
+`project.settings["watch_history"]` (`core/watch.py::append_history_sample()`/
+`get_history()`/`clear_history()`/`clear_all_history()`) — jedzie więc
+automatycznie przy zwykłym zapisie/wczytaniu projektu
+(`Project.serialize()`/`save_to_file()`/`load_from_file()`), bez osobnego
+pliku czy dodatkowego wyzwalacza zapisu. `EPWLOGIC_SCHEMA_VERSION` 6→7,
+migracja `_migrate_v6_to_v7` (pusta domyślnie, jak `watched_signals` w
+v5→v6). Ograniczone do `core/watch.py::MAX_HISTORY_MS` (4 godziny) —
+starsze próbki są przycinane przy każdym zapisie, żeby długa sesja
+symulacji nie rozdymała pliku `.epwlogic` bez końca; ten sam limit
+definiuje najdłuższą pozycję na liście "Zakres czasu" popupu (4 h), więc
+wybór "pokaż wszystko, co jeszcze jest" i "ile w ogóle jest przechowywane"
+to jedna i ta sama liczba. Zegar silnika cofnięty (restart resetuje
+`TimeProvider` do zera) wywołuje `clear_all_history()` zamiast próbować
+pogodzić dwa nieporównywalne zegary — inaczej każda historyczna próbka
+sprzed restartu "z przyszłości" psułaby okno czasowe każdego otwartego
+trendu.
 
 `WatchPanel._trend_dialogs` (słownik `(kind, signal_id) -> dialog`)
 pilnuje, żeby dwuklik na już otwarty trend podniósł istniejące okno
-zamiast otwierać duplikat, a `refresh_values()`/`_on_remove_clicked()`/
-`set_project()` odpowiednio dokarmiają/zamykają/sprzątają otwarte popupy
-i ich wpisy w `_history` — dokładnie tak, jak `refresh_values()` już
-dokarmia sparkline w samej tabeli, ten sam wywoływany co skan mechanizm.
+zamiast otwierać duplikat, a `refresh_values()`/`_on_remove_clicked()`
+odpowiednio dokarmiają/zamykają otwarte popupy i ich wpisy w
+`watch_history` — dokładnie tak, jak `refresh_values()` już dokarmia
+sparkline w samej tabeli, ten sam wywoływany co skan mechanizm.
 `_TrendDialog` ma `Qt.WA_DeleteOnClose` (transient popup musi być
 faktycznie usuwany przy zamknięciu, nie tylko ukrywany), a każde miejsce
 odwołujące się do otwartego popupu jest opakowane w `except RuntimeError`
@@ -1412,31 +1453,30 @@ spod ręki.
   §14) — nie zgłoszony jako potrzeba na tym etapie, łatwy do dodania
   później przy tej samej strukturze danych.
 
-Testy: nowy `tests/test_watch.py` (28) — `core/watch.py` w pełnej izolacji
-od Qt: dodawanie/usuwanie/idempotencja, kopia (nie żywa referencja) z
-`get_watches()`, przetrwanie serializacji, migracja v5→v6,
+Testy: `tests/test_watch.py` (39) — `core/watch.py` w pełnej izolacji od
+Qt: lista obserwacji (dodawanie/usuwanie/idempotencja, kopia nie żywa
+referencja, przetrwanie serializacji, migracja v5→v6),
 `describe_watch()`/`is_boolean_kind()`/`read_value()` dla wszystkich
-czterech `kind`, wliczając wyprowadzenie id sygnału wewnętrznego i sygnał
-usunięty z rejestru. Nowy `tests/test_watch_panel.py` (31) — pusty stan,
-budowa wierszy, sparkline boolowski vs. analogowy, `refresh_values()`
-(w tym myślnik dla nierozwiązanej wartości i no-op bez projektu), dodanie
-przez zamockowany `SignalPickerDialog.exec()` (jeden wpis cofania,
-sygnał `changed`), anulowanie dialogu nic nie zmienia, usunięcie
-zaznaczenia (jeden wpis cofania), stan przycisku "Usuń", umiejscowienie w
-`output_panel` (nie w `left_tabs`), faktyczne odświeżenie wartości przez
-`MainWindow._run_scan()` end-to-end, wszystkie kolumny w trybie
-`Interactive`, zmiana rozmiaru kolumny Trend faktycznie zmienia rozmiar
-sparkline'a, otwarcie/ponowne-użycie/dokarmianie/zamknięcie
-`_TrendDialog` (usunięcie wiersza, `set_project()`), kontrolki
-ręcznej skali dla sygnału analogowego, ich brak dla boolowskiego,
-przycisk "Wyczyść bufor", domyślny/zmieniany zakres czasu popupu,
-`_TrendChart._visible_samples()` filtruje po czasie w izolacji, popup
-zasiewany prawdziwą historią czasową z `WatchPanel._history` (nie z
-nieoznaczonego czasowo bufora tabelarycznego sparkline'a), reset historii
-przy cofnięciu zegara silnika (restart) i przy usunięciu
-wiersza/`set_project()`. Rozszerzone
-`tests/test_crossref.py` (6) — `classify_signal_id()` dla wszystkich
-czterech `kind` i nieznanej grubszej kategorii. Rozszerzone
-`tests/test_internal_bits.py` (2) — `SignalPickerDialog.selected_kind()`.
-Wszystkie 10 `examples/*.epwlogic` nadal się kompilują (migracja v1→v6 w
-locie).
+czterech `kind`, oraz nagrana historia — dodawanie/przycinanie do
+`MAX_HISTORY_MS`, izolacja per (kind, signal_id), `clear_history()`/
+`clear_all_history()`, przetrwanie pełnego zapisu/wczytania z dysku
+(`save_to_file()`/`load_from_file()`, nie tylko `serialize()`/
+`deserialize()` w pamięci — JSON nie ma krotek, więc to jedyny test,
+który faktycznie weryfikuje trwały zapis), migracja v6→v7.
+`tests/test_watch_panel.py` (38) — pusty stan, budowa wierszy, sparkline
+boolowski vs. analogowy, `refresh_values()`, dodanie przez zamockowany
+`SignalPickerDialog.exec()`, usunięcie zaznaczenia, umiejscowienie w
+`output_panel`, regulowalne kolumny (w tym że przeciągnięcie kolumny
+Trend faktycznie zmienia rozmiar sparkline'a), pełen cykl życia
+`_TrendDialog` (otwarcie/ponowne-użycie/dokarmianie/zamknięcie),
+regulowalny zakres czasu i etykiety osi, kontrolki ręcznej skali
+Y — oraz przewijanie wstecz: start w trybie Na żywo, nowe próbki nie
+ruszają zapauzowanego widoku, przeciągnięcie scrollbara pauzuje bez
+względu na to, GDZIE trafi (nawet z powrotem na maksimum), przycisk "Na
+żywo" wraca do śledzenia najnowszej próbki, "Wyczyść bufor" resetuje
+scrollbar i wymusza Na żywo — i pełny przebieg zapis-na-dysk→wczytanie
+potwierdzający, że świeżo otwarty popup pokazuje dokładnie to samo
+nagranie po restarcie aplikacji. Rozszerzone `tests/test_crossref.py` (6)
+— `classify_signal_id()`. Rozszerzone `tests/test_internal_bits.py` (2)
+— `SignalPickerDialog.selected_kind()`. Wszystkie 10 `examples/*.epwlogic`
+nadal się kompilują (migracja v1→v7 w locie).

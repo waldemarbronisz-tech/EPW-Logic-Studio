@@ -8,7 +8,8 @@ from logic_studio.engine.io_provider import SimulationIOProvider
 from logic_studio.core import watch
 from logic_studio.core.watch import (
     get_watches, is_watched, add_watch, remove_watch, describe_watch,
-    is_boolean_kind, read_value,
+    is_boolean_kind, read_value, get_history, append_history_sample,
+    clear_history, clear_all_history,
 )
 from logic_studio.core.crossref import (
     KIND_PHYSICAL_DI, KIND_PHYSICAL_DO, KIND_ANALOG_IN, KIND_ANALOG_OUT,
@@ -203,3 +204,92 @@ def test_read_value_system_signal_uses_now_ms_for_pulse_generators():
     io = SimulationIOProvider()
     assert read_value(p, io, KIND_SYSTEM, "SYS.BLINK_SLOW", now_ms=0) is True
     assert read_value(p, io, KIND_SYSTEM, "SYS.BLINK_SLOW", now_ms=600) is False
+
+
+# ---- recorded history (§ user feedback: "let the program save these runs") -
+
+def test_new_project_has_no_history():
+    p = Project()
+    assert get_history(p, KIND_PHYSICAL_DI, "ELA01.DI01") == []
+
+def test_append_and_get_history():
+    p = Project()
+    append_history_sample(p, KIND_PHYSICAL_DI, "ELA01.DI01", 1000, False)
+    append_history_sample(p, KIND_PHYSICAL_DI, "ELA01.DI01", 2000, True)
+    assert get_history(p, KIND_PHYSICAL_DI, "ELA01.DI01") == [(1000, False), (2000, True)]
+
+def test_get_history_returns_a_copy_not_the_live_list():
+    p = Project()
+    append_history_sample(p, KIND_PHYSICAL_DI, "ELA01.DI01", 1000, False)
+    history = get_history(p, KIND_PHYSICAL_DI, "ELA01.DI01")
+    history.append((2000, True))
+    assert get_history(p, KIND_PHYSICAL_DI, "ELA01.DI01") == [(1000, False)]
+
+def test_different_kind_or_signal_id_keeps_separate_history():
+    p = Project()
+    append_history_sample(p, KIND_PHYSICAL_DI, "ELA01.DI01", 1000, True)
+    append_history_sample(p, KIND_SYSTEM, "ELA01.DI01", 1000, False)  # same signal_id, different kind
+    append_history_sample(p, KIND_PHYSICAL_DI, "ELA01.DI02", 1000, False)
+    assert get_history(p, KIND_PHYSICAL_DI, "ELA01.DI01") == [(1000, True)]
+    assert get_history(p, KIND_SYSTEM, "ELA01.DI01") == [(1000, False)]
+    assert get_history(p, KIND_PHYSICAL_DI, "ELA01.DI02") == [(1000, False)]
+
+def test_append_prunes_samples_older_than_max_history_ms():
+    p = Project()
+    append_history_sample(p, KIND_PHYSICAL_DI, "ELA01.DI01", 0, False)
+    append_history_sample(p, KIND_PHYSICAL_DI, "ELA01.DI01", watch.MAX_HISTORY_MS + 1, True)
+    assert get_history(p, KIND_PHYSICAL_DI, "ELA01.DI01") == [(watch.MAX_HISTORY_MS + 1, True)]
+
+def test_clear_history_removes_only_that_watchs_entry():
+    p = Project()
+    append_history_sample(p, KIND_PHYSICAL_DI, "ELA01.DI01", 1000, True)
+    append_history_sample(p, KIND_SYSTEM, "SYS.READY", 1000, True)
+    clear_history(p, KIND_PHYSICAL_DI, "ELA01.DI01")
+    assert get_history(p, KIND_PHYSICAL_DI, "ELA01.DI01") == []
+    assert get_history(p, KIND_SYSTEM, "SYS.READY") == [(1000, True)]
+
+def test_clear_history_on_an_unwatched_signal_is_a_no_op():
+    p = Project()
+    clear_history(p, KIND_PHYSICAL_DI, "ELA01.DI01")  # must not raise
+
+def test_clear_all_history_wipes_every_watch():
+    p = Project()
+    append_history_sample(p, KIND_PHYSICAL_DI, "ELA01.DI01", 1000, True)
+    append_history_sample(p, KIND_SYSTEM, "SYS.READY", 1000, True)
+    clear_all_history(p)
+    assert get_history(p, KIND_PHYSICAL_DI, "ELA01.DI01") == []
+    assert get_history(p, KIND_SYSTEM, "SYS.READY") == []
+
+def test_history_survives_serialize_deserialize():
+    p = Project()
+    append_history_sample(p, KIND_PHYSICAL_DI, "ELA01.DI01", 1000, False)
+    append_history_sample(p, KIND_PHYSICAL_DI, "ELA01.DI01", 2000, True)
+    reloaded = Project.deserialize(p.serialize())
+    assert get_history(reloaded, KIND_PHYSICAL_DI, "ELA01.DI01") == [(1000, False), (2000, True)]
+
+def test_history_survives_a_json_round_trip_through_disk(tmp_path):
+    """serialize()/deserialize() alone stay in-memory (lists of tuples
+    survive by construction) — a real save_to_file()/load_from_file() round
+    trip through json.dump()/json.load() is the case that actually proves
+    persistence, since JSON has no tuples (lists come back, not tuples) and
+    True/False/None must round-trip exactly."""
+    p = Project()
+    append_history_sample(p, KIND_PHYSICAL_DI, "ELA01.DI01", 1000, False)
+    append_history_sample(p, KIND_PHYSICAL_DI, "ELA01.DI01", 2000, True)
+    append_history_sample(p, KIND_INTERNAL_BIT, "GONE", 3000, None)
+    path = str(tmp_path / "project.epwlogic")
+    p.save_to_file(path)
+
+    reloaded = Project.load_from_file(path)
+    assert get_history(reloaded, KIND_PHYSICAL_DI, "ELA01.DI01") == [(1000, False), (2000, True)]
+    assert get_history(reloaded, KIND_INTERNAL_BIT, "GONE") == [(3000, None)]
+
+def test_v6_project_migrates_with_empty_watch_history():
+    data = {
+        "format": "EPW_LOGIC", "schema_version": 6,
+        "settings": {"ela_devices": ["ELA01"], "ada_devices": ["ADA01"], "watched_signals": []},
+        "blocks": [],
+    }
+    p = Project.deserialize(data)
+    assert get_history(p, KIND_PHYSICAL_DI, "ELA01.DI01") == []
+    assert p.settings.get("watch_history") == {}

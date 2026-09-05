@@ -417,10 +417,9 @@ def test_changing_the_time_window_updates_the_chart(qsettings):
 def test_trend_chart_visible_samples_filters_by_window():
     _app()
     chart = _TrendChart(is_boolean=True)
-    chart.set_window_ms(30_000)
-    chart.set_samples([(0, False), (60_000, True), (75_000, False)])
+    chart.set_samples([(0, False), (60_000, True), (75_000, False), (95_000, True)])
 
-    visible = chart._visible_samples(now_ms=90_000)  # window: [60_000, 90_000]
+    visible = chart._visible_samples(start_ms=60_000, end_ms=90_000)
     assert visible == [(60_000, True), (75_000, False)]
 
 def test_seeded_dialog_receives_watchpanels_timestamped_history(qsettings):
@@ -457,11 +456,10 @@ def test_engine_clock_rollback_resets_history(qsettings):
     io = SimulationIOProvider()
     panel.refresh_values(io, now_ms=5000)
     panel.refresh_values(io, now_ms=6000)
-    key = (KIND_PHYSICAL_DI, "ELA01.DI01")
-    assert len(panel._history[key]) == 2
+    assert len(watch.get_history(p, KIND_PHYSICAL_DI, "ELA01.DI01")) == 2
 
     panel.refresh_values(io, now_ms=0)  # engine restarted
-    assert panel._history[key] == [(0, False)]
+    assert watch.get_history(p, KIND_PHYSICAL_DI, "ELA01.DI01") == [(0, False)]
 
 def test_removing_a_watched_row_also_clears_its_history(qsettings):
     _app()
@@ -474,9 +472,13 @@ def test_removing_a_watched_row_also_clears_its_history(qsettings):
 
     panel.table.selectRow(0)
     panel._on_remove_clicked()
-    assert panel._history == {}
+    assert watch.get_history(p, KIND_PHYSICAL_DI, "ELA01.DI01") == []
 
-def test_set_project_clears_history(qsettings):
+def test_history_survives_reselecting_the_same_project(qsettings):
+    """Before persistence moved into project.settings (§ user feedback:
+    "let the program save these runs"), set_project() reset a panel-local
+    history dict unconditionally on every call — re-selecting the SAME
+    project (e.g. an unrelated undo/redo) must no longer lose it."""
     _app()
     p = Project()
     watch.add_watch(p, KIND_PHYSICAL_DI, "ELA01.DI01")
@@ -484,7 +486,127 @@ def test_set_project_clears_history(qsettings):
     panel.set_project(p)
     io = SimulationIOProvider()
     panel.refresh_values(io)
-    assert panel._history
+    assert watch.get_history(p, KIND_PHYSICAL_DI, "ELA01.DI01")
 
-    panel.set_project(p)  # e.g. an undo/redo swap
-    assert panel._history == {}
+    panel.set_project(p)
+    assert watch.get_history(p, KIND_PHYSICAL_DI, "ELA01.DI01")
+
+
+# ---- scrollback (§ user feedback: "and scrolling back") --------------------
+
+def _open_dialog_with_samples(qsettings, samples):
+    """Helper: a panel with one DI watch, its trend popup open, seeded with
+    the given (t_ms, value) samples fed one at a time through refresh_values()
+    (so both the persisted history AND the live popup wiring are exercised,
+    not just the chart's own set_samples())."""
+    p = Project()
+    watch.add_watch(p, KIND_PHYSICAL_DI, "ELA01.DI01")
+    panel = WatchPanel(settings=qsettings)
+    panel.set_project(p)
+    io = SimulationIOProvider()
+    for t_ms, value in samples:
+        io.set_digital_input("ELA01.DI01", value)
+        panel.refresh_values(io, now_ms=t_ms)
+    panel._on_cell_double_clicked(0, _COL_TREND)
+    return panel, panel._trend_dialogs[(KIND_PHYSICAL_DI, "ELA01.DI01")]
+
+def test_dialog_starts_live_at_the_newest_sample(qsettings):
+    _app()
+    _, dialog = _open_dialog_with_samples(qsettings, [(1000, False), (2000, True)])
+    assert dialog._live is True
+    assert dialog.chart.anchor_ms is None
+    assert dialog.scrollbar.value() == dialog.scrollbar.maximum() == 2000
+
+def test_new_samples_keep_a_live_view_pinned_to_the_newest(qsettings):
+    _app()
+    panel, dialog = _open_dialog_with_samples(qsettings, [(1000, False)])
+    io = SimulationIOProvider()
+    io.set_digital_input("ELA01.DI01", True)
+    panel.refresh_values(io, now_ms=2000)
+
+    assert dialog._live is True
+    assert dialog.chart.anchor_ms is None
+    assert dialog.scrollbar.value() == dialog.scrollbar.maximum() == 2000
+
+def test_dragging_the_scrollbar_pauses_live_tracking(qsettings):
+    _app()
+    _, dialog = _open_dialog_with_samples(qsettings, [(1000, False), (2000, True), (3000, False)])
+
+    dialog.scrollbar.setValue(2000)  # simulates a user drag — not wrapped in blockSignals
+
+    assert dialog._live is False
+    assert dialog.live_btn.isChecked() is False
+    assert dialog.chart.anchor_ms == 2000
+
+def test_paused_view_does_not_move_when_new_samples_arrive(qsettings):
+    """The whole point of scrolling back: it must stay put while the
+    simulation keeps running in the background, not snap forward with
+    every new sample."""
+    _app()
+    panel, dialog = _open_dialog_with_samples(qsettings, [(1000, False), (2000, True), (3000, False)])
+    dialog.scrollbar.setValue(2000)
+
+    io = SimulationIOProvider()
+    io.set_digital_input("ELA01.DI01", True)
+    panel.refresh_values(io, now_ms=4000)
+
+    assert dialog.chart.anchor_ms == 2000  # unchanged
+    assert dialog.scrollbar.maximum() == 4000  # but new data IS being recorded
+    assert dialog.chart._samples[-1] == (4000, True)  # and reached the (paused) chart's own buffer
+
+def test_live_button_snaps_back_to_the_newest_sample(qsettings):
+    _app()
+    _, dialog = _open_dialog_with_samples(qsettings, [(1000, False), (2000, True)])
+    dialog.scrollbar.setValue(1000)
+    assert dialog._live is False
+
+    dialog.live_btn.setChecked(True)
+
+    assert dialog._live is True
+    assert dialog.chart.anchor_ms is None
+    assert dialog.scrollbar.value() == 2000
+
+def test_clear_buffer_resets_scrollbar_and_forces_live(qsettings):
+    _app()
+    _, dialog = _open_dialog_with_samples(qsettings, [(1000, False), (2000, True)])
+    dialog.scrollbar.setValue(1000)
+    assert dialog._live is False
+
+    dialog._on_clear_clicked()
+
+    assert dialog.chart._samples == []
+    assert dialog._live is True
+    assert dialog.live_btn.isChecked() is True
+    assert dialog.scrollbar.minimum() == dialog.scrollbar.maximum() == 0
+
+
+# ---- full persistence round trip (§ user feedback: "let the program save
+# these runs") -----------------------------------------------------------
+
+def test_recorded_history_survives_saving_and_reloading_the_project_file(qsettings, tmp_path):
+    """End-to-end: record a run, save the project to disk (exactly what
+    File -> Save does), reload it in a fresh WatchPanel, and confirm the
+    trend popup opens seeded with the same recorded history — nothing
+    lives only in memory."""
+    _app()
+    p = Project()
+    watch.add_watch(p, KIND_PHYSICAL_DI, "ELA01.DI01")
+    panel = WatchPanel(settings=qsettings)
+    panel.set_project(p)
+    io = SimulationIOProvider()
+    io.set_digital_input("ELA01.DI01", False)
+    panel.refresh_values(io, now_ms=1000)
+    io.set_digital_input("ELA01.DI01", True)
+    panel.refresh_values(io, now_ms=2000)
+
+    path = str(tmp_path / "project.epwlogic")
+    p.save_to_file(path)
+
+    reloaded = Project.load_from_file(path)
+    reloaded_panel = WatchPanel(settings=qsettings)
+    reloaded_panel.set_project(reloaded)
+    assert reloaded_panel.table.rowCount() == 1
+
+    reloaded_panel._on_cell_double_clicked(0, _COL_TREND)
+    dialog = reloaded_panel._trend_dialogs[(KIND_PHYSICAL_DI, "ELA01.DI01")]
+    assert dialog.chart._samples == [(1000, False), (2000, True)]

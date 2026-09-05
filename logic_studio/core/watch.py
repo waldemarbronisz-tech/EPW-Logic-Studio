@@ -108,6 +108,64 @@ def is_boolean_kind(project, kind: str, signal_id: str) -> bool:
     return True
 
 
+# ---- Recorded history (feat/signal-watch: "let the program save these
+# runs") ---------------------------------------------------------------------
+# project.settings["watch_history"] — a dict of "<kind>|<signal_id>" (a
+# plain string: JSON object keys can't be a (kind, signal_id) tuple) ->
+# [[t_ms, value], ...], oldest first. Persisted as an ordinary part of the
+# project's own settings, so it rides along with Project.serialize()/
+# save_to_file()/load_from_file() automatically — no separate log file, no
+# extra save trigger to wire up. Bounded by MAX_HISTORY_MS so a long-running
+# simulation session doesn't grow the .epwlogic file without limit.
+
+_HISTORY_SETTINGS_KEY = "watch_history"
+
+# 4 hours — generous enough to review a full commissioning/test run later
+# (this repo's own scan cycles are ~100ms by default, so this is tens of
+# thousands of samples per signal at most, trivial to keep and to save).
+MAX_HISTORY_MS = 4 * 60 * 60_000
+
+
+def _history_key(kind: str, signal_id: str) -> str:
+    return f"{kind}|{signal_id}"
+
+
+def get_history(project, kind: str, signal_id: str) -> list:
+    """The persisted (t_ms, value) history for one watch, oldest first.
+    Returns a fresh list of tuples — never the raw JSON-shaped list-of-
+    lists, and never the live list — callers must go through
+    append_history_sample()/clear_history() to write, the same discipline
+    as every other DeviceModel-style registry in this codebase."""
+    raw = project.settings.get(_HISTORY_SETTINGS_KEY, {}).get(_history_key(kind, signal_id), [])
+    return [(t, v) for t, v in raw]
+
+
+def append_history_sample(project, kind: str, signal_id: str, t_ms: int, value):
+    """Appends one sample and prunes anything older than MAX_HISTORY_MS —
+    called once per scan per watched signal (ui/panels/watch.py's
+    refresh_values())."""
+    history = project.settings.setdefault(_HISTORY_SETTINGS_KEY, {})
+    entries = history.setdefault(_history_key(kind, signal_id), [])
+    entries.append([t_ms, value])
+    cutoff = t_ms - MAX_HISTORY_MS
+    while entries and entries[0][0] < cutoff:
+        entries.pop(0)
+
+
+def clear_history(project, kind: str, signal_id: str):
+    """Called when a watch itself is removed — its recorded history has no
+    meaning without the watch that produced it."""
+    project.settings.get(_HISTORY_SETTINGS_KEY, {}).pop(_history_key(kind, signal_id), None)
+
+
+def clear_all_history(project):
+    """Wipes every watch's recorded history — used when the engine clock
+    rolls back (stop() then start() resets TimeProvider to 0): every
+    existing timestamp would otherwise read as "in the future" relative to
+    the new clock, corrupting any time-window view built on it."""
+    project.settings[_HISTORY_SETTINGS_KEY] = {}
+
+
 def read_value(project, io_provider, kind: str, signal_id: str, now_ms: int = 0):
     """Resolves a watch entry's CURRENT live value via the right
     IOProvider method for its kind — the one place that knows how to map a
