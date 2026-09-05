@@ -43,6 +43,8 @@ def _shape_style_for(type_id: str, category: str) -> str:
         return "IO"
     if category == "Dokumentacja":
         return "DOC"
+    if category == "Makrobloki":
+        return "MACRO"
     return "COMPLEX"
 
 
@@ -86,6 +88,10 @@ def block_icon(type_id: str, size: int = 24) -> QIcon:
             shapes.draw_io_shape(painter, rect, direction)
         elif shape_style == "DOC":
             shapes.draw_doc_shape(painter, rect)
+        elif shape_style == "MACRO":
+            accent = QColor(dummy.color) if dummy.color.startswith("#") else style.COLOR_OUTLINE
+            shapes.draw_macro_shape(painter, rect, accent)
+            shapes.draw_complex_icon_pin_marks(painter, rect, len(dummy.inputs), len(dummy.outputs))
         else:
             shapes.draw_complex_shape(painter, rect)
             shapes.draw_complex_icon_pin_marks(painter, rect, len(dummy.inputs), len(dummy.outputs))

@@ -219,6 +219,31 @@ def draw_complex_shape(painter, rect: QRectF, inputs_count: int = 0, outputs_cou
     painter.drawRect(rect)
 
 
+def draw_macro_shape(painter, rect: QRectF, accent_color):
+    """feat/macro-blocks — a placed macro instance (MacroInstanceBlock):
+    a rounded rectangle with a thick accent-colored bar down its left edge
+    (`accent_color` is the instance's own `.color`, distinct per macro
+    definition the same way a built-in category gets its own fixed gate/IO
+    color) — visually distinct at a glance from a plain COMPLEX block
+    (draw_complex_shape() above, a bare rectangle) and from every built-in
+    category, without needing a bespoke symbol the way gates/IO do. Shared
+    by the canvas (BlockItem._paint_macro_block()) and the library icon
+    (ui/icons.py's block_icon()), same convention as every other shape
+    here."""
+    painter.setPen(QPen(style.COLOR_OUTLINE, 1))
+    painter.setBrush(style.COLOR_BACKGROUND)
+    painter.drawRoundedRect(rect, 6, 6)
+
+    accent_width = max(3.0, rect.width() * 0.08)
+    accent_rect = QRectF(rect.left(), rect.top(), accent_width, rect.height())
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor(accent_color) if not isinstance(accent_color, QColor) else accent_color)
+    painter.save()
+    painter.setClipRect(rect)
+    painter.drawRoundedRect(accent_rect, 3, 3)
+    painter.restore()
+
+
 def draw_doc_shape(painter, rect: QRectF):
     """Icon-only symbol for doc.text/doc.note/doc.section (§10.3) — a page
     outline with a few horizontal rules standing in for text lines. The

@@ -1,11 +1,10 @@
 # EPW Logic Studio — Pełny raport audytowy (dla Claude.ai)
 
-**Data:** 2026-09-04 (migawka §1-§10 odświeżona do stanu na `main` commit
-`eb36719` — po scaleniu PR #23 `fix/system-signal-type-sync-after-load`,
-PR #22 `docs/refresh-audit-report-pr21` i PR #21
-`feat/duplicate-address-hyperlink`; wszystkie liczby poniżej wyliczone
-bezpośrednio z repozytorium na `main`, nie przepisane z poprzedniej
-wersji — polecenia użyte do ich wyliczenia podane w każdej sekcji).
+**Data:** 2026-09-05 (migawka §1-§10 odświeżona do stanu na branchu
+`feat/macro-blocks` (na `main` commit `1b4dafd`, po scaleniu PR #24
+`feat/signal-watch-panel`); wszystkie liczby poniżej wyliczone
+bezpośrednio z repozytorium, nie przepisane z poprzedniej wersji —
+polecenia użyte do ich wyliczenia podane w każdej sekcji).
 **Zakres:** wyłącznie warstwa logiki — `EPW-Logic-Studio/` (moduł `logic_studio`, testy, przykłady `.epwlogic`). Pozostałe moduły platformy (`EPW-OS`, `EPW-Synoptic-Editor`) celowo pominięte.
 **Cel dokumentu:** dać modelowi bez dostępu do repo pełny, samodzielny obraz architektury, stanu i znanych problemów, żeby mógł doradzać / kontynuować pracę bez dodatkowych pytań.
 **Struktura dokumentu:** §1-§10 to opisowa migawka BIEŻĄCEGO stanu — ma być
@@ -20,7 +19,7 @@ dziennik napraw, jeden wpis na branch/PR, w kolejności chronologicznej,
 
 EPW Logic Studio to wizualny edytor schematów blokowych (FBD — Function Block Diagram) i kompilator/runtime dla platformy automatyki EPW OS. Użytkownik układa bloki logiczne (bramki, timery, liczniki, przerzutniki, bloki I/O, matematyczne, porównania) na kanwie PySide6, łączy je "drutami", a Studio:
 
-1. zapisuje projekt inżynierski jako plik `.epwlogic` (JSON, `format: EPW_LOGIC`, `schema_version: 7`),
+1. zapisuje projekt inżynierski jako plik `.epwlogic` (JSON, `format: EPW_LOGIC`, `schema_version: 8`),
 2. kompiluje go do porządku wykonania (topological sort) i formatu `EPW_RUNTIME_LOGIC` (`schema_version: 4`), z sumą kontrolną SHA-256,
 3. wykonuje go w headless silniku PLC-podobnym (`ExecutionEngine`) — deterministycznie, bez zależności od Qt/zegara systemowego, gotowym do symulacji lub docelowo do uruchomienia na sterowniku EPW.
 
@@ -28,21 +27,21 @@ Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) 
 
 ## 2. Status repozytorium
 
-- Gałąź: `feat/signal-watch-panel` (na `main` commit `eb36719`), jeszcze niescalona.
-- **Testy: 980/980 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~17-18s.
-- **45 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **11439 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
-- **Kod produkcyjny (`logic_studio/`): 13688 linii w 64 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
-  - `blocks/`: 2306
-  - `ui/`: 8336
-  - `core/`: 1616
-  - `compiler/`: 752
+- Gałąź: `feat/macro-blocks` (na `main` commit `1b4dafd`), jeszcze niescalona.
+- **Testy: 1030/1030 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~19-20s.
+- **49 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **12330 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
+- **Kod produkcyjny (`logic_studio/`): 14462 linii w 66 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
+  - `blocks/`: 2424
+  - `ui/`: 8572
+  - `core/`: 1981
+  - `compiler/`: 807
   - `engine/`: 458
   - `app.py`/`__init__.py` (top-level): 220
-- **69 zarejestrowanych typów bloków w 12 kategoriach** — patrz §5 (polecenie i pełna lista tam), bez zmian od ostatniej migawki.
+- **69 zarejestrowanych typów bloków w 12 kategoriach** — patrz §5 (polecenie i pełna lista tam), bez zmian od ostatniej migawki. Makrobloki (§24 ARCHITECTURE.md) NIE dodają wpisów tutaj — `MacroInstanceBlock` jest celowo nigdy rejestrowany w `BlockRegistry` (jego układ pinów to dane projektu, nie stała klasy), rozwiązywany osobno przez prefiks `"macro."`.
 - **10 przykładowych projektów** w `examples/*.epwlogic` — wszystkie otwierają się, kompilują i eksportują z bieżącym kodem (zweryfikowane przy każdym PR, patrz dziennik).
-- **111 commitów** w historii (`git log --oneline | wc -l`) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
+- **112 commitów** w historii (`git log --oneline | wc -l`) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
 
-Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §23), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
+Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §24), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
 
 ## 3. Struktura katalogów
 
@@ -134,16 +133,18 @@ Rejestr dekoratorowy: `@BlockRegistry.register` na klasie bloku → wpis w `_blo
   - `ela_devices: ["ELA01"]`/`ada_devices: ["ADA01"]` — lista urządzeń ELA/ADA (feat/multi-device-io, §16 ARCHITECTURE.md) — projekt-definiowana od v5, wcześniej trwale jedno-elementowa. Czytane/pisane wyłącznie przez `DeviceModel.get_ela_devices()`/`get_ada_devices()`/`set_ela_devices()`/`set_ada_devices()`.
   - `watched_signals: []` — lista sygnałów przypiętych do panelu "Obserwowane" (feat/signal-watch, §23 ARCHITECTURE.md) — `{"kind", "signal_id"}`, czytane/pisane wyłącznie przez `core/watch.py::get_watches()`/`add_watch()`/`remove_watch()`.
   - `watch_history: {}` — nagrane przebiegi (`(t_ms, wartość)`) per obserwowany sygnał (feat/signal-watch, § "let the program save these runs", §23.2 ARCHITECTURE.md) — klucz `"<kind>|<signal_id>"`, czytane/pisane wyłącznie przez `core/watch.py::append_history_sample()`/`get_history()`/`clear_history()`/`clear_all_history()`. Przycinane do `MAX_HISTORY_MS` (4 h).
+  - `macro_definitions: {}` — rejestr definicji makrobloków (feat/macro-blocks, §24 ARCHITECTURE.md) — `def_id -> {"name", "blocks", "input_pins", "output_pins"}`, czytane/pisane wyłącznie przez `core/macros.py::get_definition()`/`set_definition()`/`delete_definition()`/`is_definition_in_use()`.
   - `short_id_counters` — licznik per-prefiks, dodawany leniwie przy pierwszym bloku.
-- `serialize()` → `{format: "EPW_LOGIC", schema_version: 7, settings, blocks:[...]}`.
-- `deserialize()`: odrzuca nieznany `format` lub `schema_version` nowszy niż obsługiwany; **łańcuch migracji** `_MIGRATIONS = {1: v1→v2, 2: v2→v3, 3: v3→v4, 4: v4→v5, 5: v5→v6, 6: v6→v7}` sekwencyjnie podnosi starszy plik do bieżącej wersji przed dalszym przetwarzaniem:
+- `serialize()` → `{format: "EPW_LOGIC", schema_version: 8, settings, blocks:[...]}`.
+- `deserialize()`: odrzuca nieznany `format` lub `schema_version` nowszy niż obsługiwany; **łańcuch migracji** `_MIGRATIONS = {1: v1→v2, 2: v2→v3, 3: v3→v4, 4: v4→v5, 5: v5→v6, 6: v6→v7, 7: v7→v8}` sekwencyjnie podnosi starszy plik do bieżącej wersji przed dalszym przetwarzaniem:
   - v1→v2: wprowadza `analog_points`; usuwa błędnie zapisywane "Force State" z właściwości bloku (przenosi do `simulation_state` przy wczytaniu — runtime-only, nigdy nie powinno trafić do pliku).
   - v2→v3: wprowadza `internal_bits`; migruje wolnotekstowe `Tag` na `virtual.input`/`virtual.output` do zwalidowanego rejestru (`Bit`), scalając duplikaty bez rozróżniania wielkości liter.
   - v3→v4: wprowadza `io_labels` (pusty domyślnie — funkcja nie istniała wcześniej).
   - v4→v5: wprowadza `ela_devices`/`ada_devices` (domyślnie `["ELA01"]`/`["ADA01"]` — dokładnie to, co KAŻDY starszy plik już zakładał na stałe, więc migracja jest bezstratna).
   - v5→v6: wprowadza `watched_signals` (pusty domyślnie — funkcja nie istniała wcześniej).
   - v6→v7: wprowadza `watch_history` (pusty domyślnie — funkcja nie istniała wcześniej).
-  - Nieznany `type_id` w pliku **rzuca `ValueError`** z listą brakujących typów — nie jest cicho pomijany (patrz dziennik §11, pkt 3.3 — to była naprawiona regresja).
+  - v7→v8: wprowadza `macro_definitions` (pusty domyślnie — funkcja nie istniała wcześniej).
+  - Nieznany `type_id` w pliku **rzuca `ValueError`** z listą brakujących typów — nie jest cicho pomijany (patrz dziennik §11, pkt 3.3 — to była naprawiona regresja). Wyjątek: `"macro.<def_id>"` NIE jest nieznanym typem nawet jeśli nigdy nie zarejestrowany w `BlockRegistry` — `BlockRegistry.get_block_class()` rozwiązuje ten prefiks na `MacroInstanceBlock` bezpośrednio (§24 ARCHITECTURE.md).
 
 ### 4.5 `DeviceModel` ([logic_studio/core/device_model.py](logic_studio/core/device_model.py))
 Topologia I/O: liczba kanałów na urządzenie stała platformowo
@@ -237,13 +238,17 @@ Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyśc
 ### 7.3 `RuntimeSnapshot` / `RuntimeBlockState` / `RuntimePinState`
 Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 
-## 8. Testy ([tests/](tests/)) — 980/980 PASS
+## 8. Testy ([tests/](tests/)) — 1030/1030 PASS
 
-45 plików `test_*.py`, 11439 linii. Kilka największych/najbardziej reprezentatywnych plików:
+49 plików `test_*.py`, 12330 linii. Kilka największych/najbardziej reprezentatywnych plików:
 
 | Plik | Zakres |
 |---|---|
 | `test_canvas_rendering.py` | rysowanie bloków/kanwy — 141 testów |
+| `test_macros.py` | model danych makrobloków — definicje, `build_definition()`, `expand_project()` (zagnieżdżanie, cykle, brakujące definicje), `core/macros.py` (§24 dziennika) — 27 testów |
+| `test_macro_instance.py` | `MacroInstanceBlock` — konstrukcja, `configure()`, `deserialize()`, `clone()` (§24 dziennika) — 14 testów |
+| `test_macro_creation.py` | `LogicScene.create_macro_from_selection()`, przypadek makro w `add_block_from_library()`, wejście z menu kontekstowego (§24 dziennika) — 9 testów |
+| `test_macro_block_rendering.py` | render `MacroInstanceBlock` na kanwie, ikona biblioteki (§24 dziennika) — 5 testów |
 | `test_grid_alignment.py` | siatka, snap, geometria — 176 testów |
 | `test_internal_bits.py` | rejestr sygnałów wewnętrznych, katalog sygnałów systemowych, synchronizacja typu pinu po wczytaniu (§28) + `SignalPickerDialog.selected_kind()` (§29 dziennika) — 57 testów |
 | `test_export_contract.py` | kontrakt eksportu, checksum, metadane — 33 testy |
@@ -268,7 +273,7 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_wire_routing.py` | kierunek wejścia/wyjścia przewodu z pinu — 6 testów |
 | `test_e2e.py`, `test_isolation.py`, `test_compiler.py`, `test_project.py`, `test_acceptance.py`, ... | pipeline end-to-end, izolacja `CompiledProgram`, kompilator, (de)serializacja projektu, scenariusze akceptacyjne |
 
-Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **942 passed w ~17-18s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
+Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1030 passed w ~19-20s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
 
 ## 9. Znane problemy i uwagi z audytu (wyłącznie OTWARTE)
 
@@ -318,6 +323,13 @@ dziennika, branch `fix/audit-followups-multidevice-const`).
    `pytest-randomly` (nieużywany lokalnie) by ujawnił szybciej. Nie
    odtworzone w sposób pozwalający wskazać konkretny plik/test jako
    przyczynę.
+4. Makrobloki (§24 ARCHITECTURE.md, §30 dziennika) — fundament gotowy,
+   dwa kolejne kroki świadomie odłożone jako osobna praca: (a) panel
+   biblioteki nie wylicza jeszcze zdefiniowanych w projekcie makrobloków —
+   dziś jedyny sposób umieszczenia drugiej instancji istniejącej definicji
+   to wywołanie API wprost, bez UI przeciągnij-upuść/dwuklik-wstaw; (b)
+   nawigacja "wejdź w makroblok" (podkanwa + breadcrumb) — ustalona z
+   właścicielem produktu jako docelowy zakres v1, jeszcze nie zaczęta.
 
 ---
 
@@ -1115,6 +1127,93 @@ przebieg zapis-na-dysk→wczytanie z poziomu panelu), rozszerzone
 `tests/test_crossref.py` (+6) i `tests/test_internal_bits.py` (+2).
 Pełny zestaw: 980 passed (895 + 85 nowych testów tego PR). Wszystkie 10
 `examples/*.epwlogic` nadal się kompilują (migracja v1→v7 w locie).
+
+## 30. Nowa funkcja: makrobloki, fundament (branch `feat/macro-blocks`)
+
+Druga NOWA FUNKCJA po §29 — wybrana z listy czterech propozycji
+(makrobloki, diff wersji projektu, eksport do PDF, dalszy backlog audytu).
+Dwa pytania doprecyzowujące przed startem: (a) sposób tworzenia —
+"Zaznacz bloki na kanwie → Utwórz makroblok" (ekstrakcja z zaznaczenia,
+zamiast pustego formularza od zera); (b) zakres v1 — **większa** z dwóch
+opcji: dwuklik ma docelowo "wchodzić" w makroblok jak w podkanwę
+(nawigacja breadcrumb), nie tylko tworzyć nieprzezroczysty blok. Ta PR
+dowozi **wyłącznie fundament** — model danych, integrację z kompilatorem,
+render na kanwie, tworzenie z zaznaczenia. Nawigacja "wejdź w blok"
+(podkanwa + breadcrumb) to świadomie OSOBNY, kolejny krok, jeszcze nie
+zaczęty — patrz §10 pkt otwarty. Pełny opis mechanizmu w ARCHITECTURE.md
+§24 — tu tylko status.
+
+| # | Punkt | Status |
+|---|---|---|
+| 1 | Model danych (`core/macros.py`) | Zrobione — `project.settings["macro_definitions"]` (`def_id -> {"name", "blocks", "input_pins", "output_pins"}`), jedyne sankcjonowane API `get_definition()`/`set_definition()`/`delete_definition()`/`is_definition_in_use()`. `build_definition(name, blocks)` ekstrahuje definicję z żywego zaznaczenia (bez mutacji) — zwraca `(definition, crossings)`, gdzie `crossings` opisuje każde połączenie WYCHODZĄCE poza zaznaczenie (fan-out wyjścia = wiele wpisów na ten sam indeks pinu instancji, wejście = co najwyżej jeden, reguła jedynego sterownika `Pin.connect()`). `EPWLOGIC_SCHEMA_VERSION` 7→8, migracja `_migrate_v7_to_v8` (pusta domyślnie). |
+| 2 | `MacroInstanceBlock` (`blocks/macro_instance.py`) | Zrobione — jedyna klasa reprezentująca DOWOLNĄ instancję makrobloku (układ pinów to dane projektu, nie stała klasy — żaden pojedynczy konstruktor bezargumentowy nie mógłby tego wyrazić, w przeciwieństwie do każdego innego typu bloku). Pola pinów budowane osobnym wywołaniem `configure(definition)` po konstrukcji. `type_id` = `"macro.<def_id>"`, jedyny wyjątek od reguły "type_id nigdy nie jest przywracany z pliku" (`deserialize()` musi wiedzieć, którą definicję reprezentuje). Nigdy nie rejestrowana w `BlockRegistry.register()`. |
+| 3 | Integracja z `BlockRegistry` | Zrobione — `create_block()`/`get_block_class()` rozwiązują prefiks `"macro."` (`core/macros.py::macro_def_id()`) centralnie, jedno miejsce obsługujące automatycznie każdy punkt wywołania (`Project.deserialize()`, `paste_clipboard()`, `add_block_from_library()`) zamiast osobnego przypadku specjalnego w każdym z nich. |
+| 4 | Kompilacja — spłaszczanie w czasie kompilacji (`core/macros.py::expand_project()`) | Zrobione — `Compiler.compile()` woła `expand_project()` PRZED Validatorem/GraphBuilderem/Exporterem; każda instancja makrobloku jest rekurencyjnie zastępowana świeżą, niezależnie z-uuid'owaną kopią bloków własnej definicji, podłączoną dokładnie tam, gdzie były jej zewnętrzne połączenia — sama instancja nigdy nie trafia do wyniku. Cykl (makroblok pośrednio zawierający sam siebie) i odwołanie do brakującej definicji zgłaszane DOKŁADNIE jak błąd Validatora, przerywając kompilację przed jego uruchomieniem. Żaden z trzech istniejących etapów kompilatora nie wie, że makrobloki istnieją — ten sam wzorzec, który trzyma `ExecutionEngine`/`IOProvider` niezależne od sprzętu (ARCHITECTURE.md §1). `Compiler._compute_cycle_delayed_reads()` i rozwiązywanie zakresu AI/id sygnału wewnętrznego (§4.2 ARCHITECTURE.md) działają teraz na SPŁASZCZONEJ liście, więc blok wewnątrz definicji makrobloku jest traktowany identycznie jak blok na najwyższym poziomie. |
+| 5 | Render na kanwie | Zrobione — nowy `shape_style` `"MACRO"` (`ui/canvas/shapes.py::draw_macro_shape()`, `BlockItem._paint_macro_block()`): zaokrąglony prostokąt z kolorowym paskiem akcentu (`instance.color`, `#6A4FB3` domyślnie) wzdłuż lewej krawędzi, nazwa definicji wyśrodkowana w treści — odróżnialny na pierwszy rzut oka od zwykłego bloku `COMPLEX` (goły prostokąt) i od każdej wbudowanej kategorii. Rozmiar/porty jak każdy inny wieloportowy blok (symetrycznie wokół środka). Ikona biblioteki (`ui/icons.py::block_icon()`) analogicznie. |
+| 6 | Tworzenie z zaznaczenia (`LogicScene.create_macro_from_selection()`) | Zrobione — buduje definicję z żywego zaznaczenia, zapisuje ją, ROZŁĄCZA każdy pin każdego ekstrahowanego bloku przez sam graf pinów (`Pin.disconnect()`, NIE przez wyszukiwanie grafiki `WireItem` — połączenie to prawdziwe dane od chwili `Pin.connect()`, niezależnie od tego, czy akurat istnieje dla niego grafika), usuwa ekstrahowane bloki, tworzy+konfiguruje nową instancję w ich miejsce, odtwarza każde przejście (`crossings`) jako prawdziwe `Pin.connect()` NA nowym pinie granicznym instancji plus odpowiadającą grafikę `WireItem`. Jeden wpis cofania, jak `duplicate_selected_items()`/`paste_clipboard()`. |
+| 7 | Wejście z UI | Zrobione (minimalne) — pozycja "Utwórz makroblok..." w menu kontekstowym bloku (`BlockItem.contextMenuEvent()`), aktywna gdy zaznaczony jest 1+ blok, prosi o nazwę (`QInputDialog`), woła punkt 6. `add_block_from_library()` konfiguruje instancję przez `.configure(definition)` PRZED budową `BlockItem` (który czyta `inputs`/`outputs` przy konstrukcji) — pozwala umieścić DODATKOWĄ instancję istniejącej definicji z tym samym `type_id`. |
+
+### Świadomie pominięte / poza zakresem tej PR (fundament)
+- **Panel biblioteki nie wylicza jeszcze zdefiniowanych w projekcie
+  makrobloków** — jedyny sposób umieszczenia DRUGIEJ instancji istniejącej
+  definicji to programowe wywołanie `add_block_from_library(type_id, ...)`
+  (mechanizm już to obsługuje, patrz punkt 7) — bez wpisu w drzewie
+  biblioteki (kategoria "Makrobloki" per-projekt, nie per-klasa jak każda
+  inna kategoria) nie ma jeszcze przeciągnij-upuść ani dwuklik-wstaw dla
+  makrobloków. Prawdziwa luka użyteczności — odnotowana jako pierwszy punkt
+  otwarty w §10, planowana jako następny krok.
+- **Nawigacja "wejdź w makroblok" (podkanwa + breadcrumb)** — świadomie
+  osobny, kolejny krok (patrz wstęp tej sekcji); w tej PR dwuklik na
+  instancji nie robi nic specjalnego (żadnego handlera nie dodano).
+- Edycja definicji po utworzeniu (poza wejściem-w-blok z punktu wyżej) —
+  brak UI do zmiany nazwy/usunięcia definicji niezależnie od jej instancji
+  (`delete_definition()`/`is_definition_in_use()` istnieją w
+  `core/macros.py`, ale nic w UI jeszcze ich nie woła).
+- Eksport `macro_definitions` do `EPW_RUNTIME_LOGIC` — świadomie NIE:
+  makrobloki są wygodą na etapie tworzenia projektu, `EPW_RUNTIME_LOGIC`
+  zawiera wyłącznie już-spłaszczone bloki (punkt 4).
+- Zagnieżdżanie makrobloku wewnątrz makrobloku, gdzie WŁASNY pin
+  zagnieżdżonej instancji jest bezpośrednio granicznym pinem definicji
+  zewnętrznej (bez pośredniczącego zwykłego bloku) — świadomie
+  nieobsługiwane, udokumentowane wprost w docstringu
+  `core/macros.py::_expand_instance()`; zwykły przepływ UI (zaznacz+utwórz)
+  nigdy tego nie wytworzy, bo własne piny zagnieżdżonej instancji nie są
+  indywidualnie zaznaczalne z zewnętrznej kanwy. Zagnieżdżanie makrobloku
+  WEWNĄTRZ innego makrobloku jako zwykłego bloku wewnętrznego (podłączonego
+  do innych bloków wewnętrznych definicji) DZIAŁA i jest przetestowane
+  (`test_macros.py::test_expand_project_supports_nesting_a_macro_inside_another_macro`).
+
+Testy: `tests/test_macros.py` (27 — model danych, `build_definition()`
+łącznie z poprawnością fan-out wyjścia, `expand_project()` łącznie z
+niezależnością wielu instancji tej samej definicji, cyklem, brakującą
+definicją i zagnieżdżaniem), `tests/test_macro_instance.py` (14 —
+konstrukcja, `configure()`, pełny cykl zapis-na-dysk→wczytanie przez
+`Project.serialize()`/`deserialize()`, `clone()`), `tests/test_compiler.py`
+(+3 — ekspansja przed walidacją, błąd brakującej definicji jak błąd
+Validatora, brak mutacji żywego projektu), `tests/test_macro_creation.py`
+(9 — `create_macro_from_selection()` łącznie z przeciągnięciami
+zewnętrznymi i grafiką `WireItem`, przypadek biblioteki, wejście z menu
+kontekstowego), `tests/test_macro_block_rendering.py` (5 — `shape_style`,
+liczba portów, rozmiar, ikona biblioteki). Pełny zestaw: 1030 passed (980
++ 50 nowych testów tej PR — patrz §8 dla rozbicia). Wszystkie 10
+`examples/*.epwlogic` nadal się kompilują (migracja v1→v8 w locie,
+żaden nie zawiera jeszcze makrobloków).
+
+**Naprawiony po drodze, przy okazji tej PR (nie zgłoszony osobno)**:
+`BaseLogicBlock.clone()` nie kopiował dotąd `execution_priority` ani
+`enabled` — nieszkodliwe dla jedynych dotychczasowych wywołujących
+(wklej/duplikuj, gdzie reset do wartości domyślnej konstruktora był
+niezauważalny), ale `expand_project()` klonuje KAŻDY blok najwyższego
+poziomu żeby odizolować kopię do kompilacji od żywego projektu — utracony
+`enabled` cichcem włączałby z powrotem świadomie wyłączony blok po
+kompilacji, utracony `execution_priority` mógł zmienić kolejność
+rozstrzygania remisów w `GraphBuilder` przy starcie rundy 0. Wykryte przez
+`tests/test_block_disable.py`/`test_internal_bits.py` (dwa istniejące
+testy kompilatora, niezwiązane z makroblokami, zaczęły failować po
+dodaniu wywołania `expand_project()` do `Compiler.compile()`) — naprawione
+w `clone()` samym, nie obejściem w `core/macros.py`, więc korzysta z tego
+też każde INNE dotychczasowe wywołanie (`paste_clipboard()`,
+`duplicate_selected_items()`).
 
 ## Zasada utrzymania tego dokumentu
 

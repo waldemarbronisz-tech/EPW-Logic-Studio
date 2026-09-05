@@ -394,6 +394,23 @@ class LogicScene(QGraphicsScene):
         if not block:
             return # Invalid drop
 
+        window = self.views()[0].window() if self.views() else None
+        project = getattr(window, 'project', None) if window is not None else None
+
+        # feat/macro-blocks: BlockRegistry.create_block() hands back a
+        # MacroInstanceBlock with ZERO pins for a "macro.<def_id>" type_id
+        # — its pin layout is project data (core/macros.py's module
+        # docstring), not something the factory itself could know. Must be
+        # configure()'d BEFORE BlockItem() below, which reads
+        # block.inputs/outputs to build ports and size the shape.
+        from logic_studio.core.macros import macro_def_id, get_definition
+        def_id = macro_def_id(type_id)
+        if def_id is not None:
+            definition = get_definition(project, def_id) if project is not None else None
+            if definition is None:
+                return  # dangling reference — definition deleted mid-session
+            block.configure(definition)
+
         if address and "Address" in block.properties:
             block.properties["Address"] = address
 
@@ -404,15 +421,136 @@ class LogicScene(QGraphicsScene):
         self.addItem(item)
 
         # Add to project state
-        if self.views():
-            window = self.views()[0].window()
-            project = getattr(window, 'project', None)
-            if project:
-                project.push_state()
-                window.set_dirty()
-                project.add_block(block)
+        if project:
+            project.push_state()
+            window.set_dirty()
+            project.add_block(block)
 
         self.block_added.emit(type_id)
+
+    # ---- feat/macro-blocks: creating a macro from a live selection --------
+
+    def create_macro_from_selection(self, name: str) -> bool:
+        """Replaces every currently-selected block with a single new
+        MacroInstanceBlock: core/macros.py's build_definition() computes
+        the flattened internal blocks / exposed pins / crossings from the
+        LIVE selection (without mutating it); this method then commits
+        that — stores the new definition, deletes the extracted blocks
+        (cleanly disconnecting every wire that touched them, crossings
+        included, via Pin.disconnect() — the same wire-removal path
+        delete_selected_items() uses), creates+configures the instance in
+        their place, and reconnects each crossing onto the instance's own
+        new boundary pin. One undo entry, like duplicate_selected_items()/
+        paste_clipboard(). Returns False (nothing changed) if there's no
+        project attached or nothing is selected."""
+        from logic_studio.blocks.pin import Pin
+        from logic_studio.blocks.macro_instance import MacroInstanceBlock
+        from logic_studio.core import macros as macros_module
+        from logic_studio.ui.canvas.block_item import BlockItem
+        from logic_studio.ui.canvas.port_item import PortItem
+        from logic_studio.ui.canvas.wire_item import WireItem
+
+        if not self.views():
+            return False
+        window = self.views()[0].window()
+        project = getattr(window, 'project', None)
+        if project is None:
+            return False
+
+        selected_items = [item for item in self.selectedItems() if isinstance(item, BlockItem)]
+        blocks = [item.logic_block for item in selected_items]
+        if not blocks:
+            return False
+
+        definition, crossings = macros_module.build_definition(name, blocks)
+        origin_x = min(b.x for b in blocks)
+        origin_y = min(b.y for b in blocks)
+
+        project.push_state()
+        window.set_dirty()
+
+        def_id = macros_module.new_def_id()
+        macros_module.set_definition(project, def_id, definition)
+
+        # Disconnect every pin of every extracted block from whatever it's
+        # connected to — via the Pin graph itself (Pin.disconnect(), both
+        # sides), NOT by searching for a WireItem graphic touching it: a
+        # connection is real project data the instant Pin.connect() makes
+        # it, whether or not a WireItem happens to exist for it yet (it
+        # normally does — real wiring is always dragged on the canvas —
+        # but nothing here should depend on that). An INTERNAL connection
+        # (between two extracted blocks, now baked into `definition`
+        # itself) is just as important to clear as a crossing one: either
+        # way the OTHER side must end up with a clean, empty connection
+        # slot, ready for the crossing rewire below — Pin.connect()'s own
+        # single-driver check would otherwise see a stale uuid still
+        # sitting there and refuse the new connection outright.
+        for block in blocks:
+            for pin in list(block.inputs) + list(block.outputs):
+                for other_uuid in list(pin.connections):
+                    other_pin = _find_pin_by_uuid(project.blocks, other_uuid)
+                    if other_pin is not None:
+                        pin.disconnect(other_pin)
+
+        # Now just the WireItem GRAPHICS touching an extracted block — pure
+        # canvas cleanup, no pin-level side effects left to do here.
+        for item in selected_items:
+            for scene_item in list(self.items()):
+                if not isinstance(scene_item, WireItem):
+                    continue
+                touches = (scene_item.source_port and scene_item.source_port.parentItem() == item) or \
+                          (scene_item.dest_port and scene_item.dest_port.parentItem() == item)
+                if touches:
+                    self.removeItem(scene_item)
+
+        for item in selected_items:
+            project.remove_block(item.logic_block)
+            self.removeItem(item)
+
+        instance = MacroInstanceBlock(def_id=def_id)
+        instance.configure(macros_module.get_definition(project, def_id))
+        instance.set_position(origin_x, origin_y)
+        project.add_block(instance)
+        instance_item = BlockItem(instance)
+        self.addItem(instance_item)
+
+        for crossing in crossings:
+            boundary_pins = instance.inputs if crossing["direction"] == "input" else instance.outputs
+            if crossing["instance_pin_index"] >= len(boundary_pins):
+                continue
+            boundary_pin = boundary_pins[crossing["instance_pin_index"]]
+            external_pin = _find_pin_by_uuid(project.blocks, crossing["external_pin_uuid"])
+            if external_pin is None or not boundary_pin.connect(external_pin):
+                continue
+
+            boundary_port = self._port_item_for_pin(boundary_pin.uuid)
+            external_port = self._port_item_for_pin(external_pin.uuid)
+            if boundary_port is None or external_port is None:
+                continue
+            if boundary_pin.direction == Pin.DIR_OUTPUT:
+                self.addItem(WireItem(boundary_port, external_port))
+            else:
+                self.addItem(WireItem(external_port, boundary_port))
+
+        self.clearSelection()
+        instance_item.setSelected(True)
+        self.block_added.emit(instance.type_id)
+        return True
+
+    def _port_item_for_pin(self, pin_uuid: str):
+        """The on-canvas PortItem currently representing pin `pin_uuid`, or
+        None — used by create_macro_from_selection() to find both ends of a
+        crossing's freshly (re)connected pins so it can draw a real
+        WireItem between them, not just update the underlying Pin data."""
+        from logic_studio.ui.canvas.block_item import BlockItem
+        from logic_studio.ui.canvas.port_item import PortItem
+
+        for item in self.items():
+            if isinstance(item, BlockItem):
+                for child in item.childItems():
+                    if isinstance(child, PortItem) and child.pin.uuid == pin_uuid:
+                        return child
+        return None
 
     def drawBackground(self, painter, rect):
         """Draws an industrial engineering dot grid background: fine dots
@@ -769,6 +907,18 @@ ALIGN_OPERATIONS = [
     ("Rozłóż równomiernie w poziomie", "distribute_horizontal", 3),
     ("Rozłóż równomiernie w pionie", "distribute_vertical", 3),
 ]
+
+
+def _find_pin_by_uuid(blocks, pin_uuid: str):
+    """feat/macro-blocks: the Pin object with this uuid among `blocks`' own
+    inputs/outputs, or None — used by create_macro_from_selection() to find
+    a crossing's external pin (already-live project data, not clipboard/
+    definition data) so it can call the real Pin.connect() on it."""
+    for block in blocks:
+        for pin in block.inputs + block.outputs:
+            if pin.uuid == pin_uuid:
+                return pin
+    return None
 
 
 def populate_align_menu(menu, scene: "LogicScene"):

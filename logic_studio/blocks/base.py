@@ -215,6 +215,18 @@ class BaseLogicBlock:
         new_block.color = self.color
         new_block.properties = self.properties.copy()
         new_block.type_id = self.type_id # MUST PRESERVE TYPE ID explicitly
+        # feat/macro-blocks: previously omitted here (this method predates
+        # any caller that needed full fidelity — paste/duplicate never
+        # minded a copy resetting to the defaults new_block already has
+        # from __init__ above). core/macros.py's expand_project() clones
+        # every top-level block to isolate the compiled copy from the live
+        # project, and DOES need these carried over: a disabled block that
+        # silently became enabled again after expansion would compile and
+        # run logic the engineer explicitly turned off, and a lost
+        # execution_priority can reorder round-0 tie-breaks in
+        # GraphBuilder, silently changing scan order.
+        new_block.execution_priority = self.execution_priority
+        new_block.enabled = self.enabled
 
         from logic_studio.blocks.pin import Pin
 

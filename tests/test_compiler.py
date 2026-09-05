@@ -231,3 +231,85 @@ def test_compiler_allows_stateful_cycles():
 
     assert res is not None # Should pass because TonBlock is stateful
     assert len(c.errors) == 0
+
+
+# ---- feat/macro-blocks: Compiler.compile() runs against the macro-
+# expanded block list (core/macros.py::expand_project()) instead of the
+# live project — see that module's docstring for the overall design. ----
+
+def test_compile_expands_a_macro_instance_before_validating():
+    """A macro instance's own type_id ("macro.<def_id>") must never reach
+    Validator/GraphBuilder/Exporter — only the flattened blocks it expands
+    to. If expansion didn't run, Validator would reject the unknown
+    type_id outright."""
+    from logic_studio.blocks.io_blocks import DigitalInputBlock
+    from logic_studio.blocks.macro_instance import MacroInstanceBlock
+    from logic_studio.core.macros import build_definition, set_definition, get_definition
+
+    gate = AndGate()
+    dummy_di1, dummy_di2, dummy_do = DigitalInputBlock(), DigitalInputBlock(), DigitalOutputBlock()
+    dummy_di1.outputs[0].connect(gate.inputs[0])
+    dummy_di2.outputs[0].connect(gate.inputs[1])
+    gate.outputs[0].connect(dummy_do.inputs[0])
+    definition, _ = build_definition("AndMacro", [gate])
+
+    p = Project()
+    set_definition(p, "andmacro", definition)
+
+    di1, di2 = DigitalInputBlock(), DigitalInputBlock()
+    do = DigitalOutputBlock()
+    inst = MacroInstanceBlock(def_id="andmacro")
+    inst.configure(get_definition(p, "andmacro"))
+    di1.outputs[0].connect(inst.inputs[0])
+    di2.outputs[0].connect(inst.inputs[1])
+    inst.outputs[0].connect(do.inputs[0])
+    for b in (di1, di2, do, inst):
+        p.add_block(b)
+
+    c = Compiler(p)
+    res = c.compile()
+
+    assert res is not None, c.errors
+    program = res["program"]
+    type_ids = {b.type_id for b in program.blocks}
+    assert "macro.andmacro" not in type_ids
+    assert "logic.and" in type_ids
+    # execution_order must reference the expanded inner gate, never the
+    # (never-compiled) macro instance's own uuid.
+    assert inst.uuid not in program.execution_order
+
+def test_compile_reports_missing_macro_definition_like_a_validator_error():
+    from logic_studio.blocks.macro_instance import MacroInstanceBlock
+
+    p = Project()
+    p.add_block(MacroInstanceBlock(def_id="doesnotexist"))
+
+    c = Compiler(p)
+    res = c.compile()
+
+    assert res is None
+    assert any("doesnotexist" in e for e in c.errors)
+    assert c.status == "COMPILE_FAILED"
+
+def test_compile_never_mutates_the_live_project_with_a_macro_instance():
+    from logic_studio.blocks.io_blocks import DigitalInputBlock
+    from logic_studio.blocks.macro_instance import MacroInstanceBlock
+    from logic_studio.core.macros import build_definition, set_definition, get_definition
+
+    gate = AndGate()
+    dummy_di1, dummy_di2, dummy_do = DigitalInputBlock(), DigitalInputBlock(), DigitalOutputBlock()
+    dummy_di1.outputs[0].connect(gate.inputs[0])
+    dummy_di2.outputs[0].connect(gate.inputs[1])
+    gate.outputs[0].connect(dummy_do.inputs[0])
+    definition, _ = build_definition("AndMacro", [gate])
+
+    p = Project()
+    set_definition(p, "andmacro", definition)
+    inst = MacroInstanceBlock(def_id="andmacro")
+    inst.configure(get_definition(p, "andmacro"))
+    p.add_block(inst)
+
+    Compiler(p).compile()
+
+    assert p.blocks == [inst]
+    assert p.blocks[0].type_id == "macro.andmacro"
