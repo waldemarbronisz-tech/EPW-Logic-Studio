@@ -20,7 +20,7 @@ class _HistoryEntry:
 # Bump when the on-disk .epwlogic schema changes in a way that requires migration.
 # Every bump needs a matching _migrate_vN_to_v(N+1)(data) function registered in
 # _MIGRATIONS below — see AUDIT_REPORT.md §2 "Wersjonowanie schematów".
-EPWLOGIC_SCHEMA_VERSION = 5
+EPWLOGIC_SCHEMA_VERSION = 7
 
 
 def _migrate_v1_to_v2(data: dict) -> dict:
@@ -165,14 +165,40 @@ def _migrate_v4_to_v5(data: dict) -> dict:
     return data
 
 
+def _migrate_v5_to_v6(data: dict) -> dict:
+    """v5 -> v6 (feat/signal-watch): settings.watched_signals introduced —
+    the project-defined list of pinned signals for the Watch panel
+    (core/watch.py). Defaults to an empty list — no v5 file could have had
+    any entries, the feature didn't exist yet — same "an empty migration
+    is not a skipped one" reasoning as v3->v4's io_labels."""
+    settings = data.setdefault("settings", {})
+    settings.setdefault("watched_signals", [])
+    data["schema_version"] = 6
+    return data
+
+
+def _migrate_v6_to_v7(data: dict) -> dict:
+    """v6 -> v7 (feat/signal-watch, § "let the program save these runs"):
+    settings.watch_history introduced — recorded (t_ms, value) samples per
+    watched signal (core/watch.py), persisted so a simulation run survives
+    closing and reopening the project. Defaults to an empty dict — no v6
+    file could have had any entries, the feature didn't exist yet."""
+    settings = data.setdefault("settings", {})
+    settings.setdefault("watch_history", {})
+    data["schema_version"] = 7
+    return data
+
+
 # Keyed by the version a migration upgrades FROM. Project.deserialize() walks
 # this sequentially — apply the migration for the file's current version,
-# re-check, repeat — so a v1 file goes through v1->v2->v3->v4->v5 in one load.
+# re-check, repeat — so a v1 file goes through v1->v2->...->v6->v7 in one load.
 _MIGRATIONS = {
     1: _migrate_v1_to_v2,
     2: _migrate_v2_to_v3,
     3: _migrate_v3_to_v4,
     4: _migrate_v4_to_v5,
+    5: _migrate_v5_to_v6,
+    6: _migrate_v6_to_v7,
 }
 
 
@@ -214,6 +240,21 @@ class Project:
             # get_ada_devices(), never this list directly.
             "ela_devices": ["ELA01"],
             "ada_devices": ["ADA01"],
+            # feat/signal-watch: signals an engineer pinned to the Watch
+            # panel for continuous monitoring during simulation, independent
+            # of canvas selection. Always read/written through
+            # core/watch.py's add_watch()/remove_watch()/get_watches(),
+            # never this list directly. Each entry: {"kind": one of
+            # core/crossref.py's KIND_* constants, "signal_id": str}.
+            "watched_signals": [],
+            # feat/signal-watch ("let the program save these runs"):
+            # recorded (t_ms, value) samples per watched signal, so a
+            # simulation run survives closing and reopening the project.
+            # "<kind>|<signal_id>" -> [[t_ms, value], ...], oldest first.
+            # Always read/written through core/watch.py's
+            # append_history_sample()/get_history()/clear_history()/
+            # clear_all_history(), never this dict directly.
+            "watch_history": {},
         }
 
         self.undo_stack = []

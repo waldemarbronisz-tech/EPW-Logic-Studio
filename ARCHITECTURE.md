@@ -31,7 +31,7 @@ migration chain. Never conflate them, and never bump one to fix a problem in
 the other.
 
 ### 3.1 `.epwlogic` (engineering project) — `EPWLOGIC_SCHEMA_VERSION`
-Currently **5** (`core/project.py`). Bumping it requires adding a
+Currently **7** (`core/project.py`). Bumping it requires adding a
 `_migrate_vN_to_v(N+1)(data)` function and registering it in `_MIGRATIONS`,
 keyed by the version it upgrades *from*. `Project.deserialize()` applies the
 chain sequentially —
@@ -41,8 +41,8 @@ while schema_version in _MIGRATIONS:
     schema_version = data["schema_version"]
 ```
 — so a file several versions behind today's still loads correctly by walking
-every intermediate step; a future v5 → v6 migration slots in exactly the way
-v1 → v2 through v4 → v5 did, with no change to `deserialize()` itself.
+every intermediate step; a future v6 → v7 migration slots in exactly the way
+v1 → v2 through v6 → v7 did, with no change to `deserialize()` itself.
 
 `_migrate_v1_to_v2` defaults a missing `settings.analog_points` to `[]`, and
 absorbs what used to be a separate `_migrate_legacy_force_state` helper: it
@@ -83,6 +83,15 @@ nothing to keep.
 exact single-device list every pre-v5 project was ALREADY permanently
 fixed to, so this migration is lossless by construction: no v4 file could
 ever have addressed a second device in the first place.
+
+`_migrate_v5_to_v6` (feat/signal-watch, §23) defaults missing
+`settings.watched_signals` to `[]` — otherwise an empty migration, since
+no v5 project could have had any entries (the feature didn't exist yet),
+same reasoning as v3→v4's `io_labels`.
+
+`_migrate_v6_to_v7` (feat/signal-watch, § "let the program save these
+runs", §23.2) defaults missing `settings.watch_history` to `{}` — same
+empty-migration reasoning.
 
 `short_id` (§13) is deliberately NOT gated behind a schema-version bump —
 `Project.add_block()`, the single choke point every block passes through
@@ -1221,3 +1230,253 @@ zapis→wczytanie→kompilacja→eksport bez ANI JEDNEGO wywołania silnika
 zwraca poprawny typ, sygnał nierozpoznany nie psuje eksportu (fallback na
 typ z żywego pinu). Wszystkie 10 `examples/*.epwlogic` nadal się
 kompilują.
+
+## 23. Panel Obserwowanych sygnałów (feat/signal-watch)
+
+Pierwsza nowa FUNKCJA (nie naprawa audytu) po serii domknięć §19-§22 —
+wybrana z listy propozycji jako pierwsza do zrobienia. Pozwala inżynierowi
+przypiąć dowolny sygnał (fizyczny DI/DO, analogowy AI/AO, wewnętrzny bit/
+rejestr, systemowy) do stałej listy monitorowanej na żywo podczas
+symulacji, niezależnie od tego, co akurat jest zaznaczone na kanwie czy w
+bibliotece — realna potrzeba przy uruchamianiu instalacji, gdy trzeba
+obserwować kilka niepowiązanych ze sobą na kanwie sygnałów naraz.
+
+### 23.1 Model danych (`core/watch.py`)
+
+`project.settings["watched_signals"]` — lista `{"kind", "signal_id"}`,
+dokładnie ten sam wzorzec co `analog_points`/`internal_bits`/`io_labels`:
+jedyne sankcjonowane API to `get_watches()`/`add_watch()`/`remove_watch()`/
+`describe_watch()`/`is_boolean_kind()`/`read_value()` w `core/watch.py`
+(zero zależności od Qt — panel w `ui/panels/watch.py` to cienka warstwa
+nad tym modułem, dokładnie ten sam podział co `core/crossref.py` vs.
+`ui/panels/signals.py`). `EPWLOGIC_SCHEMA_VERSION` 5→6, migracja
+`_migrate_v5_to_v6` (§3.1).
+
+Drugi rejestr w tym samym module, dopisany przy okazji przewijania
+wstecz (§23.2): `project.settings["watch_history"]` — nagrane próbki
+`(t_ms, wartość)` per obserwowany sygnał, klucz `"<kind>|<signal_id>"`
+(zwykły string — klucz obiektu JSON nie może być krotką). API:
+`append_history_sample()`/`get_history()`/`clear_history()`/
+`clear_all_history()`, `MAX_HISTORY_MS` (4 godziny — limit przycinania,
+patrz §23.2). `EPWLOGIC_SCHEMA_VERSION` 6→7, migracja `_migrate_v6_to_v7`.
+
+`kind` używa TYCH SAMYCH stałych `KIND_*` co `core/crossref.py` — jedna
+klasyfikacja czterech przestrzeni nazw sygnałów (§10/§14) w całej
+aplikacji, nie druga, niezależna. `signal_id` jest ZAWSZE tym samym
+identyfikatorem, którego inżynier użyłby gdzie indziej w aplikacji: adres
+dla `KIND_PHYSICAL_DI/_DO/KIND_ANALOG_IN/_OUT`, GOŁA nazwa sygnału
+wewnętrznego (NIE wyprowadzony `M./MR./MW./MWR.<name>` id) dla
+`KIND_INTERNAL_BIT/_REG` — dokładnie to, co zwraca `SignalPickerDialog` i
+co blok trzyma we własnej właściwości `"Bit"` — oraz id z katalogu dla
+`KIND_SYSTEM`. Goła nazwa (nie wyprowadzony id) dla sygnałów wewnętrznych
+oznacza, że obserwacja przetrwa zmianę flagi `retentive`/typu w rejestrze
+tego wpisu; tylko zmiana nazwy albo usunięcie unieważnia obserwację —
+dokładnie tak samo, jak wpłynęłoby to na właściwość `"Bit"` bloku.
+
+`read_value(project, io_provider, kind, signal_id, now_ms)` to jedyne
+miejsce mapujące wpis obserwacji z powrotem na realny odczyt przez
+właściwą metodę `IOProvider` — panel nigdy sam nie rozgałęzia się po
+`kind`. Dla sygnałów wewnętrznych wyprowadza pełny id
+(`internal_bit_id()`) z gołej nazwy przy KAŻDYM odczycie, dokładnie tak,
+jak `virtual_io.py`'s bloki robią to raz, przy kompilacji
+(`set_signal_id()`, §10) — tu bez etapu kompilacji, więc wyprowadzenie
+dzieje się na żywo. Sygnał usunięty z rejestru po przypięciu do
+obserwacji zwraca `None` (panel pokazuje myślnik, nigdy nie wywala się).
+
+**`classify_signal_id(project, coarse_kind, signal_id)`** (nowa funkcja
+publiczna w `core/crossref.py`, obok istniejących `KIND_*`) — mapuje
+grubszą klasyfikację `SignalPickerDialog`'a ("physical"/"internal"/
+"system", jego `KIND_ROLE`) na właściwą, drobniejszą stałą `KIND_*` tego
+modułu. Potrzebne, bo obserwowany sygnał nie musi być podłączony do
+żadnego bloku na kanwie (w przeciwieństwie do `build_crossref()`, który
+skanuje tylko bloki) — `SignalPickerDialog.selected_kind()` (nowa metoda,
+analogiczna do istniejącego `selected_signal_id()`) zwraca tylko grubszą
+sekcję, z której wybór pochodzi.
+
+### 23.2 Panel (`ui/panels/watch.py`)
+
+**Umiejscowienie — poprawione po pierwszej wersji**: pierwotnie nowa,
+piąta zakładka w lewym pasku bocznym obok Library/Device Explorer/Sygnały
+— zweryfikowane ręcznie w działającej aplikacji i uznane za nieczytelne:
+pasek boczny to ok. 300px, stanowczo za wąsko dla tabeli z kolumną
+wartości I wykresem trendu naraz. Przeniesione do `output_panel`
+(`CompilerOutputPanel.tabs`, `MainWindow._setup_layout()`) — jako kolejna
+zakładka obok Compiler/Warnings/Errors/Messages/Runtime, w dolnym pasku
+rozciągniętym na całą szerokość kanwy (środkowa kolumna
+`horizontal_splitter`, ok. 70% szerokości okna), nie tylko 15%. Sam
+`WatchPanel` (`ui/panels/watch.py`) nie wie i nie musi wiedzieć, W KTÓRYM
+`QTabWidget` się znajduje — `MainWindow` woła
+`self.output_panel.tabs.addTab(self.watch_panel, "Obserwowane")` zamiast
+`left_tabs.addTab(...)`, żadna zmiana w samym panelu nie była potrzebna
+poza rozmiarami (niżej).
+
+Tabela: Typ (skrócona etykieta — `DI`/`DO`/`AI`/`AO`/`M`/`MW`/`SYS`, ten
+sam duch co literowe prefiksy `short_id`, §13, zastosowany tu do
+przestrzeni sygnałów zamiast kategorii bloków), Sygnał, Opis, Wartość,
+Trend — szerokości kolumn dobrane pod szerokość kanwy, nie sidebaru:
+Typ/Wartość wąskie-stałe, Sygnał stały sensowny domyślny (wciąż
+przeciągalny przez użytkownika), Opis rozciąga się na resztę miejsca,
+Trend stały, dopasowany do rozmiaru `_Sparkline` (rozszerzonej przy tej
+samej okazji ze 110×22 do 240×32 — było czytelne przy szerokości
+sidebaru, teraz jest miejsce na więcej).
+
+**"Dodaj..."** otwiera `SignalPickerDialog` — TEN SAM wybór sygnału, z
+którego korzysta każda właściwość `"Bit"`/`"Sygnał"`/`"Address"` — więc
+dodawanie obserwacji nigdy nie jest drugim, niezależnie utrzymywanym
+sposobem przeglądania sygnałów. Duplikat (ta sama para kind+signal_id) po
+cichu nic nie robi (`is_watched()` sprawdzone przed `push_state()`, żeby
+nie zaśmiecać historii cofania pustą zmianą). **"Usuń"** kasuje całe
+zaznaczenie w JEDNYM wpisie historii cofania, niezależnie od liczby
+wierszy — ten sam wzorzec co `scene.py`'s `delete_selected_items()`.
+Obie akcje wołają `project.push_state()` PRZED mutacją (nie po) —
+dokładnie ta dyscyplina, którą feat/clipboard-and-align §3 (ARCHITECTURE.md
+§15.4 dziennika) ustaliło jako jedyny poprawny porządek.
+
+**Odświeżanie wartości**: `refresh_values(io_provider, now_ms)`, wołane
+raz na skan z `MainWindow._run_scan()` — dokładnie ten sam punkt zaczepienia
+co synchronizacja DI/DO/AI/AO `SimulationPanel`'a. `now_ms` liczone
+identycznie jak w `system.signal`'s `evaluate()` (z `engine.time`, nigdy z
+zegara systemowego) — sygnały generatorów impulsów/migania obserwowane
+tu tykają w tym samym rytmie symulacji co reszta aplikacji.
+
+**Trend (`_Sparkline`)**: mały, proceduralnie rysowany (`QPainter`) wykres
+paskowy — zero zależności od biblioteki wykresów, ta sama filozofia co
+`ui/canvas/shapes.py`/`ui/icons.py` (zero plików graficznych, zero
+zewnętrznych bibliotek). Sygnał boolowski rysuje przebieg schodkowy
+(0/1); sygnał analogowy skaluje się domyślnie do minimum/maksimum
+FAKTYCZNIE ZAOBSERWOWANEGO w buforze próbek (nie do zadeklarowanego
+zakresu punktu analogowego) — obserwacja może wskazywać na dowolny
+sygnał, większość z nich nie ma żadnego zadeklarowanego zakresu w ogóle
+(np. rejestr wewnętrzny).
+
+**Wszystkie kolumny tabeli są niezależnie regulowalne** (§ uwaga
+użytkownika po pierwszej wersji): pierwsza iteracja wymuszała `Stretch`
+na kolumnie Opis (rozciągała się na całą resztę miejsca, często pustą,
+gdy adres nie ma etykiety) i sztywną szerokość na Trend, którą nie dało
+się powiększyć. Wszystkie pięć kolumn ma teraz
+`QHeaderView.Interactive` — startowe szerokości są tylko punktem wyjścia.
+Kluczowe dla samego Trendu: `_Sparkline.paintEvent()` czyta
+`self.width()`/`self.height()` NA ŻYWO, nie przechowuje stałego rozmiaru
+— przeciągnięcie krawędzi kolumny faktycznie powiększa sam wykres, a nie
+tylko puste tło wokół widżetu o stałym rozmiarze (ta druga opcja byłaby
+uczciwsza "widocznie regulowalna, ale bez efektu" pułapką).
+
+**Podgląd trendu w powiększeniu (`_TrendDialog`)** — dwuklik w komórkę
+Trend otwiera niemodalne (`setModal(False)`, `show()` nie `exec()`) okno
+popup. Wewnętrzny wykres to NIE druga instancja `_Sparkline`, tylko osobna
+klasa **`_TrendChart`** — świadomie osobna, bo popup istnieje właśnie po
+to, żeby wystawić kontrolki (zakres czasu, etykiety osi, przeskalowanie),
+na które mała tabela nie ma miejsca ani potrzeby:
+
+- **Prawdziwa oś czasu**: próbki to pary `(t_ms, wartość)` — `t_ms` z
+  własnego zegara silnika (`TimeProvider`), nigdy zegara systemowego,
+  dokładnie jak wszędzie indziej w tym repo.
+- **Regulowalny zakres czasu** (§ uwaga użytkownika: "chcę edytować skalę,
+  czasy") — `QComboBox` "Zakres czasu" (10 s … 4 h, domyślnie 1 min),
+  przełącza `_TrendChart.window_ms`; wykres pokazuje tylko próbki z tego
+  okna, z podpisami czasu na obu krawędziach osi X.
+- **Etykiety osi**: wartości min/max (albo "1"/"0" dla boolowskich) na osi
+  Y, opisane wprost na wykresie — poprzednia wersja nie miała żadnych
+  liczb, tylko gołą linię.
+- **Ręczne przeskalowanie osi Y** dla sygnałów analogowych (checkbox
+  "Skala automatyczna" + dwa `QDoubleSpinBox` min/max, nieaktywne dopóki
+  automatyczna skala jest włączona).
+
+**Przewijanie wstecz i "Na żywo"** (§ uwaga użytkownika: "i jeszcze
+przewijanie wstecz") — `QScrollBar` poziomy pod wykresem, którego WARTOŚĆ
+JEST BEZPOŚREDNIO znacznikiem czasu (`anchor_ms`) prawej krawędzi okna
+(zakres scrollbara = `[najstarsza zarejestrowana próbka, najnowsza]`, bez
+osobnej konwersji jednostek):
+- **Na żywo (domyślnie)**: `_TrendChart.anchor_ms is None` — prawa
+  krawędź okna zawsze podąża za najnowszą próbką; `_TrendDialog.add_sample()`
+  po każdej nowej próbce dopina scrollbar do jego własnego maksimum.
+- **Przewinięcie**: dowolna interakcja użytkownika ze scrollbarem
+  (przeciągnięcie, klik w tor, strzałki) ustawia `anchor_ms` na
+  konkretną, STAŁĄ chwilę w przeszłości — widok zostaje tam nawet gdy w
+  tle wciąż napływają nowe próbki (`_TrendDialog._on_scrollbar_value_changed()`
+  wykrywa to jako "każda zmiana wartości, która nie pochodzi z
+  zablokowanego sygnałowo, programowego `setValue()` gdzie indziej w tej
+  klasie, jest z definicji inicjowana przez użytkownika" — jeden spójny
+  mechanizm zamiast osobnej obsługi przeciągania/kliku w tor/klawiatury).
+  Prawy podpis osi X pokazuje wtedy "-X" (jak daleko w tyle jest ta chwila
+  względem PRAWDZIWIE najnowszej próbki), nie "teraz".
+- **"⏵ Na żywo"** — przycisk-przełącznik obok scrollbara wraca do śledzenia
+  najnowszej próbki. `_on_clear_clicked()` ("Wyczyść bufor") też resetuje
+  do trybu Na żywo — wyczyszczony bufor nie ma sensownej "zapamiętanej
+  chwili", do której miałby wracać.
+
+**Trwały zapis nagrań** (§ uwaga użytkownika: "niech te przebiegi program
+zapisuje") — historia NIE żyje już w pamięci panelu (poprzednia wersja:
+`WatchPanel._history`, ginęła przy zamknięciu aplikacji), tylko w
+`project.settings["watch_history"]` (`core/watch.py::append_history_sample()`/
+`get_history()`/`clear_history()`/`clear_all_history()`) — jedzie więc
+automatycznie przy zwykłym zapisie/wczytaniu projektu
+(`Project.serialize()`/`save_to_file()`/`load_from_file()`), bez osobnego
+pliku czy dodatkowego wyzwalacza zapisu. `EPWLOGIC_SCHEMA_VERSION` 6→7,
+migracja `_migrate_v6_to_v7` (pusta domyślnie, jak `watched_signals` w
+v5→v6). Ograniczone do `core/watch.py::MAX_HISTORY_MS` (4 godziny) —
+starsze próbki są przycinane przy każdym zapisie, żeby długa sesja
+symulacji nie rozdymała pliku `.epwlogic` bez końca; ten sam limit
+definiuje najdłuższą pozycję na liście "Zakres czasu" popupu (4 h), więc
+wybór "pokaż wszystko, co jeszcze jest" i "ile w ogóle jest przechowywane"
+to jedna i ta sama liczba. Zegar silnika cofnięty (restart resetuje
+`TimeProvider` do zera) wywołuje `clear_all_history()` zamiast próbować
+pogodzić dwa nieporównywalne zegary — inaczej każda historyczna próbka
+sprzed restartu "z przyszłości" psułaby okno czasowe każdego otwartego
+trendu.
+
+`WatchPanel._trend_dialogs` (słownik `(kind, signal_id) -> dialog`)
+pilnuje, żeby dwuklik na już otwarty trend podniósł istniejące okno
+zamiast otwierać duplikat, a `refresh_values()`/`_on_remove_clicked()`
+odpowiednio dokarmiają/zamykają otwarte popupy i ich wpisy w
+`watch_history` — dokładnie tak, jak `refresh_values()` już dokarmia
+sparkline w samej tabeli, ten sam wywoływany co skan mechanizm.
+`_TrendDialog` ma `Qt.WA_DeleteOnClose` (transient popup musi być
+faktycznie usuwany przy zamknięciu, nie tylko ukrywany), a każde miejsce
+odwołujące się do otwartego popupu jest opakowane w `except RuntimeError`
+— dokładnie ten sam defensywny wzorzec co
+`ui/canvas/navigation.py::pulse_highlight()` dla obiektu Qt zniszczonego
+spod ręki.
+
+### 23.3 Świadomie NIE zrobione w tym PR
+
+- **Eksport runtime**: `watched_signals` NIE jedzie w `EPW_RUNTIME_LOGIC`
+  — to czysto inżynierska/debugowa wygoda Logic Studio, EPW-OS nigdy jej
+  nie potrzebuje do wykonania logiki (ten sam status co
+  `short_id_counters` — wewnętrzna księgowość, nie kontrakt eksportu).
+- **Skrót z menu kontekstowego bloku** ("Dodaj do obserwowanych" na bloku
+  z przypisanym adresem/bitem/sygnałem, analogicznie do "Pokaż użycia
+  sygnału"/"Inne bloki tego samego sygnału") — realna wygoda, ale
+  odłożona żeby nie rozdmuchiwać zakresu pierwszej wersji; `SignalPickerDialog`
+  pozostaje jedyną drogą dodawania na razie.
+- **Eksport CSV listy obserwacji** (na wzór `SignalsPanel.export_csv()`,
+  §14) — nie zgłoszony jako potrzeba na tym etapie, łatwy do dodania
+  później przy tej samej strukturze danych.
+
+Testy: `tests/test_watch.py` (39) — `core/watch.py` w pełnej izolacji od
+Qt: lista obserwacji (dodawanie/usuwanie/idempotencja, kopia nie żywa
+referencja, przetrwanie serializacji, migracja v5→v6),
+`describe_watch()`/`is_boolean_kind()`/`read_value()` dla wszystkich
+czterech `kind`, oraz nagrana historia — dodawanie/przycinanie do
+`MAX_HISTORY_MS`, izolacja per (kind, signal_id), `clear_history()`/
+`clear_all_history()`, przetrwanie pełnego zapisu/wczytania z dysku
+(`save_to_file()`/`load_from_file()`, nie tylko `serialize()`/
+`deserialize()` w pamięci — JSON nie ma krotek, więc to jedyny test,
+który faktycznie weryfikuje trwały zapis), migracja v6→v7.
+`tests/test_watch_panel.py` (38) — pusty stan, budowa wierszy, sparkline
+boolowski vs. analogowy, `refresh_values()`, dodanie przez zamockowany
+`SignalPickerDialog.exec()`, usunięcie zaznaczenia, umiejscowienie w
+`output_panel`, regulowalne kolumny (w tym że przeciągnięcie kolumny
+Trend faktycznie zmienia rozmiar sparkline'a), pełen cykl życia
+`_TrendDialog` (otwarcie/ponowne-użycie/dokarmianie/zamknięcie),
+regulowalny zakres czasu i etykiety osi, kontrolki ręcznej skali
+Y — oraz przewijanie wstecz: start w trybie Na żywo, nowe próbki nie
+ruszają zapauzowanego widoku, przeciągnięcie scrollbara pauzuje bez
+względu na to, GDZIE trafi (nawet z powrotem na maksimum), przycisk "Na
+żywo" wraca do śledzenia najnowszej próbki, "Wyczyść bufor" resetuje
+scrollbar i wymusza Na żywo — i pełny przebieg zapis-na-dysk→wczytanie
+potwierdzający, że świeżo otwarty popup pokazuje dokładnie to samo
+nagranie po restarcie aplikacji. Rozszerzone `tests/test_crossref.py` (6)
+— `classify_signal_id()`. Rozszerzone `tests/test_internal_bits.py` (2)
+— `SignalPickerDialog.selected_kind()`. Wszystkie 10 `examples/*.epwlogic`
+nadal się kompilują (migracja v1→v7 w locie).

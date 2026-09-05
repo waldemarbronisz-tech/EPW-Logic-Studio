@@ -11,6 +11,7 @@ from logic_studio.ui.panels.compiler_output import CompilerOutputPanel
 from logic_studio.ui.panels.simulation import SimulationPanel
 from logic_studio.ui.panels.element_preview import ElementPreviewPanel
 from logic_studio.ui.panels.signals import SignalsPanel
+from logic_studio.ui.panels.watch import WatchPanel
 from logic_studio.ui.icons import action_icon
 
 
@@ -299,6 +300,16 @@ class MainWindow(QMainWindow):
         left_tabs.addTab(self.signals_panel, "Sygnały")
         self.left_tabs = left_tabs
 
+        # feat/signal-watch: pinned signals for continuous monitoring during
+        # simulation, independent of canvas/library selection. Lives in the
+        # bottom output_panel (Compiler/Warnings/Errors/Messages/Runtime),
+        # NOT the 300px-wide left sidebar — a table with a live-value column
+        # and a trend sparkline needs the canvas-width room the bottom strip
+        # already has, not a sixth of the window (see AUDIT_REPORT.md §30
+        # for the "put it in the sidebar first" attempt this replaced).
+        self.watch_panel = WatchPanel(settings=self.settings)
+        self.watch_panel.changed.connect(self.set_dirty)
+
         # 2. Center Panel (Canvas and Bottom Output)
         center_splitter = QSplitter(Qt.Vertical)
 
@@ -317,6 +328,7 @@ class MainWindow(QMainWindow):
         self.view.zoom_changed.connect(self._on_zoom_changed)
 
         self.output_panel = CompilerOutputPanel()
+        self.output_panel.tabs.addTab(self.watch_panel, "Obserwowane")
 
         center_splitter.addWidget(self.view)
         center_splitter.addWidget(self.output_panel)
@@ -424,6 +436,10 @@ class MainWindow(QMainWindow):
         # feat/signal-crossref §2.4: covers load/undo/redo/Project Settings
         # — set_dirty() above covers everything else.
         self.signals_panel.set_project(self.project)
+        # feat/signal-watch: same coverage as signals_panel above — load/
+        # undo/redo swap the whole project, this rebuilds the watch rows
+        # from its (possibly different) watched_signals list.
+        self.watch_panel.set_project(self.project)
         self._update_disabled_blocks_status()
 
     def _update_disabled_blocks_status(self):
@@ -795,6 +811,12 @@ class MainWindow(QMainWindow):
         self.engine.step()
         self._pull_outputs_from_io()
         self.scene.refresh_live_states()
+        # feat/signal-watch: one fresh sample per watched signal per scan —
+        # same cadence as the DI/DO/AI/AO sync above, via the same
+        # IOProvider. now_ms mirrors system.signal's own evaluate()
+        # (blocks/system_signals.py), never a wall clock (determinism).
+        now_ms = self.engine.time.current_time_ms() if self.engine.time else 0
+        self.watch_panel.refresh_values(self.io_provider, now_ms)
         self.lbl_scan.setText(
             f"Scan: {self.engine.last_scan_duration_ms:.2f} ms "
             f"(max {self.engine.max_scan_duration_ms:.2f})"
