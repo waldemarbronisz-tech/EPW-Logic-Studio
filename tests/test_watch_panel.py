@@ -11,7 +11,8 @@ from logic_studio.core.crossref import (
 )
 from logic_studio.engine.io_provider import SimulationIOProvider
 from logic_studio.ui.panels.watch import (
-    WatchPanel, _TrendDialog, _COL_KIND, _COL_ID, _COL_DESC, _COL_VALUE, _COL_TREND,
+    WatchPanel, _TrendDialog, _TrendChart, _TIME_WINDOWS_MS, _DEFAULT_WINDOW_INDEX,
+    _COL_KIND, _COL_ID, _COL_DESC, _COL_VALUE, _COL_TREND,
 )
 from logic_studio.blocks import register_builtin_blocks
 
@@ -271,7 +272,7 @@ def test_double_click_trend_cell_opens_a_popup(qsettings):
     assert key in panel._trend_dialogs
     dialog = panel._trend_dialogs[key]
     assert isinstance(dialog, _TrendDialog)
-    assert dialog.chart._samples == [True]  # seeded from the inline sparkline's history
+    assert [v for _, v in dialog.chart._samples] == [True]  # seeded from WatchPanel's timestamped history
 
 def test_double_click_non_trend_column_does_nothing(qsettings):
     _app()
@@ -308,7 +309,7 @@ def test_refresh_values_feeds_an_open_trend_dialog(qsettings):
     io.set_digital_input("ELA01.DI01", True)
     panel.refresh_values(io)
 
-    assert dialog.chart._samples == [True]
+    assert [v for _, v in dialog.chart._samples] == [True]
 
 def test_removing_a_watched_row_closes_its_open_trend_dialog(qsettings):
     _app()
@@ -378,7 +379,112 @@ def test_trend_dialog_clear_button_empties_the_chart_buffer(qsettings):
     panel.refresh_values(io)
     panel._on_cell_double_clicked(0, _COL_TREND)
     dialog = panel._trend_dialogs[(KIND_PHYSICAL_DI, "ELA01.DI01")]
-    assert dialog.chart._samples == [True]
+    assert [v for _, v in dialog.chart._samples] == [True]
 
     dialog.chart.clear_samples()
     assert dialog.chart._samples == []
+
+
+# ---- time window (§ user feedback: "edit scale, time(s), etc.") -----------
+# _TrendChart shows a SELECTABLE TIME WINDOW (real engine-time timestamps),
+# not just "last N samples" — the inline table _Sparkline's simpler model.
+
+def test_trend_dialog_has_a_time_window_selector_defaulting_to_one_minute(qsettings):
+    _app()
+    p = Project()
+    watch.add_watch(p, KIND_PHYSICAL_DI, "ELA01.DI01")
+    panel = WatchPanel(settings=qsettings)
+    panel.set_project(p)
+    panel._on_cell_double_clicked(0, _COL_TREND)
+    dialog = panel._trend_dialogs[(KIND_PHYSICAL_DI, "ELA01.DI01")]
+
+    assert dialog.window_combo.count() == len(_TIME_WINDOWS_MS)
+    assert dialog.window_combo.currentIndex() == _DEFAULT_WINDOW_INDEX
+    assert dialog.chart.window_ms == _TIME_WINDOWS_MS[_DEFAULT_WINDOW_INDEX][1]
+
+def test_changing_the_time_window_updates_the_chart(qsettings):
+    _app()
+    p = Project()
+    watch.add_watch(p, KIND_PHYSICAL_DI, "ELA01.DI01")
+    panel = WatchPanel(settings=qsettings)
+    panel.set_project(p)
+    panel._on_cell_double_clicked(0, _COL_TREND)
+    dialog = panel._trend_dialogs[(KIND_PHYSICAL_DI, "ELA01.DI01")]
+
+    dialog.window_combo.setCurrentIndex(0)  # "10 s"
+    assert dialog.chart.window_ms == _TIME_WINDOWS_MS[0][1]
+
+def test_trend_chart_visible_samples_filters_by_window():
+    _app()
+    chart = _TrendChart(is_boolean=True)
+    chart.set_window_ms(30_000)
+    chart.set_samples([(0, False), (60_000, True), (75_000, False)])
+
+    visible = chart._visible_samples(now_ms=90_000)  # window: [60_000, 90_000]
+    assert visible == [(60_000, True), (75_000, False)]
+
+def test_seeded_dialog_receives_watchpanels_timestamped_history(qsettings):
+    _app()
+    p = Project()
+    watch.add_watch(p, KIND_PHYSICAL_DI, "ELA01.DI01")
+    panel = WatchPanel(settings=qsettings)
+    panel.set_project(p)
+
+    io = SimulationIOProvider()
+    io.set_digital_input("ELA01.DI01", False)
+    panel.refresh_values(io, now_ms=1000)
+    io.set_digital_input("ELA01.DI01", True)
+    panel.refresh_values(io, now_ms=2000)
+
+    panel._on_cell_double_clicked(0, _COL_TREND)
+    dialog = panel._trend_dialogs[(KIND_PHYSICAL_DI, "ELA01.DI01")]
+    assert dialog.chart._samples == [(1000, False), (2000, True)]
+
+
+# ---- history lifecycle -------------------------------------------------------
+
+def test_engine_clock_rollback_resets_history(qsettings):
+    """A stopped-then-restarted engine's TimeProvider resets to 0 — every
+    pre-restart timestamp would otherwise read as "in the future" relative
+    to the new clock. Detected by the clock going backwards; history
+    starts over rather than trying to reconcile two incomparable clocks."""
+    _app()
+    p = Project()
+    watch.add_watch(p, KIND_PHYSICAL_DI, "ELA01.DI01")
+    panel = WatchPanel(settings=qsettings)
+    panel.set_project(p)
+
+    io = SimulationIOProvider()
+    panel.refresh_values(io, now_ms=5000)
+    panel.refresh_values(io, now_ms=6000)
+    key = (KIND_PHYSICAL_DI, "ELA01.DI01")
+    assert len(panel._history[key]) == 2
+
+    panel.refresh_values(io, now_ms=0)  # engine restarted
+    assert panel._history[key] == [(0, False)]
+
+def test_removing_a_watched_row_also_clears_its_history(qsettings):
+    _app()
+    p = Project()
+    watch.add_watch(p, KIND_PHYSICAL_DI, "ELA01.DI01")
+    panel = WatchPanel(settings=qsettings)
+    panel.set_project(p)
+    io = SimulationIOProvider()
+    panel.refresh_values(io)
+
+    panel.table.selectRow(0)
+    panel._on_remove_clicked()
+    assert panel._history == {}
+
+def test_set_project_clears_history(qsettings):
+    _app()
+    p = Project()
+    watch.add_watch(p, KIND_PHYSICAL_DI, "ELA01.DI01")
+    panel = WatchPanel(settings=qsettings)
+    panel.set_project(p)
+    io = SimulationIOProvider()
+    panel.refresh_values(io)
+    assert panel._history
+
+    panel.set_project(p)  # e.g. an undo/redo swap
+    assert panel._history == {}

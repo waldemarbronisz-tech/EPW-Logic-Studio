@@ -15,7 +15,7 @@ closely at table-row height).
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTableWidget,
     QTableWidgetItem, QAbstractItemView, QHeaderView, QDialog, QCheckBox,
-    QDoubleSpinBox,
+    QDoubleSpinBox, QComboBox,
 )
 from PySide6.QtGui import QPainter, QPen, QKeySequence
 from PySide6.QtCore import Qt, Signal, QSettings, QPointF, QSize
@@ -44,6 +44,34 @@ _KIND_LABELS = {
 }
 
 _COL_KIND, _COL_ID, _COL_DESC, _COL_VALUE, _COL_TREND = range(5)
+
+# feat/signal-watch (§ user feedback: "edit scale, time(s), etc."):
+# selectable time windows for _TrendDialog's chart — (label, milliseconds).
+# Chosen against engine time (TimeProvider), never a wall clock, exactly
+# like every other time-derived value in this codebase.
+_TIME_WINDOWS_MS = [
+    ("10 s", 10_000),
+    ("30 s", 30_000),
+    ("1 min", 60_000),
+    ("2 min", 120_000),
+    ("5 min", 300_000),
+    ("15 min", 900_000),
+    ("30 min", 1_800_000),
+]
+_DEFAULT_WINDOW_INDEX = 2  # "1 min"
+
+# History retention cap, shared by WatchPanel's per-signal buffers and
+# _TrendChart's own — the longest selectable window, so switching to "30
+# min" always has data to show if the popup (or the panel) has been open
+# that long, and older samples are dropped rather than kept forever.
+_MAX_HISTORY_MS = _TIME_WINDOWS_MS[-1][1]
+
+
+def _format_ago(window_ms: int) -> str:
+    seconds = window_ms / 1000.0
+    if seconds < 60:
+        return f"-{seconds:.0f} s"
+    return f"-{seconds / 60.0:.1f} min"
 
 
 class _Sparkline(QWidget):
@@ -141,6 +169,128 @@ class _Sparkline(QWidget):
             painter.drawLine(a, b)
 
 
+class _TrendChart(QWidget):
+    """Time-axis-aware trend chart for _TrendDialog's popup — samples are
+    `(t_ms, value)` pairs (t_ms from the engine's own TimeProvider, never a
+    wall clock) and the chart shows a SELECTABLE TIME WINDOW, not just
+    "last N samples" — the inline table _Sparkline's simpler model. Kept
+    as a separate class rather than extending _Sparkline: the popup exists
+    specifically to expose controls (time range, axis labels, rescaling)
+    the tiny inline strip has no room for, and no room to need."""
+
+    MARGIN_LEFT = 46
+    MARGIN_BOTTOM = 16
+    MARGIN_TOP = 6
+    MARGIN_RIGHT = 6
+
+    def __init__(self, is_boolean: bool, parent=None):
+        super().__init__(parent)
+        self.is_boolean = is_boolean
+        self.manual_range = None  # None -> auto-scale to the visible window; else (lo, hi)
+        self.window_ms = _TIME_WINDOWS_MS[_DEFAULT_WINDOW_INDEX][1]
+        self.setMinimumSize(200, 100)
+        self._samples = []  # [(t_ms, value), ...], oldest first, entries may have value=None
+
+    def sizeHint(self):
+        return QSize(600, 240)
+
+    def set_window_ms(self, window_ms: int):
+        self.window_ms = window_ms
+        self.update()
+
+    def add_sample(self, t_ms: int, value):
+        self._samples.append((t_ms, value))
+        self._prune(t_ms)
+        self.update()
+
+    def set_samples(self, samples):
+        """Replace the whole buffer at once — _TrendDialog seeds the chart
+        from WatchPanel's own timestamped history when opened, instead of
+        starting from an empty trace."""
+        self._samples = list(samples)
+        if self._samples:
+            self._prune(self._samples[-1][0])
+        self.update()
+
+    def clear_samples(self):
+        self._samples = []
+        self.update()
+
+    def _prune(self, now_ms):
+        cutoff = now_ms - _MAX_HISTORY_MS
+        while self._samples and self._samples[0][0] < cutoff:
+            self._samples.pop(0)
+
+    def _visible_samples(self, now_ms):
+        start = now_ms - self.window_ms
+        return [(t, v) for t, v in self._samples if t >= start]
+
+    def paintEvent(self, event):
+        w, h = self.width(), self.height()
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, False)
+        painter.fillRect(self.rect(), canvas_style.COLOR_BACKGROUND)
+
+        left, right = self.MARGIN_LEFT, w - self.MARGIN_RIGHT
+        top, bottom = self.MARGIN_TOP, h - self.MARGIN_BOTTOM
+        painter.setPen(QPen(canvas_style.COLOR_GRID_MINOR, 1))
+        painter.drawRect(left, top, max(1, right - left - 1), max(1, bottom - top - 1))
+
+        painter.setPen(QPen(canvas_style.COLOR_COMMENT_TEXT, 1))
+        painter.drawText(left, h - 3, _format_ago(self.window_ms))
+        painter.drawText(right - 28, h - 3, "teraz")
+
+        if not self._samples:
+            painter.drawText(self.rect(), Qt.AlignCenter, "Brak danych")
+            return
+
+        now_ms = self._samples[-1][0]
+        visible = self._visible_samples(now_ms)
+        if len(visible) < 2:
+            return
+        start_t = now_ms - self.window_ms
+
+        def x_of(t):
+            return left + ((t - start_t) / self.window_ms) * (right - left)
+
+        if self.is_boolean:
+            painter.setPen(QPen(canvas_style.COLOR_TAG_TEXT, 1))
+            painter.drawText(2, top + 9, "1")
+            painter.drawText(2, bottom, "0")
+            painter.setPen(QPen(canvas_style.COLOR_LOGIC_HIGH, 1.5))
+            points = []
+            for t, v in visible:
+                if v is None:
+                    continue
+                points.append(QPointF(x_of(t), top + 3 if v else bottom - 3))
+            for a, b in zip(points, points[1:]):
+                painter.drawLine(a, b)
+            return
+
+        numeric = [(t, v) for t, v in visible if isinstance(v, (int, float))]
+        if len(numeric) < 2:
+            return
+        if self.manual_range is not None:
+            lo, hi = self.manual_range
+        else:
+            values = [v for _, v in numeric]
+            lo, hi = min(values), max(values)
+        span = (hi - lo) or 1.0
+
+        painter.setPen(QPen(canvas_style.COLOR_TAG_TEXT, 1))
+        painter.drawText(2, top + 9, f"{hi:.2f}")
+        painter.drawText(2, bottom, f"{lo:.2f}")
+
+        painter.setPen(QPen(canvas_style.COLOR_ANALOG_VALUE, 1.5))
+        points = []
+        for t, v in numeric:
+            y = bottom - ((v - lo) / span) * (bottom - top)
+            y = max(top, min(bottom, y))  # clip — a manual range narrower than the data must not draw outside the frame
+            points.append(QPointF(x_of(t), y))
+        for a, b in zip(points, points[1:]):
+            painter.drawLine(a, b)
+
+
 class _TrendDialog(QDialog):
     """Enlarged trend popup for one watched signal, opened by double-
     clicking its Trend cell. Non-modal (show(), not exec()) — the engineer
@@ -168,12 +318,21 @@ class _TrendDialog(QDialog):
         header.setStyleSheet("font-weight: bold;")
         layout.addWidget(header)
 
-        self.chart = _Sparkline(is_boolean, max_samples=600)
+        self.chart = _TrendChart(is_boolean)
         self.chart.set_samples(initial_samples)
         layout.addWidget(self.chart, 1)
 
         bottom_row = QHBoxLayout()
+        bottom_row.addWidget(QLabel("Zakres czasu"))
+        self.window_combo = QComboBox()
+        for label, ms in _TIME_WINDOWS_MS:
+            self.window_combo.addItem(label, ms)
+        self.window_combo.setCurrentIndex(_DEFAULT_WINDOW_INDEX)
+        self.window_combo.currentIndexChanged.connect(self._on_window_changed)
+        bottom_row.addWidget(self.window_combo)
+
         if not is_boolean:
+            bottom_row.addSpacing(16)
             self.auto_check = QCheckBox("Skala automatyczna")
             self.auto_check.setChecked(True)
             self.auto_check.toggled.connect(self._on_auto_toggled)
@@ -197,8 +356,11 @@ class _TrendDialog(QDialog):
         bottom_row.addWidget(clear_btn)
         layout.addLayout(bottom_row)
 
-    def add_sample(self, value):
-        self.chart.add_sample(value)
+    def add_sample(self, t_ms: int, value):
+        self.chart.add_sample(t_ms, value)
+
+    def _on_window_changed(self, index: int):
+        self.chart.set_window_ms(self.window_combo.itemData(index))
 
     def _on_auto_toggled(self, checked):
         self.min_spin.setEnabled(not checked)
@@ -230,6 +392,13 @@ class WatchPanel(QWidget):
         self.settings = settings if settings is not None else QSettings("BroniszLabs", "EPW Logic Studio")
         self.project = project
         self._trend_dialogs = {}  # (kind, signal_id) -> open _TrendDialog
+        # (kind, signal_id) -> [(t_ms, value), ...], oldest first — the
+        # source of truth _TrendDialog seeds itself from when opened (the
+        # inline _Sparkline's own buffer carries no timestamps, only
+        # arrival order). Capped at _MAX_HISTORY_MS, reset on a project
+        # swap or a detected engine-clock rollback (see refresh_values()).
+        self._history = {}
+        self._last_now_ms = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -285,6 +454,8 @@ class WatchPanel(QWidget):
         refer to a specific (project, kind, signal_id) that a whole-project
         swap may have invalidated entirely."""
         self._close_all_trend_dialogs()
+        self._history = {}
+        self._last_now_ms = None
         self.project = project
         self.table.setRowCount(0)
         watches = watch.get_watches(project) if project else []
@@ -302,6 +473,17 @@ class WatchPanel(QWidget):
         regardless of whether anything is watched."""
         if self.project is None:
             return
+
+        # A restarted engine (start() after stop()) resets its TimeProvider
+        # to 0 — every existing timestamped sample would then read as "in
+        # the future" relative to the new clock, breaking every open
+        # trend's time window (and _visible_samples()'s pruning). Detected
+        # by the clock going backwards; the only sane response is to start
+        # every history over, not try to reconcile two incomparable clocks.
+        if self._last_now_ms is not None and now_ms < self._last_now_ms:
+            self._history = {}
+        self._last_now_ms = now_ms
+
         for row in range(self.table.rowCount()):
             kind = self.table.item(row, _COL_KIND).data(KIND_ROLE)
             signal_id = self.table.item(row, _COL_ID).data(SIGNAL_ID_ROLE)
@@ -310,10 +492,18 @@ class WatchPanel(QWidget):
             sparkline = self.table.cellWidget(row, _COL_TREND)
             if sparkline is not None:
                 sparkline.add_sample(value)
-            dialog = self._trend_dialogs.get((kind, signal_id))
+
+            key = (kind, signal_id)
+            history = self._history.setdefault(key, [])
+            history.append((now_ms, value))
+            cutoff = now_ms - _MAX_HISTORY_MS
+            while history and history[0][0] < cutoff:
+                history.pop(0)
+
+            dialog = self._trend_dialogs.get(key)
             if dialog is not None:
                 try:
-                    dialog.add_sample(value)
+                    dialog.add_sample(now_ms, value)
                 except RuntimeError:
                     # Defensive, mirrors ui/canvas/navigation.py's
                     # pulse_highlight(): the popup's C++ object was
@@ -322,7 +512,7 @@ class WatchPanel(QWidget):
                     # entry synchronously before deleteLater() runs — but
                     # a stray access to a torn-down window is exactly the
                     # class of crash worth guarding against here).
-                    self._trend_dialogs.pop((kind, signal_id), None)
+                    self._trend_dialogs.pop(key, None)
 
     # ---- row construction -----------------------------------------------------
 
@@ -384,7 +574,7 @@ class WatchPanel(QWidget):
         description = self.table.item(row, _COL_DESC).text()
         sparkline = self.table.cellWidget(row, _COL_TREND)
         is_boolean = sparkline.is_boolean if sparkline is not None else True
-        initial_samples = sparkline._samples if sparkline is not None else []
+        initial_samples = self._history.get(key, [])  # timestamped — the inline sparkline's own buffer isn't
 
         dialog = _TrendDialog(kind, signal_id, description, is_boolean, initial_samples, parent=self)
         dialog.finished.connect(lambda _result, k=key: self._trend_dialogs.pop(k, None))
@@ -437,6 +627,7 @@ class WatchPanel(QWidget):
             signal_id = self.table.item(row, _COL_ID).data(SIGNAL_ID_ROLE)
             if watch.remove_watch(self.project, kind, signal_id):
                 removed_any = True
+            self._history.pop((kind, signal_id), None)
             dialog = self._trend_dialogs.pop((kind, signal_id), None)
             if dialog is not None:
                 try:

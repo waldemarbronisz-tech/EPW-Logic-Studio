@@ -1351,17 +1351,45 @@ uczciwsza "widocznie regulowalna, ale bez efektu" pułapką).
 
 **Podgląd trendu w powiększeniu (`_TrendDialog`)** — dwuklik w komórkę
 Trend otwiera niemodalne (`setModal(False)`, `show()` nie `exec()`) okno
-popup z większą kopią tego samego `_Sparkline` (bufor 600 próbek zamiast
-domyślnych 200, zasiany historią z widżetu w tabeli — nie zaczyna pusty),
-etykietą sygnału/opisu, przyciskiem "Wyczyść bufor", i — dla sygnałów
-analogowych — kontrolką ręcznego przeskalowania osi Y (checkbox "Skala
-automatyczna" + dwa `QDoubleSpinBox` min/max, nieaktywne dopóki
-automatyczna skala jest włączona). `WatchPanel._trend_dialogs` (słownik
-`(kind, signal_id) -> dialog`) pilnuje, żeby dwuklik na już otwarty trend
-podniósł istniejące okno zamiast otwierać duplikat, a
-`refresh_values()`/`_on_remove_clicked()`/`set_project()` odpowiednio
-dokarmiają/zamykają/sprzątają otwarte popupy — dokładnie tak, jak
-`refresh_values()` już dokarmia sparkline w samej tabeli, ten sam wywoływany co skan mechanizm.
+popup. Wewnętrzny wykres to NIE druga instancja `_Sparkline`, tylko osobna
+klasa **`_TrendChart`** — świadomie osobna, bo popup istnieje właśnie po
+to, żeby wystawić kontrolki (zakres czasu, etykiety osi, przeskalowanie),
+na które mała tabela nie ma miejsca ani potrzeby:
+
+- **Prawdziwa oś czasu**: próbki to pary `(t_ms, wartość)` — `t_ms` z
+  własnego zegara silnika (`TimeProvider`), nigdy zegara systemowego,
+  dokładnie jak wszędzie indziej w tym repo. `WatchPanel._history`
+  (słownik `(kind, signal_id) -> [(t_ms, wartość), ...]`) jest ŹRÓDŁEM
+  PRAWDY dla zasiewu popupu — sparkline w samej tabeli nie ma czasu, tylko
+  kolejność napływu, więc świeżo otwarty popup zasiewany jest z
+  `_history`, nie z widżetu w tabeli.
+- **Regulowalny zakres czasu** (§ uwaga użytkownika: "chcę edytować skalę,
+  czasy") — `QComboBox` "Zakres czasu" (10 s / 30 s / 1 min / 2 min /
+  5 min / 15 min / 30 min, domyślnie 1 min), przełącza
+  `_TrendChart.window_ms`; wykres pokazuje tylko próbki z tego okna
+  względem NAJNOWSZEJ próbki (`_visible_samples()`), z podpisem "-1 min …
+  teraz" na osi X. Bufor historii jest przycinany do najdłuższego
+  wybieralnego zakresu (`_MAX_HISTORY_MS` = 30 min) — dłużej trzymane
+  próbki i tak nigdy nie byłyby wyświetlone.
+- **Etykiety osi**: wartości min/max (albo "1"/"0" dla boolowskich) na osi
+  Y, opisane wprost na wykresie — poprzednia wersja nie miała żadnych
+  liczb, tylko gołą linię.
+- **Ręczne przeskalowanie osi Y** dla sygnałów analogowych (checkbox
+  "Skala automatyczna" + dwa `QDoubleSpinBox` min/max, nieaktywne dopóki
+  automatyczna skala jest włączona) — bez zmian względem poprzedniej
+  wersji.
+- **Zegar silnika cofnięty (restart)**: `WatchPanel.refresh_values()`
+  wykrywa `now_ms` mniejsze niż poprzednio widziane i czyści CAŁĄ
+  `_history` od zera zamiast próbować pogodzić dwa nieporównywalne zegary
+  — inaczej każda historyczna próbka sprzed restartu "z przyszłości"
+  psułaby okno czasowe każdego otwartego trendu.
+
+`WatchPanel._trend_dialogs` (słownik `(kind, signal_id) -> dialog`)
+pilnuje, żeby dwuklik na już otwarty trend podniósł istniejące okno
+zamiast otwierać duplikat, a `refresh_values()`/`_on_remove_clicked()`/
+`set_project()` odpowiednio dokarmiają/zamykają/sprzątają otwarte popupy
+i ich wpisy w `_history` — dokładnie tak, jak `refresh_values()` już
+dokarmia sparkline w samej tabeli, ten sam wywoływany co skan mechanizm.
 `_TrendDialog` ma `Qt.WA_DeleteOnClose` (transient popup musi być
 faktycznie usuwany przy zamknięciu, nie tylko ukrywany), a każde miejsce
 odwołujące się do otwartego popupu jest opakowane w `except RuntimeError`
@@ -1389,7 +1417,7 @@ od Qt: dodawanie/usuwanie/idempotencja, kopia (nie żywa referencja) z
 `get_watches()`, przetrwanie serializacji, migracja v5→v6,
 `describe_watch()`/`is_boolean_kind()`/`read_value()` dla wszystkich
 czterech `kind`, wliczając wyprowadzenie id sygnału wewnętrznego i sygnał
-usunięty z rejestru. Nowy `tests/test_watch_panel.py` (24) — pusty stan,
+usunięty z rejestru. Nowy `tests/test_watch_panel.py` (31) — pusty stan,
 budowa wierszy, sparkline boolowski vs. analogowy, `refresh_values()`
 (w tym myślnik dla nierozwiązanej wartości i no-op bez projektu), dodanie
 przez zamockowany `SignalPickerDialog.exec()` (jeden wpis cofania,
@@ -1401,7 +1429,12 @@ zaznaczenia (jeden wpis cofania), stan przycisku "Usuń", umiejscowienie w
 sparkline'a, otwarcie/ponowne-użycie/dokarmianie/zamknięcie
 `_TrendDialog` (usunięcie wiersza, `set_project()`), kontrolki
 ręcznej skali dla sygnału analogowego, ich brak dla boolowskiego,
-przycisk "Wyczyść bufor". Rozszerzone
+przycisk "Wyczyść bufor", domyślny/zmieniany zakres czasu popupu,
+`_TrendChart._visible_samples()` filtruje po czasie w izolacji, popup
+zasiewany prawdziwą historią czasową z `WatchPanel._history` (nie z
+nieoznaczonego czasowo bufora tabelarycznego sparkline'a), reset historii
+przy cofnięciu zegara silnika (restart) i przy usunięciu
+wiersza/`set_project()`. Rozszerzone
 `tests/test_crossref.py` (6) — `classify_signal_id()` dla wszystkich
 czterech `kind` i nieznanej grubszej kategorii. Rozszerzone
 `tests/test_internal_bits.py` (2) — `SignalPickerDialog.selected_kind()`.

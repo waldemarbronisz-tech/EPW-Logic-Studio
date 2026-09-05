@@ -29,18 +29,18 @@ Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) 
 ## 2. Status repozytorium
 
 - Gałąź: `feat/signal-watch-panel` (na `main` commit `eb36719`), jeszcze niescalona.
-- **Testy: 955/955 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~17-18s.
-- **45 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **11121 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
-- **Kod produkcyjny (`logic_studio/`): 13302 linii w 64 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
+- **Testy: 962/962 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~17-18s.
+- **45 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **11227 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
+- **Kod produkcyjny (`logic_studio/`): 13493 linii w 64 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
   - `blocks/`: 2306
-  - `ui/`: 8029
+  - `ui/`: 8220
   - `core/`: 1537
   - `compiler/`: 752
   - `engine/`: 458
   - `app.py`/`__init__.py` (top-level): 220
 - **69 zarejestrowanych typów bloków w 12 kategoriach** — patrz §5 (polecenie i pełna lista tam), bez zmian od ostatniej migawki.
 - **10 przykładowych projektów** w `examples/*.epwlogic` — wszystkie otwierają się, kompilują i eksportują z bieżącym kodem (zweryfikowane przy każdym PR, patrz dziennik).
-- **109 commitów** w historii (`git log --oneline | wc -l`) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
+- **110 commitów** w historii (`git log --oneline | wc -l`) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
 
 Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §23), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
 
@@ -235,9 +235,9 @@ Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyśc
 ### 7.3 `RuntimeSnapshot` / `RuntimeBlockState` / `RuntimePinState`
 Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 
-## 8. Testy ([tests/](tests/)) — 955/955 PASS
+## 8. Testy ([tests/](tests/)) — 962/962 PASS
 
-45 plików `test_*.py`, 11121 linii. Kilka największych/najbardziej reprezentatywnych plików:
+45 plików `test_*.py`, 11227 linii. Kilka największych/najbardziej reprezentatywnych plików:
 
 | Plik | Zakres |
 |---|---|
@@ -261,7 +261,7 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_clipboard.py` | schowek kopiuj/wytnij/wklej — 14 testów |
 | `test_duplicate_address_hyperlink.py` | hiperłącze do duplikatów adresu (§27 dziennika) — 10 testów |
 | `test_canvas_navigation.py` | `ui/canvas/navigation.py` (skok+pulsowanie), wydzielone z `SignalsPanel` (§27 dziennika) — 7 testów |
-| `test_watch_panel.py` | panel "Obserwowane" — tabela regulowalnych kolumn, sparkline, popup trendu, dodawanie przez `SignalPickerDialog`, umiejscowienie w `output_panel` (§29 dziennika) — 24 testy |
+| `test_watch_panel.py` | panel "Obserwowane" — tabela regulowalnych kolumn, sparkline, popup trendu z regulowalnym zakresem czasu, dodawanie przez `SignalPickerDialog`, umiejscowienie w `output_panel` (§29 dziennika) — 31 testów |
 | `test_wire_item_obstacle_avoidance.py` | integracja routera A* z `WireItem`/`BlockItem` realnym (§24 dziennika) — 4 testy |
 | `test_wire_routing.py` | kierunek wejścia/wyjścia przewodu z pinu — 6 testów |
 | `test_e2e.py`, `test_isolation.py`, `test_compiler.py`, `test_project.py`, `test_acceptance.py`, ... | pipeline end-to-end, izolacja `CompiledProgram`, kompilator, (de)serializacja projektu, scenariusze akceptacyjne |
@@ -1072,7 +1072,8 @@ tylko status.
 | 3 | Panel (`ui/panels/watch.py`) | Zrobione. Tabela Typ/Sygnał/Opis/Wartość/Trend, "Dodaj..." przez `SignalPickerDialog` (ten sam wybór co każda właściwość `"Bit"`/`"Sygnał"`/`"Address"`), "Usuń" dla zaznaczenia — obie akcje `push_state()` PRZED mutacją, jeden wpis cofania niezależnie od liczby wierszy. |
 | 4 | Trend na żywo | Zrobione — `_Sparkline`, proceduralnie rysowany `QPainter` (zero biblioteki wykresów), krok schodkowy dla boolowskich, skalowanie do zaobserwowanego min/max dla analogowych. `refresh_values()` wołane raz na skan z `MainWindow._run_scan()`, ten sam punkt zaczepienia co synchronizacja DI/DO/AI/AO `SimulationPanel`'a. |
 | 5 | Umiejscowienie — poprawione po weryfikacji w działającej aplikacji | Pierwsza wersja: piąta zakładka w lewym pasku bocznym (~300px) obok Library/Device Explorer/Sygnały — zgłoszone jako nieczytelne (tabela z wartością i trendem naraz w tak wąskim pasku). Naprawione: panel przeniesiony do `CompilerOutputPanel.tabs` (dolny pasek Compiler/Warnings/Errors/Messages/Runtime, rozciągnięty na szerokość kanwy — ok. 70% okna zamiast 15%); `_Sparkline` powiększony 110×22 → 240×32 skoro jest miejsce. |
-| 6 | Regulowalne kolumny + podgląd trendu w powiększeniu — druga poprawka po dalszej weryfikacji | Zgłoszone: brak możliwości ręcznej zmiany szerokości kolumn (Opis wymuszony na `Stretch`, Trend na sztywno), trend za mały do odczytu. Naprawione — wszystkie 5 kolumn na `QHeaderView.Interactive`, `_Sparkline.paintEvent()` czyta rozmiar widżetu na żywo (przeciągnięcie kolumny faktycznie powiększa wykres, nie tylko puste tło); dwuklik w komórkę Trend otwiera niemodalny popup `_TrendDialog` (bufor 600 próbek, zasiany historią, dokarmiany na żywo z `refresh_values()`) z ręcznym przeskalowaniem osi Y dla sygnałów analogowych (checkbox auto + min/max) i przyciskiem czyszczenia bufora. `Qt.WA_DeleteOnClose` + `except RuntimeError` na każdym dostępie do potencjalnie zamkniętego popupu (wzorem `ui/canvas/navigation.py::pulse_highlight()`). |
+| 6 | Regulowalne kolumny + podgląd trendu w powiększeniu — druga poprawka po dalszej weryfikacji | Zgłoszone: brak możliwości ręcznej zmiany szerokości kolumn (Opis wymuszony na `Stretch`, Trend na sztywno), trend za mały do odczytu. Naprawione — wszystkie 5 kolumn na `QHeaderView.Interactive`, `_Sparkline.paintEvent()` czyta rozmiar widżetu na żywo (przeciągnięcie kolumny faktycznie powiększa wykres, nie tylko puste tło); dwuklik w komórkę Trend otwiera niemodalny popup `_TrendDialog` z ręcznym przeskalowaniem osi Y dla sygnałów analogowych (checkbox auto + min/max) i przyciskiem czyszczenia bufora. `Qt.WA_DeleteOnClose` + `except RuntimeError` na każdym dostępie do potencjalnie zamkniętego popupu (wzorem `ui/canvas/navigation.py::pulse_highlight()`). |
+| 7 | Edytowalna skala/czas w popupie — trzecia poprawka po dalszej weryfikacji | Zgłoszone: "chcę móc edytować w tym oknie skalę, czasy itp." — popup miał gołą linię bez podpisów osi i bez kontroli nad tym, ile historii pokazuje. Naprawione — nowa klasa `_TrendChart` (zastępuje `_Sparkline` WEWNĄTRZ popupu; sam panel tabeli zostaje bez zmian): próbki jako pary `(t_ms, wartość)` z zegara silnika, `QComboBox` "Zakres czasu" (10 s…30 min, domyślnie 1 min) filtrujący widoczne próbki względem najnowszej, podpisy osi (min/max albo 1/0 na Y, "-1 min…teraz" na X). `WatchPanel._history` (słownik `(kind, signal_id) -> [(t_ms, wartość), ...]`) jest teraz źródłem prawdy zasiewającym popup — sparkline w tabeli nie ma czasu, tylko kolejność. Cofnięcie zegara silnika (restart) czyści całą historię zamiast psuć okna czasowe otwartych trendów. |
 
 ### Świadomie pominięte / poza zakresem tego PR
 - Eksport `watched_signals` do `EPW_RUNTIME_LOGIC` — czysto inżynierska
@@ -1081,9 +1082,10 @@ tylko status.
   wygoda, odłożona żeby nie rozdmuchiwać zakresu pierwszej wersji.
 - Eksport CSV listy obserwacji (na wzór `SignalsPanel.export_csv()`) —
   nie zgłoszony jako potrzeba na tym etapie.
-- Ręczne przeskalowanie/zoom osi X (zakres czasu pokazany w popupie) —
-  tylko oś Y; powiększenie samego okna popupu i głębszy bufor (600 vs.
-  200 próbek) już częściowo adresują potrzebę "zobaczyć więcej historii".
+- Swobodny zoom/pan myszą po wykresie (ciągły, nie z listy predefiniowanych
+  zakresów) — punkt 7 pokrywa "edytowalny czas" dyskretnym wyborem zakresu,
+  co jest prostsze i bardziej przewidywalne niż przeciąganie/kółko myszy;
+  nie zgłoszone jako niewystarczające.
 
 **Przy okazji zaobserwowana, niezwiązana niestabilność środowiska
 testowego (Windows, nie Linux CI tego repo)**: wielokrotne uruchomienia
@@ -1103,9 +1105,10 @@ odtworzone w sposób pozwalający na bezpieczną naprawę) — odnotowane jako
 punkt obserwacji w §10.
 
 Testy: nowy `tests/test_watch.py` (28), nowy `tests/test_watch_panel.py`
-(24, w tym regulowalność kolumn i pełen cykl życia `_TrendDialog`),
+(31, w tym regulowalność kolumn, pełen cykl życia `_TrendDialog`,
+regulowalny zakres czasu i reset historii po cofnięciu zegara silnika),
 rozszerzone `tests/test_crossref.py` (+6) i `tests/test_internal_bits.py`
-(+2). Pełny zestaw: 955 passed (895 + 60 nowych testów tego PR).
+(+2). Pełny zestaw: 962 passed (895 + 67 nowych testów tego PR).
 Wszystkie 10 `examples/*.epwlogic` nadal się kompilują (migracja v1→v6 w
 locie).
 
