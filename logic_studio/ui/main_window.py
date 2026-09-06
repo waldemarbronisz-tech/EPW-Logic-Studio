@@ -59,6 +59,9 @@ class MainWindow(QMainWindow):
         self.act_open = self._make_action("Open...", self._open_project, "Ctrl+O", icon_name="open")
         self.act_save = self._make_action("Save", self._save_project, "Ctrl+S", icon_name="save")
         self.act_save_as = self._make_action("Save As...", self._save_as_project, "Ctrl+Shift+S")
+        # feat/project-diff
+        self.act_compare_saved = self._make_action("Porównaj z zapisanym plikiem...", self._compare_with_saved_file)
+        self.act_compare_files = self._make_action("Porównaj dwa projekty...", self._compare_two_projects)
         self.act_exit = self._make_action("Exit", self.close)
 
         file_menu = menubar.addMenu("File")
@@ -66,6 +69,9 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.act_open)
         file_menu.addAction(self.act_save)
         file_menu.addAction(self.act_save_as)
+        file_menu.addSeparator()
+        file_menu.addAction(self.act_compare_saved)
+        file_menu.addAction(self.act_compare_files)
         file_menu.addSeparator()
         file_menu.addAction(self.act_exit)
 
@@ -156,10 +162,15 @@ class MainWindow(QMainWindow):
         self.act_export_signals = self._make_action(
             "Eksportuj listę sygnałów...", lambda: self.signals_panel.prompt_export_csv()
         )
+        # feat/pdf-export: as-built documentation — the current schematic
+        # plus (optionally) the same signal list Eksportuj listę
+        # sygnałów... already exports as CSV, laid out on paper instead.
+        self.act_export_pdf = self._make_action("Eksportuj do PDF...", self._export_pdf)
 
         project_menu = menubar.addMenu("Project")
         project_menu.addAction(self.act_project_settings)
         project_menu.addAction(self.act_export_signals)
+        project_menu.addAction(self.act_export_pdf)
 
         # --- Logic ---
         self.act_compile = self._make_action("Compile", self.compile_project, "F5", icon_name="compile")
@@ -744,6 +755,31 @@ class MainWindow(QMainWindow):
 
             self.output_panel.log_message(f"Runtime exported to {path}")
 
+    def _export_pdf(self):
+        # feat/pdf-export: same reasoning as compile_project()/
+        # _save_project() below — act on the TRUE top-level project,
+        # never on whatever a macro's own edit view happens to be
+        # showing right now, so a client-facing PDF never accidentally
+        # documents only one macro's internals.
+        self._exit_all_macro_levels()
+
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+        path, _ = QFileDialog.getSaveFileName(self, "Eksportuj do PDF", "", "PDF Files (*.pdf)")
+        if not path:
+            return
+        if not path.endswith(".pdf"):
+            path += ".pdf"
+
+        from logic_studio.ui.pdf_export import export_schematic_to_pdf
+        try:
+            export_schematic_to_pdf(self.scene, self.project, path)
+        except Exception as e:
+            QMessageBox.critical(self, "Błąd eksportu PDF", f"Nie udało się wyeksportować PDF:\n{str(e)}")
+            return
+
+        self.statusBar().showMessage(f"Wyeksportowano do {path}", 5000)
+
     def compile_project(self):
         # feat/macro-blocks: Compile/Run always act on the TRUE top-level
         # project, whatever the canvas happens to be showing right now —
@@ -1002,6 +1038,76 @@ class MainWindow(QMainWindow):
         from PySide6.QtWidgets import QFileDialog
         path, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "EPW Logic Files (*.epwlogic)")
         self._open_project_headless(path)
+
+    # ---- feat/project-diff --------------------------------------------------
+
+    def _load_and_normalize(self, path: str) -> dict:
+        """Reads a `.epwlogic` file and runs it through
+        `Project.deserialize().serialize()` before handing it to
+        compare_projects() — WITHOUT this, comparing a file saved under an
+        OLDER schema against the current (always-latest-schema)
+        in-memory project would show every migration-introduced settings
+        key (macro_definitions, watch_history, ...) as spuriously
+        "added", even when the engineer hasn't touched anything since
+        loading. Also means a genuinely unreadable/corrupt file (unknown
+        block type_id, wrong `"format"`) fails exactly the same way
+        opening it normally would, instead of silently feeding garbage
+        into the diff. Raises whatever Project.deserialize()/json.load()
+        raise — the caller shows it."""
+        import json
+        from logic_studio.core.project import Project
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return Project.deserialize(data).serialize()
+
+    def _show_project_diff(self, base: dict, target: dict, base_label: str, target_label: str):
+        from logic_studio.core.project_diff import compare_projects
+        from logic_studio.ui.project_diff_dialog import ProjectDiffDialog
+        comparison = compare_projects(base, target)
+        dialog = ProjectDiffDialog(comparison, base_label, target_label, parent=self)
+        dialog.exec()
+
+    def _compare_with_saved_file(self):
+        """"Porównaj z zapisanym plikiem..." — the current in-memory
+        project (whatever the canvas shows right now) against the file
+        it was last saved to/loaded from. Normalizes to the top level
+        first (_exit_all_macro_levels()), same reasoning as Save/Compile:
+        this must compare the TRUE top-level project, not whatever a
+        macro's own edit view happens to be showing."""
+        from PySide6.QtWidgets import QMessageBox
+        if not self.current_file:
+            QMessageBox.information(self, "Porównanie", "Projekt nie był jeszcze zapisany do pliku.")
+            return
+        self._exit_all_macro_levels()
+        try:
+            saved = self._load_and_normalize(self.current_file)
+        except Exception as e:
+            QMessageBox.critical(self, "Błąd", f"Nie udało się odczytać zapisanego pliku:\n{e}")
+            return
+        current = self.project.serialize()
+        import os
+        self._show_project_diff(saved, current, os.path.basename(self.current_file), "Bieżący stan")
+
+    def _compare_two_projects(self):
+        """"Porównaj dwa projekty..." — any two `.epwlogic` files, e.g.
+        two exports from git history or two engineers' own copies.
+        Doesn't touch self.project/self.current_file at all."""
+        from PySide6.QtWidgets import QFileDialog
+        path_a, _ = QFileDialog.getOpenFileName(self, "Wybierz starszy plik", "", "EPW Logic Files (*.epwlogic)")
+        if not path_a:
+            return
+        path_b, _ = QFileDialog.getOpenFileName(self, "Wybierz nowszy plik", "", "EPW Logic Files (*.epwlogic)")
+        if not path_b:
+            return
+        from PySide6.QtWidgets import QMessageBox
+        try:
+            data_a = self._load_and_normalize(path_a)
+            data_b = self._load_and_normalize(path_b)
+        except Exception as e:
+            QMessageBox.critical(self, "Błąd", f"Nie udało się odczytać pliku:\n{e}")
+            return
+        import os
+        self._show_project_diff(data_a, data_b, os.path.basename(path_a), os.path.basename(path_b))
 
     def _push_inputs_to_io(self):
         """UI (DI checkboxes + analog input sliders/spinboxes) -> IOProvider."""

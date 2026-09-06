@@ -1933,3 +1933,164 @@ Testy: `tests/test_macros.py` (42), `tests/test_macro_instance.py` (11),
 (15), `tests/test_macro_pins_dialog.py` (7), `tests/test_macro_pin_editing.py`
 (14), `tests/test_macro_library.py` (17), `tests/test_library_panel_macro_sharing.py`
 (12) — pełne rozbicie w AUDIT_REPORT.md §8/§30/§31/§32/§35/§36.
+
+## 25. Porównanie wersji projektu (`core/project_diff.py`, feat/project-diff)
+
+Trzecia z czterech pozycji wybranych po §30/§31/§34/§35 (po edytowalnych
+pinach makrobloku — import/eksport bibliotek makrobloków i eksport do
+PDF zostają). Czytelne dla człowieka podsumowanie różnic między dwoma
+zapisanymi stanami projektu — do code-review schematów i śledzenia
+zmian, na potrzeby zespołowej pracy.
+
+**Osobny moduł od `core/state_diff.py`, nie jego reużycie**: ten drugi
+istnieje wyłącznie dla wydajności zapisu undo/redo (ziarnistość całego
+bloku — "ten słownik bloku różni się jakoś" — bo to tanie do policzenia i
+tanie do zapisania przy KAŻDEJ edycji). `core/project_diff.py` zamienia tę
+wydajność na CZYTELNOŚĆ: która konkretnie właściwość/pin/ustawienie się
+zmieniło, ze starą i nową wartością — myślane do CZYTANIA przez inżyniera
+przeglądającego zmiany, nie do bajt-po-bajcie odtworzenia stanu, jak
+potrzebuje undo/redo.
+
+`compare_projects(base, target)` — oba argumenty to pełne słowniki w
+kształcie `Project.serialize()`. Bloki dopasowywane po `uuid`, nigdy po
+pozycji na liście (wstawienie/usunięcie w środku nie sprawia, że
+wszystko po nim wygląda na zmienione). Zwraca `blocks_added`/
+`blocks_removed` (całe słowniki), `blocks_changed` (lista zmian pole-po-
+polu: `display_name`/`enabled`/`color`/`execution_priority` i każdy klucz
+`properties`, POŁĄCZENIA pinów osobno per pin jako dodane/usunięte
+uuid, oraz `moved` — zmiana `x`/`y` raportowana OSOBNO od zwykłych zmian
+pola, bo samo przeciągnięcie na kanwie to dużo niższy priorytet sygnału
+dla przeglądu schematu niż realna zmiana logiki/okablowania), oraz
+`settings_changes` (całe klucze, ta sama ziarnistość co
+`core/state_diff.py`'s własne traktowanie ustawień — nie skaluje się z
+liczbą bloków, więc nie ma zysku z zagłębiania się w nie też tutaj).
+
+**Normalizacja przez migrację przed porównaniem** (`MainWindow._load_and_normalize()`):
+plik zapisany pod STARSZYM `schema_version` musi przejść przez
+`Project.deserialize().serialize()` PRZED porównaniem — bez tego,
+porównanie bieżącego stanu (zawsze na NAJNOWSZYM schemacie) z plikiem
+zapisanym dawno temu pokazywałoby każdy klucz ustawień wprowadzony przez
+migrację (np. `macro_definitions`, `watch_history`) jako fałszywie
+"dodany", mimo że inżynier nic nie zmienił od wczytania. Przy okazji: plik
+naprawdę uszkodzony (nieznany `type_id`, zły `"format"`) pada dokładnie
+tak samo jak przy zwykłym otwieraniu, zamiast cicho karmić diff śmieciami.
+
+**UI** (`ui/project_diff_dialog.py::ProjectDiffDialog`, menu File):
+"Porównaj z zapisanym plikiem..." (bieżący stan w pamięci kontra plik na
+dysku — normalizuje do głównego poziomu najpierw, `_exit_all_macro_levels()`,
+ta sama zasada co Zapis/Kompilacja) i "Porównaj dwa projekty..." (dowolne
+dwa pliki `.epwlogic`, np. dwa eksporty z historii gita). Widok to
+`QTreeWidget` z sekcjami Dodane/Usunięte/Zmienione/Zmiany ustawień, Qt-
+cienki — renderuje wyłącznie to, co `compare_projects()` już policzył.
+
+Testy: `tests/test_project_diff.py` (24 — każda kategoria zmiany w
+izolacji od Project/Qt, te same hand-crafted słowniki co
+`test_state_diff.py`'s własna konwencja), `tests/test_project_diff_dialog.py`
+(8 — renderowanie każdej sekcji), `tests/test_project_diff_menu.py`
+(10 — wywołanie z menu File, w tym normalizacja migracji i normalizacja
+do głównego poziomu przed porównaniem). Pełny zestaw: 1182 passed (1140
+po scaleniu PR #28 `feat/macro-library-import-export` + 42 nowych testów
+tej gałęzi — przerebase'owana na aktualny `main` przy scalaniu, więc te
+liczby JUŻ sumują się z §24.11/§24.12 powyżej, w przeciwieństwie do
+wcześniejszej wersji tej sekcji pisanej jeszcze na równoległej gałęzi).
+Wszystkie 10 `examples/*.epwlogic` nadal się kompilują.
+
+## 26. Eksport do PDF (feat/pdf-export)
+
+Czwarta i ostatnia z 4 pozycji wybranych po zamknięciu §24 — dokumentacja
+"as-built" gotowa do wydruku/podpisu klienta: bieżący schemat na kanwie
+plus, opcjonalnie, ta sama lista sygnałów co "Eksportuj listę
+sygnałów..." (§14), tyle że złożona na stronie zamiast jako CSV.
+
+**Ta gałąź jest zbudowana NA SZCZYCIE `feat/project-diff` (§25 powyżej)**,
+nie równolegle do niej — obie odgałęzione pierwotnie od tego samego
+commitu `main` (`f0b972d`, PR #27, tuż po `feat/macro-library-import-export`
+było już scalone jako PR #28), ale ta gałąź została PRZEREBASE'OWANA na
+`feat/project-diff` właśnie po to, żeby scalanie w kolejności project-diff
+→ pdf-export przebiegło bez konfliktów w ARCHITECTURE.md/AUDIT_REPORT.md
+(sekcje numerowane sekwencyjnie, §25 potem §26, zamiast dwóch gałęzi
+próbujących zająć ten sam numer). Scalać w TEJ kolejności.
+
+### 26.1 `ui/pdf_export.py` — dlaczego nie `core/`
+
+W przeciwieństwie do większości plików `core/*.py` w tym projekcie, tu
+nie ma sensownej Qt-wolnej wersji "wyrenderuj `QGraphicsScene` na
+stronę" do wydzielenia — cały mechanizm (`QPainter`/`QPdfWriter`/
+`QGraphicsScene.render()`) jest z natury zależny od Qt, dokładnie tak
+samo jak `ui/canvas/shapes.py`. Jedyny fragment, który JEST czystą,
+Qt-wolną logiką — treść listy sygnałów (co wydrukować, nie jak to
+rozłożyć na stronie) — jest celowo wydzielony do osobnej funkcji,
+`signal_list_rows(crossref)`, testowalnej bez konstruowania realnego
+`QPdfWriter`.
+
+`_KIND_SHORT` to celowo OSOBNA, mała kopia tego samego słownika z
+`ui/panels/signals.py` (tam prywatnego, stąd niereimportowanego) —
+ten sam duch co `ui/icons.py`'s `_shape_style_for()`, które odtwarza
+logikę kształtu `BlockItem` zamiast sięgać do jego wnętrza.
+
+### 26.2 `export_schematic_to_pdf(scene, project, path, include_signal_list=True)`
+
+Główny punkt wejścia. Kolejność działań:
+
+1. `scene.clearSelection()` — zaznaczenie na kanwie to afordancja
+   edycji na żywo (przerywana obwódka), nie coś, co powinno trafić do
+   wydrukowanego dokumentu.
+2. `QPdfWriter(path)` skonfigurowany na A4 poziomo, 150 DPI.
+3. Strona 1 (`_draw_schematic_page`): blok tytułowy (nazwa projektu z
+   `project.settings["name"]`, znacznik czasu wygenerowania) + sam
+   schemat, renderowany przez `scene.render(painter, target, source,
+   Qt.KeepAspectRatio)` z `source = scene.itemsBoundingRect()` (RZECZYWISTY
+   zajęty obszar, nie stały, ogromny `sceneRect` kanwy — który
+   wydrukowałby niemal pustą stronę). Pusty projekt (brak bloków) nie
+   wywala się — po prostu kończy się na samym bloku tytułowym.
+4. Jeśli `include_signal_list` i lista sygnałów niepusta
+   (`core/crossref.py::build_crossref()`, TE SAME dane co panel Sygnały/
+   jego CSV, §14): `writer.newPage()` + `_draw_signal_list_pages()`.
+5. `painter.end()` w `finally` — plik musi zostać poprawnie zamknięty
+   nawet jeśli rysowanie samego schematu rzuci wyjątek w trakcie.
+
+### 26.3 Paginacja listy sygnałów (`_draw_signal_list_pages`)
+
+Prosta, ręczna paginacja: rysuje nagłówek kolumn, potem wiersz po
+wierszu, i wywołuje `writer.newPage()` (plus ponowny nagłówek) gdy
+kolejny wiersz przekroczyłby dolny margines strony (`PAGE_MARGIN`).
+Układ kolumn (`_COLUMN_X`/`_COLUMN_HEADERS`/`_ROW_HEIGHT`) to stałe
+modułowe, nie konfiguracja — ta sama filozofia co stałe layoutu w
+`ui/canvas/shapes.py`.
+
+**Test tej funkcji bez prawdziwego pliku/urządzenia**: `QPdfWriter.
+newPage()` to metoda C++/Shiboken — próba jej monkeypatchowania
+(`monkeypatch.setattr(QPdfWriter, "newPage", ...)`) miałaby dokładnie
+ten sam problem, co próba monkeypatchowania `QMenu.exec()` w
+`feat/macro-library-import-export` (AUDIT_REPORT.md — realny `exec()`
+zostałby uruchomiony mimo patcha, tu zamiast zawieszenia byłby po
+prostu ignorowany patch). Zamiast tego: `_draw_signal_list_pages()`
+przyjmuje `writer` wyłącznie przez jego trzy używane metody
+(`width()`/`height()`/`newPage()`) — w testach podstawiany jest zwykły
+obiekt Pythona (`_FakeWriter`) zliczający wywołania `newPage()`, sparowany
+z prawdziwym, ale nigdy nie `begin()`'owanym na urządzeniu `QPainter()`
+(Qt toleruje wywołania rysujące na nieaktywnym painterze jako
+no-op, zweryfikowane empirycznie przed napisaniem testu). Dzięki temu
+logika paginacji jest testowana w pełnej izolacji od plików/PDF.
+
+### 26.4 Wpięcie w `MainWindow` — "Eksportuj do PDF..." (menu Project)
+
+`MainWindow._export_pdf()`: `_exit_all_macro_levels()` najpierw — ten
+sam powód co `compile_project()`/`_save_project()` (§24.8) — eksport
+zawsze dokumentuje PRAWDZIWY projekt najwyższego poziomu, nigdy tylko
+wnętrze makrobloku aktualnie otwartego w widoku breadcrumb. Potem
+`QFileDialog.getSaveFileName` (dopisanie `.pdf` jeśli brak), wywołanie
+`export_schematic_to_pdf()` w `try/except` z `QMessageBox.critical` przy
+błędzie, i komunikat na pasku stanu przy sukcesie.
+
+### 26.5 Świadomie poza zakresem
+
+Wybór podzbioru bloków do wydruku (np. tylko zaznaczenie) — cała
+kanwa albo nic; wielostronicowy schemat dla bardzo dużych projektów
+(obecnie cały schemat ściskany na jedną stronę z zachowaniem proporcji)
+— nie zgłoszone jako potrzeba.
+
+Testy: `tests/test_pdf_export.py` (15) — `signal_list_rows()` (3),
+paginacja izolowana (2), `export_schematic_to_pdf()` end-to-end z
+prawdziwym `QPdfWriter`+`tmp_path` (5), wpięcie `MainWindow._export_pdf()`
+(5) — pełne rozbicie w AUDIT_REPORT.md §38.
