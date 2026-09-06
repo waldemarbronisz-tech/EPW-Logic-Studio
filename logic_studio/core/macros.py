@@ -102,6 +102,77 @@ def is_definition_in_use(project, def_id: str) -> bool:
     return any(b.type_id == type_id for b in project.blocks)
 
 
+# ---- Editing a definition's own internals directly (breadcrumb nav) --------
+# feat/macro-blocks: "enter the macro like a sub-canvas" (ui/main_window.py's
+# enter_macro_instance()/_exit_one_macro_level()) works by literally
+# swapping WHICH block list `project.blocks` points at — the macro's own
+# stored `definition["blocks"]`, instantiated as live blocks, instead of
+# the top-level project's — then letting every existing scene operation
+# (add/remove/wire/select/undo) run completely unchanged, since none of
+# them know or care which "level" `project.blocks` currently represents.
+# `project.settings` (short_id counters, macro_definitions itself, ...) is
+# NEVER swapped — it stays the one shared registry throughout, which is
+# exactly why a block placed while inside a macro's edit view still gets a
+# globally-unique short_id, and why the "Makrobloki" library section stays
+# consistent regardless of nav depth.
+#
+# v1 scope: a definition's OWN input_pins/output_pins (what it exposes to
+# the OUTSIDE) are FIXED once created — editing a macro's internals can
+# freely add/remove/rewire its INTERNAL blocks, but never changes its own
+# boundary pins. This sidesteps a much harder problem (resyncing every
+# OTHER placed instance of the same definition, at every nesting depth,
+# the moment its exposed shape changes) that a first version doesn't need
+# to solve — see ARCHITECTURE.md §24.9.
+
+def instantiate_definition_blocks(definition: dict) -> tuple:
+    """Builds fresh LIVE `BaseLogicBlock` objects from `definition["blocks"]`
+    — uuid/short_id/pins restored exactly like Project.deserialize()'s own
+    block-loading loop (deliberately NOT reusing that loop directly: it
+    also does file-migration bookkeeping, e.g. `short_id` counter resync,
+    the one-time off-grid position rounding, `_legacy_force_state` —
+    none of which apply to data this app just wrote itself moments
+    earlier). Returns `(blocks, unknown_type_ids)` — `unknown_type_ids`
+    should never actually be non-empty for data this app produced, but a
+    hand-edited/corrupted file could still smuggle one in, so this reports
+    it the same way Project.deserialize() would rather than crashing."""
+    from logic_studio.blocks.registry import BlockRegistry
+    from logic_studio.blocks.pin import Pin
+
+    blocks = []
+    unknown_type_ids = []
+    for b_data in definition.get("blocks", []):
+        type_id = b_data.get("type_id")
+        block_class = BlockRegistry.get_block_class(type_id)
+        if not block_class:
+            unknown_type_ids.append(type_id or "?")
+            continue
+
+        block = block_class.deserialize(b_data)
+        for i, pin_data in enumerate(b_data.get("inputs", [])):
+            if i < len(block.inputs):
+                Pin.restore_fields(block.inputs[i], pin_data)
+        for i, pin_data in enumerate(b_data.get("outputs", [])):
+            if i < len(block.outputs):
+                Pin.restore_fields(block.outputs[i], pin_data)
+        blocks.append(block)
+    return blocks, unknown_type_ids
+
+
+def update_definition_blocks(project, def_id: str, blocks: list) -> bool:
+    """Commits `blocks` (this definition's OWN blocks, just edited directly
+    via breadcrumb navigation) back into its stored definition —
+    `"input_pins"`/`"output_pins"`/`"name"` are left untouched (frozen by
+    design, see module-level note above). Returns False (no-op) if the
+    definition was deleted while it was being edited — nothing left to
+    commit back into."""
+    definition = get_definition(project, def_id)
+    if definition is None:
+        return False
+    definition["blocks"] = [b.serialize() for b in blocks]
+    set_definition(project, def_id, definition)
+    return True
+
+
 # ---- Building a definition from a live selection ---------------------------
 
 def build_definition(name: str, blocks: list) -> tuple:

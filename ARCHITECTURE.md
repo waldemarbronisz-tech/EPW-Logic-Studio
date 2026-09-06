@@ -1488,10 +1488,10 @@ jeden, nazwany, wielokrotnego użytku typ bloku ("makroblok"). Realny
 problem przy większych schematach: powtarzający się wzorzec (np. bramka
 blokady z timerem opóźnienia) dziś trzeba przerysowywać ręcznie za każdym
 razem, bez sposobu na jego nazwanie i ponowne użycie jako jednej całości.
-Ta sekcja opisuje **fundament** — dziennik §30 ma pełny status i listę
-świadomie odłożonych kroków (m.in. nawigacja "wejdź w makroblok" jak w
-podkanwę, ustalona z właścicielem produktu jako docelowy zakres, ale
-zaplanowana jako osobny, kolejny krok — patrz §30 i §10 dziennika).
+Cały ustalony zakres v1 gotowy — model danych, kompilacja, render, panel
+biblioteki i nawigacja breadcrumb "wejdź w makroblok" (§24.8); jedno
+świadome ograniczenie zostaje (§24.9). Dziennik AUDIT_REPORT.md §30/§31
+ma pełny status po etapach.
 
 ### 24.1 Model danych (`core/macros.py`)
 
@@ -1726,13 +1726,90 @@ tekstu (`_macro_definition_name()` zwraca `None` tylko dla NIE-makro
 bez zmian — obie ścieżki są generyczne, operują na gołym `type_id`
 tekstowym, nie znają różnicy między makroblokiem a wbudowanym typem.
 
-### 24.8 Świadomie poza zakresem fundamentu
+### 24.8 Nawigacja breadcrumb "wejdź w makroblok" (`MainWindow`)
 
-Nawigacja "wejdź w makroblok" (podkanwa + breadcrumb, dwuklik) —
-świadomie odłożona jako kolejny krok, pełny status w AUDIT_REPORT.md
-§30 i §10.
+Dwuklik na placed `MacroInstanceBlock` (`BlockItem.mouseDoubleClickEvent()`
+→ `MainWindow.enter_macro_instance()`) "wchodzi" w niego jak w podkanwę —
+kanwa zaczyna pokazywać WŁASNE bloki wewnętrzne definicji, edytowalne
+dokładnie tak samo jak główny projekt.
 
-Testy: `tests/test_macros.py` (27), `tests/test_macro_instance.py` (14),
+**Mechanizm — podmiana `self.project.blocks`, nigdy `self.project.settings`.**
+`enter_macro_instance()`:
+1. `core.macros.instantiate_definition_blocks(definition)` buduje świeże
+   ŻYWE bloki z `definition["blocks"]` (uuid/short_id/piny przywrócone
+   dokładnie jak w `Project.deserialize()`'owej pętli ładowania bloków,
+   celowo nie tej samej funkcji — ta druga robi też migracyjne
+   księgowanie, np. wyrównanie do siatki, `_legacy_force_state`, resync
+   licznika `short_id`, niepotrzebne dla danych, które ta sama aplikacja
+   właśnie zapisała).
+2. Bieżący poziom (`self.project.blocks`, cokolwiek to teraz jest — główny
+   projekt albo inna definicja) jest ODKŁADANY na stos `self._macro_nav_stack`
+   jako `{"def_id", "blocks"}` — DOKŁADNIE ta sama referencja do listy
+   Pythona, nie kopia.
+3. `self.project.blocks = <świeże bloki definicji>`, `self.current_macro_def_id
+   = def_id`, kanwa przebudowana (`_reconstruct_scene()`).
+
+Od tego momentu KAŻDA istniejąca operacja sceny — dodaj blok, usuń, podłącz
+przewód, zaznacz, kopiuj/wklej, a nawet Undo/Redo — działa BEZ ŻADNEJ
+zmiany kodu, bo żadna z nich czyta/pisze cokolwiek poza `self.project.blocks`/
+`self.project.add_block()`/`remove_block()` i nie wie ani nie musi wiedzieć,
+który "poziom" to aktualnie reprezentuje. Liczniki `short_id`
+(`project.settings["short_id_counters"]`, WSPÓLNE niezależnie od poziomu,
+bo `.settings` nigdy nie jest podmieniane) gwarantują, że blok dodany
+wewnątrz makrobloku dostaje globalnie unikalny identyfikator bez żadnej
+dodatkowej logiki — ten sam mechanizm, ta sama gwarancja co przy
+kompilacyjnej ekspansji (§24.4).
+
+**Wyjście — `_navigate_to_breadcrumb_index(index)`**: pętla "dopóki stos
+jest głębszy niż `index`": commit bieżącego poziomu do JEGO WŁASNEJ
+definicji (`update_definition_blocks()`, pomijany na głównym poziomie),
+zdjęcie wierzchołka stosu, przywrócenie jego `def_id`/`blocks`. Każdy
+poziom commitowany osobno w kolejności od najgłębszego — poprawne też dla
+przeskoczenia od razu kilku poziomów (np. kliknięcie "Główny" z głębokości
+3): każdy z pomijanych poziomów i tak przechodzi przez dokładnie jedną
+iterację pętli, więc dostaje swój własny commit.
+
+**Zakres v1 — piny graniczne ZAMROŻONE.** Edycja wnętrza makrobloku może
+dowolnie dodawać/usuwać/przełączać bloki WEWNĘTRZNE, ale
+`input_pins`/`output_pins`/`name` samej definicji nigdy się nie zmieniają
+z tego poziomu (`update_definition_blocks()` jawnie ich nie dotyka).
+Świadoma decyzja, nie przeoczenie: zmiana kształtu definicji wymagałaby
+resynchronizacji KAŻDEJ innej placed instancji tej samej definicji, na
+każdej głębokości zagnieżdżenia w całym projekcie — dużo trudniejszy
+problem, którego pierwsza wersja nie musi rozwiązywać (AUDIT_REPORT.md
+§31 pkt 2).
+
+**Normalizacja do głównego poziomu przed operacjami całościowymi.** Zapis/
+Zapisz jako, Kompilacja/Uruchomienie i Undo/Redo najpierw wołają
+`_exit_all_macro_levels()` (= `_navigate_to_breadcrumb_index(0)` — commit
+każdego oczekującego poziomu, powrót do głównego); Nowy projekt/Otwórz
+wołają `_reset_macro_nav()` (twardy reset BEZ commitu, cały projekt i tak
+jest odrzucany). Bez tego: Zapis zapisałby jako `"blocks"` głównego
+projektu to, co akurat pokazuje kanwa (błędne, jeśli to wnętrze
+makrobloku); Undo/Redo mogłoby przywrócić snapshot sprzed wejścia w
+bieżący poziom, rozsynchronizowując breadcrumb (wciąż twierdzący "jesteś
+w makroblok X") z tym, co faktycznie pokazuje kanwa. Ustalone z
+właścicielem produktu jako jedno pytanie doprecyzowujące (Zapis), potem
+zastosowane konsekwentnie do pozostałych trzech operacji jako to samo
+rozwiązanie tego samego problemu.
+
+**Breadcrumb UI** (`ui/panels/breadcrumb.py::BreadcrumbBar`) — Qt-cienki
+pasek nad kanwą (ukryty na głównym poziomie), pokazujący pełną ścieżkę;
+każdy wpis poza ostatnim to klikalny przycisk emitujący `navigate_to(index)`,
+ostatni to pogrubiona etykieta bieżącego poziomu. Nie zna Project/
+LogicScene/makr wcale — `MainWindow._refresh_breadcrumb()` liczy nazwy
+(`get_definition()` dla każdego `def_id` na stosie plus bieżący, "Główny"
+dla `None`) i woła `set_path()`.
+
+### 24.9 Świadomie poza zakresem
+
+Edycja `input_pins`/`output_pins` z poziomu wnętrza makrobloku (§24.8) i
+wizualne oznaczenie "jesteś teraz wewnątrz makrobloku" na kanwie poza
+samym breadcrumbem — oba świadomie odłożone, pełny status w
+AUDIT_REPORT.md §31.
+
+Testy: `tests/test_macros.py` (28), `tests/test_macro_instance.py` (11),
 `tests/test_compiler.py` (+3), `tests/test_macro_creation.py` (9),
 `tests/test_macro_block_rendering.py` (5), `tests/test_library_panel_macros.py`
-(12) — pełne rozbicie w AUDIT_REPORT.md §8/§30.
+(12), `tests/test_breadcrumb_bar.py` (8), `tests/test_macro_navigation.py`
+(15) — pełne rozbicie w AUDIT_REPORT.md §8/§30/§31.

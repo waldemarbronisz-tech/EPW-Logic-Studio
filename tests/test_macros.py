@@ -8,6 +8,7 @@ from logic_studio.core.macros import (
     macro_def_id, new_def_id, get_definitions, get_definition,
     set_definition, delete_definition, is_definition_in_use,
     build_definition, expand_project,
+    instantiate_definition_blocks, update_definition_blocks,
 )
 from logic_studio.blocks.pin import Pin
 from logic_studio.blocks.logic_gates import AndGate
@@ -339,3 +340,83 @@ def test_expand_project_supports_nesting_a_macro_inside_another_macro():
 
     driving_uuids = {pin_owner[s.inputs[0].connections[0]].uuid for s in sinks}
     assert driving_uuids == {g.uuid for g in inner}
+
+
+# ---- instantiate_definition_blocks() / update_definition_blocks() --------
+# feat/macro-blocks breadcrumb navigation — ui/main_window.py's
+# enter_macro_instance()/_navigate_to_breadcrumb_index() build on these.
+
+def test_instantiate_definition_blocks_restores_uuids_and_connections():
+    definition = _and_macro_definition()
+    blocks, unknown = instantiate_definition_blocks(definition)
+
+    assert unknown == []
+    assert len(blocks) == 1
+    gate = blocks[0]
+    assert gate.type_id == "logic.and"
+    original_data = definition["blocks"][0]
+    assert gate.uuid == original_data["uuid"]
+    assert gate.short_id == original_data["short_id"]
+    assert [p.uuid for p in gate.inputs] == [p["uuid"] for p in original_data["inputs"]]
+    assert [p.uuid for p in gate.outputs] == [p["uuid"] for p in original_data["outputs"]]
+
+def test_instantiate_definition_blocks_preserves_internal_connections():
+    g1 = AndGate()
+    g2 = AndGate()
+    g1.outputs[0].connect(g2.inputs[0])
+    definition, _ = build_definition("Chain", [g1, g2])
+
+    blocks, unknown = instantiate_definition_blocks(definition)
+    assert unknown == []
+    fresh_g1 = next(b for b in blocks if b.uuid == g1.uuid)
+    fresh_g2 = next(b for b in blocks if b.uuid == g2.uuid)
+    assert fresh_g2.inputs[0].uuid in fresh_g1.outputs[0].connections
+    assert fresh_g1.outputs[0].uuid in fresh_g2.inputs[0].connections
+
+def test_instantiate_definition_blocks_reports_unknown_type_ids():
+    definition = {"name": "Broken", "blocks": [{"type_id": "logic.does_not_exist", "uuid": "x", "inputs": [], "outputs": []}], "input_pins": [], "output_pins": []}
+    blocks, unknown = instantiate_definition_blocks(definition)
+    assert blocks == []
+    assert unknown == ["logic.does_not_exist"]
+
+def test_update_definition_blocks_commits_new_blocks_list():
+    p = Project()
+    def_id = new_def_id()
+    set_definition(p, def_id, _and_macro_definition())
+
+    blocks, _ = instantiate_definition_blocks(get_definition(p, def_id))
+    extra = AndGate()
+    blocks.append(extra)
+
+    assert update_definition_blocks(p, def_id, blocks) is True
+
+    updated = get_definition(p, def_id)
+    assert len(updated["blocks"]) == 2
+    assert any(b["uuid"] == extra.uuid for b in updated["blocks"])
+
+def test_update_definition_blocks_leaves_boundary_pins_untouched():
+    """v1 scope: a definition's own input_pins/output_pins are frozen while
+    its internals are being edited directly — see this module's own note
+    on breadcrumb navigation."""
+    p = Project()
+    def_id = new_def_id()
+    original = _and_macro_definition()
+    set_definition(p, def_id, original)
+
+    blocks, _ = instantiate_definition_blocks(get_definition(p, def_id))
+    update_definition_blocks(p, def_id, blocks)
+
+    updated = get_definition(p, def_id)
+    assert updated["input_pins"] == original["input_pins"]
+    assert updated["output_pins"] == original["output_pins"]
+    assert updated["name"] == original["name"]
+
+def test_update_definition_blocks_no_op_when_definition_was_deleted():
+    p = Project()
+    def_id = new_def_id()
+    set_definition(p, def_id, _and_macro_definition())
+    blocks, _ = instantiate_definition_blocks(get_definition(p, def_id))
+    delete_definition(p, def_id)
+
+    assert update_definition_blocks(p, def_id, blocks) is False
+    assert get_definition(p, def_id) is None

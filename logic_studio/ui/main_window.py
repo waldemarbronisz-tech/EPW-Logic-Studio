@@ -12,6 +12,7 @@ from logic_studio.ui.panels.simulation import SimulationPanel
 from logic_studio.ui.panels.element_preview import ElementPreviewPanel
 from logic_studio.ui.panels.signals import SignalsPanel
 from logic_studio.ui.panels.watch import WatchPanel
+from logic_studio.ui.panels.breadcrumb import BreadcrumbBar
 from logic_studio.ui.icons import action_icon
 
 
@@ -327,10 +328,22 @@ class MainWindow(QMainWindow):
         self.view.cursor_moved.connect(self._on_cursor_moved)
         self.view.zoom_changed.connect(self._on_zoom_changed)
 
+        # feat/macro-blocks: "Główny > MakroA > MakroB" trail, shown only
+        # while "inside" a macro instance's own internal blocks
+        # (enter_macro_instance()) — hidden at the plain top-level view.
+        self.breadcrumb_bar = BreadcrumbBar()
+        self.breadcrumb_bar.navigate_to.connect(self._navigate_to_breadcrumb_index)
+        canvas_container = QWidget()
+        canvas_layout = QVBoxLayout(canvas_container)
+        canvas_layout.setContentsMargins(0, 0, 0, 0)
+        canvas_layout.setSpacing(0)
+        canvas_layout.addWidget(self.breadcrumb_bar)
+        canvas_layout.addWidget(self.view)
+
         self.output_panel = CompilerOutputPanel()
         self.output_panel.tabs.addTab(self.watch_panel, "Obserwowane")
 
-        center_splitter.addWidget(self.view)
+        center_splitter.addWidget(canvas_container)
         center_splitter.addWidget(self.output_panel)
         # Give canvas more space than output panel
         center_splitter.setSizes([800, 200])
@@ -361,6 +374,14 @@ class MainWindow(QMainWindow):
         self.project = Project()
         self.io_provider = SimulationIOProvider()
         self.engine = ExecutionEngine(None, self.io_provider, SystemTimeProvider())
+
+        # feat/macro-blocks: nav state for "inside a macro's own internal
+        # blocks" (enter_macro_instance()) — self.project.blocks is
+        # swapped to whichever level this represents; self.project.settings
+        # is NEVER swapped, see core/macros.py's own note on this. Empty
+        # stack + None def_id == the plain top-level view.
+        self._macro_nav_stack = []
+        self.current_macro_def_id = None
 
         self.sim_timer = QTimer(self)
         self.sim_timer.timeout.connect(self._on_sim_tick)
@@ -446,6 +467,101 @@ class MainWindow(QMainWindow):
         # category, which is a fixed BlockRegistry class list).
         self.library_panel.set_project(self.project)
         self._update_disabled_blocks_status()
+
+    # ---- feat/macro-blocks: breadcrumb navigation "into" a macro ------------
+    # See core/macros.py's own module-level note on the overall mechanism
+    # (swap self.project.blocks, never self.project.settings) and
+    # ARCHITECTURE.md §24.9 for the full design writeup.
+
+    def enter_macro_instance(self, instance_block):
+        """Double-click on a placed MacroInstanceBlock
+        (BlockItem.mouseDoubleClickEvent()) — swaps the canvas to show ITS
+        OWN internal blocks directly. Every existing scene operation (add/
+        remove/wire/select/copy/paste/undo) keeps working completely
+        unchanged from here on, since none of them know or care which
+        "level" self.project.blocks currently represents — they just
+        mutate whatever list is there."""
+        from logic_studio.core import macros as macros_module
+        from PySide6.QtWidgets import QMessageBox
+
+        def_id = macros_module.macro_def_id(instance_block.type_id)
+        if def_id is None:
+            return
+        definition = macros_module.get_definition(self.project, def_id)
+        if definition is None:
+            self.statusBar().showMessage("Definicja makrobloku nie istnieje (usunięta?).", 5000)
+            return
+
+        blocks, unknown_type_ids = macros_module.instantiate_definition_blocks(definition)
+        if unknown_type_ids:
+            QMessageBox.critical(
+                self, "Błąd",
+                f"Definicja odwołuje się do nieznanych typów bloków: {', '.join(unknown_type_ids)}"
+            )
+            return
+
+        self.stop_simulation()
+        self._macro_nav_stack.append({"def_id": self.current_macro_def_id, "blocks": self.project.blocks})
+        self.current_macro_def_id = def_id
+        self.project.blocks = blocks
+        self.scene.clear()
+        self._reconstruct_scene()
+        self._refresh_project_dependent_panels()
+        self._refresh_breadcrumb()
+
+    def _navigate_to_breadcrumb_index(self, index: int):
+        """Exits levels one at a time (innermost first, each one COMMITTED
+        back into its own definition via update_definition_blocks() before
+        being popped) until the nav stack matches `index` — the position
+        clicked in the breadcrumb trail. A no-op if `index` is already the
+        current level (BreadcrumbBar never actually emits this for the
+        last/current entry, but nothing here should depend on that)."""
+        from logic_studio.core import macros as macros_module
+
+        while len(self._macro_nav_stack) > index:
+            if self.current_macro_def_id is not None:
+                macros_module.update_definition_blocks(self.project, self.current_macro_def_id, self.project.blocks)
+            parent = self._macro_nav_stack.pop()
+            self.current_macro_def_id = parent["def_id"]
+            self.project.blocks = parent["blocks"]
+
+        self.scene.clear()
+        self._reconstruct_scene()
+        self._refresh_project_dependent_panels()
+        self._refresh_breadcrumb()
+
+    def _exit_all_macro_levels(self):
+        """Commits every pending level back into its own definition and
+        returns to the plain top-level view — called before any operation
+        that must act on the TRUE top-level project regardless of what the
+        canvas happens to be showing (Save, Compile/Run, Undo/Redo): each
+        of those would otherwise risk acting on a macro's own internal
+        blocks instead of the real project, or (Undo/Redo specifically)
+        desyncing the breadcrumb from whatever the restored snapshot
+        actually contains. A no-op when already at the top level."""
+        self._navigate_to_breadcrumb_index(0)
+
+    def _reset_macro_nav(self):
+        """Hard reset, no commit — used when the WHOLE project is being
+        replaced (New/Open): whatever was being edited inside a macro
+        belongs to the project about to be discarded, so there is nothing
+        meaningful left to save it back into."""
+        self._macro_nav_stack = []
+        self.current_macro_def_id = None
+        self._refresh_breadcrumb()
+
+    def _refresh_breadcrumb(self):
+        from logic_studio.core import macros as macros_module
+
+        def_ids = [entry["def_id"] for entry in self._macro_nav_stack] + [self.current_macro_def_id]
+        names = []
+        for def_id in def_ids:
+            if def_id is None:
+                names.append("Główny")
+                continue
+            definition = macros_module.get_definition(self.project, def_id)
+            names.append(definition.get("name", def_id) if definition is not None else def_id)
+        self.breadcrumb_bar.set_path(names)
 
     def _update_disabled_blocks_status(self):
         """feat/clipboard-and-align §4.3: "Wyłączone bloki: N" in the
@@ -550,6 +666,11 @@ class MainWindow(QMainWindow):
             self.output_panel.log_message(f"Runtime exported to {path}")
 
     def compile_project(self):
+        # feat/macro-blocks: Compile/Run always act on the TRUE top-level
+        # project, whatever the canvas happens to be showing right now —
+        # commit-and-return first, same reasoning as _save_project() below.
+        self._exit_all_macro_levels()
+
         if self.engine:
             self.engine.stop()
 
@@ -661,11 +782,20 @@ class MainWindow(QMainWindow):
         return True
 
     def _undo(self):
+        # feat/macro-blocks: an undo snapshot pushed while inside a macro's
+        # edit view has THAT level's blocks under its own "blocks" key —
+        # restoring it without first returning to the top level would
+        # desync the breadcrumb (still claiming "inside macro X") from
+        # whatever the restored snapshot's `.blocks` actually turns out to
+        # be. Normalizing to the top level first keeps undo/redo scoped to
+        # a single, consistent level, same reasoning as compile_project().
+        self._exit_all_macro_levels()
         state = self.project.undo()
         if state:
             self._apply_state(state)
 
     def _redo(self):
+        self._exit_all_macro_levels()
         state = self.project.redo()
         if state:
             self._apply_state(state)
@@ -735,9 +865,17 @@ class MainWindow(QMainWindow):
         self.current_file = None
         self.is_dirty = False
         self.update_title()
+        # feat/macro-blocks: the whole project is being replaced — whatever
+        # macro was being edited belongs to the discarded one, nothing to
+        # commit it back into (contrast _exit_all_macro_levels(), used
+        # where the SAME project keeps going).
+        self._reset_macro_nav()
         self._refresh_project_dependent_panels()
 
     def _save_project(self):
+        # feat/macro-blocks: always save the TRUE top-level project,
+        # regardless of which macro's internals the canvas currently shows.
+        self._exit_all_macro_levels()
         if self.current_file:
             self.project.save_to_file(self.current_file)
             self.is_dirty = False
@@ -746,6 +884,7 @@ class MainWindow(QMainWindow):
             self._save_as_project()
 
     def _save_as_project(self):
+        self._exit_all_macro_levels()
         from PySide6.QtWidgets import QFileDialog
         path, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "EPW Logic Files (*.epwlogic)")
         if path:
@@ -773,6 +912,7 @@ class MainWindow(QMainWindow):
             self.current_file = path
             self.is_dirty = False
             self.update_title()
+            self._reset_macro_nav()  # feat/macro-blocks: see _new_project()
             self._refresh_project_dependent_panels()
             self._reconstruct_scene()
 

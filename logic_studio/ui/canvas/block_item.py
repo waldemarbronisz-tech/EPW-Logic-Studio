@@ -1126,6 +1126,15 @@ class BlockItem(QGraphicsItem):
             self._start_doc_edit()
             event.accept()
             return
+        if self.shape_style == "MACRO":
+            # feat/macro-blocks: "wejdź w makroblok jak w podkanwę" —
+            # MainWindow.enter_macro_instance() swaps the canvas to this
+            # instance's own internal blocks (ARCHITECTURE.md §24.9).
+            window = self._current_window()
+            if window is not None and hasattr(window, 'enter_macro_instance'):
+                window.enter_macro_instance(self.logic_block)
+            event.accept()
+            return
         super().mouseDoubleClickEvent(event)
 
     def itemChange(self, change, value):

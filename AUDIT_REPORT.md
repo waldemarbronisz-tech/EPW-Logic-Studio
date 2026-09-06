@@ -28,12 +28,12 @@ Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) 
 ## 2. Status repozytorium
 
 - Gałąź: `feat/macro-blocks` (na `main` commit `1b4dafd`), jeszcze niescalona.
-- **Testy: 1042/1042 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~20-22s.
-- **50 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **12555 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
-- **Kod produkcyjny (`logic_studio/`): 14564 linii w 66 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
+- **Testy: 1071/1071 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~23-25s.
+- **52 pliki testowe** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **13013 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
+- **Kod produkcyjny (`logic_studio/`): 14850 linii w 67 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
   - `blocks/`: 2424
-  - `ui/`: 8674
-  - `core/`: 1981
+  - `ui/`: 8889
+  - `core/`: 2052
   - `compiler/`: 807
   - `engine/`: 458
   - `app.py`/`__init__.py` (top-level): 220
@@ -238,18 +238,25 @@ Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyśc
 ### 7.3 `RuntimeSnapshot` / `RuntimeBlockState` / `RuntimePinState`
 Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 
-## 8. Testy ([tests/](tests/)) — 1042/1042 PASS
+## 8. Testy ([tests/](tests/)) — 1071/1071 PASS
 
-50 plików `test_*.py`, 12555 linii. Kilka największych/najbardziej reprezentatywnych plików:
+52 pliki `test_*.py`, 13013 linii. Kilka największych/najbardziej reprezentatywnych plików:
 
 | Plik | Zakres |
 |---|---|
 | `test_canvas_rendering.py` | rysowanie bloków/kanwy — 141 testów |
-| `test_macros.py` | model danych makrobloków — definicje, `build_definition()`, `expand_project()` (zagnieżdżanie, cykle, brakujące definicje), `core/macros.py` (§24 dziennika) — 27 testów |
-| `test_macro_instance.py` | `MacroInstanceBlock` — konstrukcja, `configure()`, `deserialize()`, `clone()` (§24 dziennika) — 14 testów |
-| `test_macro_creation.py` | `LogicScene.create_macro_from_selection()`, przypadek makro w `add_block_from_library()`, wejście z menu kontekstowego (§24 dziennika) — 9 testów |
-| `test_macro_block_rendering.py` | render `MacroInstanceBlock` na kanwie, ikona biblioteki (§24 dziennika) — 5 testów |
+| `test_macros.py` | model danych makrobloków — definicje, `build_definition()`, `expand_project()` (zagnieżdżanie, cykle, brakujące definicje), `instantiate_definition_blocks()`/`update_definition_blocks()` (nawigacja), `core/macros.py` (§24/§31 dziennika) — 28 testów |
+| `test_macro_navigation.py` | nawigacja breadcrumb "wejdź w makroblok" — wejście/wyjście, commit przy wyjściu, zamrożone piny graniczne, zagnieżdżenie, normalizacja do głównego poziomu przy zapisie/kompilacji/undo/redo/nowym projekcie (§31 dziennika) — 15 testów |
+| `test_internal_bits.py` | rejestr sygnałów wewnętrznych, katalog sygnałów systemowych, synchronizacja typu pinu po wczytaniu (§28) + `SignalPickerDialog.selected_kind()` (§29 dziennika) — 57 testów |
+| `test_export_contract.py` | kontrakt eksportu, checksum, metadane — 33 testy |
+| `test_blocks.py` | logika pojedynczych bloków — 31 testów |
+| `test_watch.py` | lista obserwowanych sygnałów + nagrane, trwale zapisane przebiegi, `core/watch.py` (§29 dziennika) — 39 testów |
+| `test_signals_panel.py` | panel "Sygnały", drzewo grupowane kategorią — 25 testów |
+| `test_macro_instance.py` | `MacroInstanceBlock` — konstrukcja, `configure()`, `deserialize()`, `clone()` (§24 dziennika) — 11 testów |
 | `test_library_panel_macros.py` | sekcja "Makrobloki" w panelu biblioteki — `set_project()`, nazwa/opis/tooltip z rzeczywistej definicji, wyszukiwanie, odświeżanie po utworzeniu/undo/nowym projekcie (§24 dziennika) — 12 testów |
+| `test_macro_creation.py` | `LogicScene.create_macro_from_selection()`, przypadek makro w `add_block_from_library()`, wejście z menu kontekstowego (§24 dziennika) — 9 testów |
+| `test_breadcrumb_bar.py` | `BreadcrumbBar` — widoczność, przyciski/etykieta, sygnał `navigate_to` (§31 dziennika) — 8 testów |
+| `test_macro_block_rendering.py` | render `MacroInstanceBlock` na kanwie, ikona biblioteki (§24 dziennika) — 5 testów |
 | `test_grid_alignment.py` | siatka, snap, geometria — 176 testów |
 | `test_internal_bits.py` | rejestr sygnałów wewnętrznych, katalog sygnałów systemowych, synchronizacja typu pinu po wczytaniu (§28) + `SignalPickerDialog.selected_kind()` (§29 dziennika) — 57 testów |
 | `test_export_contract.py` | kontrakt eksportu, checksum, metadane — 33 testy |
@@ -274,7 +281,7 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_wire_routing.py` | kierunek wejścia/wyjścia przewodu z pinu — 6 testów |
 | `test_e2e.py`, `test_isolation.py`, `test_compiler.py`, `test_project.py`, `test_acceptance.py`, ... | pipeline end-to-end, izolacja `CompiledProgram`, kompilator, (de)serializacja projektu, scenariusze akceptacyjne |
 
-Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1042 passed w ~20-22s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
+Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1071 passed w ~23-25s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
 
 ## 9. Znane problemy i uwagi z audytu (wyłącznie OTWARTE)
 
@@ -324,11 +331,13 @@ dziennika, branch `fix/audit-followups-multidevice-const`).
    `pytest-randomly` (nieużywany lokalnie) by ujawnił szybciej. Nie
    odtworzone w sposób pozwalający wskazać konkretny plik/test jako
    przyczynę.
-4. Makrobloki (§24 ARCHITECTURE.md, §30 dziennika) — fundament gotowy
-   łącznie z panelem biblioteki; jeden kolejny krok świadomie odłożony
-   jako osobna praca: nawigacja "wejdź w makroblok" (podkanwa +
-   breadcrumb) — ustalona z właścicielem produktu jako docelowy zakres
-   v1, jeszcze nie zaczęta.
+4. Makrobloki (§24 ARCHITECTURE.md, §30/§31 dziennika) — cały ustalony
+   zakres v1 gotowy (fundament, panel biblioteki, nawigacja breadcrumb).
+   Jeden świadomy ograniczenie pozostaje: edycja `input_pins`/
+   `output_pins` definicji z poziomu jej własnego wnętrza jest zamrożona
+   (§31 pkt 2) — zmiana wymagałaby resynchronizacji każdej innej placed
+   instancji tej samej definicji, nie zgłoszona jako potrzeba na tym
+   etapie.
 
 ---
 
@@ -1175,10 +1184,10 @@ ARCHITECTURE.md §24 — tu tylko status.
   do innych bloków wewnętrznych definicji) DZIAŁA i jest przetestowane
   (`test_macros.py::test_expand_project_supports_nesting_a_macro_inside_another_macro`).
 
-Testy: `tests/test_macros.py` (27 — model danych, `build_definition()`
+Testy: `tests/test_macros.py` (22 — model danych, `build_definition()`
 łącznie z poprawnością fan-out wyjścia, `expand_project()` łącznie z
 niezależnością wielu instancji tej samej definicji, cyklem, brakującą
-definicją i zagnieżdżaniem), `tests/test_macro_instance.py` (14 —
+definicją i zagnieżdżaniem), `tests/test_macro_instance.py` (11 —
 konstrukcja, `configure()`, pełny cykl zapis-na-dysk→wczytanie przez
 `Project.serialize()`/`deserialize()`, `clone()`), `tests/test_compiler.py`
 (+3 — ekspansja przed walidacją, błąd brakującej definicji jak błąd
@@ -1208,6 +1217,66 @@ dodaniu wywołania `expand_project()` do `Compiler.compile()`) — naprawione
 w `clone()` samym, nie obejściem w `core/macros.py`, więc korzysta z tego
 też każde INNE dotychczasowe wywołanie (`paste_clipboard()`,
 `duplicate_selected_items()`).
+
+## 31. Makrobloki: nawigacja breadcrumb "wejdź w makroblok" (branch `feat/macro-blocks`)
+
+Ostatni świadomie odłożony krok z §30 — dwuklik na placed makrobloku
+"wchodzi" w niego jak w podkanwę, dokładnie zgodnie z zakresem v1
+ustalonym z właścicielem produktu przed rozpoczęciem prac nad
+makroblokami. Jedno pytanie doprecyzowujące przed startem: co ma się
+stać przy Ctrl+S w trakcie edycji wnętrza makrobloku (kanwa pokazuje
+wtedy jego bloki wewnętrzne, nie główny projekt) — wybrana odpowiedź
+(**większa** z dwóch, rekomendowana): automatycznie wyjdź na główny
+poziom i dopiero wtedy zapisz, zero ryzyka zapisania złej listy bloków
+jako głównego projektu. Ta sama zasada zastosowana konsekwentnie też do
+Kompilacji/Uruchomienia i Undo/Redo (patrz punkt 3 niżej) — nie
+zgłoszona osobno jako pytanie, uznana za oczywiste rozszerzenie tej samej
+decyzji. Pełny opis mechanizmu w ARCHITECTURE.md §24.8 — tu tylko status.
+
+| # | Punkt | Status |
+|---|---|---|
+| 1 | Mechanizm (`core/macros.py`: `instantiate_definition_blocks()`/`update_definition_blocks()`) | Zrobione — nawigacja działa przez PODMIANĘ `self.project.blocks` na tę, którą aktualnie widać (bloki definicji, zbudowane jako żywe obiekty), NIGDY nie podmieniając `self.project.settings` — dzięki temu KAŻDA istniejąca operacja sceny (dodaj/usuń/podłącz/zaznacz/kopiuj/wklej/undo) działa bez ŻADNEJ zmiany, bo żadna z nich nie wie ani nie musi wiedzieć, który "poziom" `project.blocks` akurat reprezentuje. Liczniki `short_id` (współdzielone w `project.settings`) gwarantują globalną unikalność niezależnie od głębokości zagnieżdżenia bez żadnej dodatkowej logiki. |
+| 2 | Zakres v1: piny graniczne zamrożone | Świadoma decyzja PRZED implementacją (nie zgłoszona jako osobne pytanie — konsekwencja wyboru z §30): edycja wnętrza makrobloku może dowolnie dodawać/usuwać/przełączać bloki WEWNĘTRZNE, ale nigdy nie zmienia `input_pins`/`output_pins`/`name` samej definicji. Unika dużo trudniejszego problemu (resynchronizacja KAŻDEJ innej placed instancji tej samej definicji, na każdej głębokości zagnieżdżenia, w chwili zmiany jej kształtu), którego pierwsza wersja nie musi rozwiązywać. |
+| 3 | Normalizacja do głównego poziomu przed operacjami całościowymi | Zrobione — Zapis/Zapisz jako, Kompilacja/Uruchomienie i Undo/Redo NAJPIERW wołają `_exit_all_macro_levels()` (commit każdego oczekującego poziomu do jego własnej definicji, powrót do głównego), Nowy projekt/Otwórz wołają `_reset_macro_nav()` (twardy reset BEZ commitu — cały projekt i tak jest odrzucany). Bez tego Zapis zapisałby błędną listę bloków jako główny projekt, a Undo/Redo mogłoby rozsynchronizować breadcrumb z tym, co faktycznie przywraca odtworzony snapshot. |
+| 4 | Breadcrumb UI (`ui/panels/breadcrumb.py::BreadcrumbBar`) | Zrobione — pasek nad kanwą, ukryty na głównym poziomie, pokazujący pełną ścieżkę ("Główny › MakroA › MakroB"); każdy wpis poza ostatnim to klikalny przycisk, ostatni to pogrubiona etykieta bieżącego poziomu. Qt-cienki (nie zna Project/makr), `MainWindow._navigate_to_breadcrumb_index()` łączy kliknięcie z faktycznym wyjściem/commitem. |
+| 5 | Wejście z UI | Zrobione — dwuklik na placed makrobloku (`BlockItem.mouseDoubleClickEvent()`) woła `MainWindow.enter_macro_instance()`. Brakująca definicja (usunięta w międzyczasie) — komunikat w pasku stanu, bez zmiany widoku. |
+
+### Świadomie pominięte / poza zakresem tej PR
+- Edycja `input_pins`/`output_pins` z poziomu wnętrza makrobloku (punkt 2)
+  — świadomie zamrożone na v1; zmiana wymaga osobnej pracy nad
+  resynchronizacją innych placed instancji.
+- Wizualne oznaczenie na kanwie "jesteś teraz wewnątrz makrobloku" poza
+  samym breadcrumbem (np. inne tło/ramka canvas) — breadcrumb uznany za
+  wystarczający sygnał na tym etapie.
+- Klawisz/skrót "wyjdź jeden poziom w górę" niezależny od klikania
+  breadcrumba (np. Escape) — nie zgłoszony jako potrzeba.
+
+**Naprawiony po drodze, przy okazji tej PR (nie zgłoszony osobno)**:
+`BreadcrumbBar.set_path()`'s stara implementacja czyściła poprzednie
+przyciski/etykiety wyłącznie przez `deleteLater()` — który jedynie
+PLANUJE faktyczne usunięcie C++ na następny obrót pętli zdarzeń, nie
+odłącza widgetu z drzewa QObject natychmiast. Dwa kolejne wywołania
+`set_path()` bez żadnego obrotu pętli zdarzeń pomiędzy nimi (dokładnie
+to, co robi nawigacja o dwa poziomy naraz, `_navigate_to_breadcrumb_index()`
+z `index` mniejszym o więcej niż 1) zostawiały poprzednie widgety jako
+niewidoczne, ale wciąż obecne dzieci `BreadcrumbBar`, wciąż wykrywalne
+przez `findChildren()` — złapane przez
+`test_breadcrumb_bar.py::test_set_path_replaces_the_previous_path`.
+Naprawione dodaniem `widget.setParent(None)` PRZED `deleteLater()` —
+odłącza natychmiast, `deleteLater()` nadal bezpiecznie sprząta faktyczny
+obiekt C++ later.
+
+Testy: `tests/test_breadcrumb_bar.py` (8 — widoczność, przyciski/etykieta,
+sygnał `navigate_to`), `tests/test_macro_navigation.py` (15 — wejście/
+wyjście, dwuklik, brakująca definicja, zatrzymanie symulacji, commit przy
+wyjściu, zamrożone piny graniczne, usunięcie jedynego bloku, zagnieżdżenie
+z commitem obu poziomów, normalizacja przed zapisem/kompilacją/undo/redo/
+nowym projektem — łącznie z odczytem zapisanego pliku, że TOP-level
+"blocks" to rzeczywiście główny projekt, nie wnętrze makrobloku),
+rozszerzone `tests/test_macros.py` (+6 —
+`instantiate_definition_blocks()`/`update_definition_blocks()`). Pełny
+zestaw: 1071 passed (1042 + 29 nowych testów tej PR — patrz §8 dla
+rozbicia). Wszystkie 10 `examples/*.epwlogic` nadal się kompilują.
 
 ## Zasada utrzymania tego dokumentu
 
