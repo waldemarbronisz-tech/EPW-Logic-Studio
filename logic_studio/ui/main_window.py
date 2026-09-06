@@ -333,6 +333,8 @@ class MainWindow(QMainWindow):
         # (enter_macro_instance()) — hidden at the plain top-level view.
         self.breadcrumb_bar = BreadcrumbBar()
         self.breadcrumb_bar.navigate_to.connect(self._navigate_to_breadcrumb_index)
+        # feat/macro-editable-pins
+        self.breadcrumb_bar.manage_pins_requested.connect(self._open_macro_pins_dialog)
         canvas_container = QWidget()
         canvas_layout = QVBoxLayout(canvas_container)
         canvas_layout.setContentsMargins(0, 0, 0, 0)
@@ -562,6 +564,83 @@ class MainWindow(QMainWindow):
             definition = macros_module.get_definition(self.project, def_id)
             names.append(definition.get("name", def_id) if definition is not None else def_id)
         self.breadcrumb_bar.set_path(names)
+
+    # ---- feat/macro-editable-pins -------------------------------------------
+    # Unlike update_definition_blocks() (deferred until the engineer leaves
+    # the macro's breadcrumb view), a boundary-pin add/remove is committed
+    # AND resynced onto every placed instance IMMEDIATELY — see
+    # core/macros.py's own module note on why.
+
+    def expose_macro_pin(self, block_uuid: str, pin_name: str, direction) -> None:
+        """Called by BlockItem.populate_expose_pin_menu() — exposes one of
+        an internal block's own pins as a new boundary pin of the macro
+        currently being edited (self.current_macro_def_id), then resyncs
+        every placed instance of it. A no-op if not actually inside a
+        macro's edit view right now (shouldn't happen — the menu entry
+        that calls this only exists then — but this is cheap to guard
+        regardless of how it's reached)."""
+        def_id = self.current_macro_def_id
+        if def_id is None:
+            return
+        from logic_studio.core import macros as macros_module
+        # add_boundary_pin() looks `block_uuid` up against the definition's
+        # STORED "blocks" — but `block_uuid` might belong to a block
+        # placed (or edited) in THIS SAME session, which update_definition_
+        # blocks() normally leaves uncommitted until the engineer actually
+        # leaves the breadcrumb view (see its own docstring). Committing
+        # here first means exposing a pin on a block from the current
+        # session always finds it, instead of failing as though the block
+        # didn't exist.
+        macros_module.update_definition_blocks(self.project, def_id, self.project.blocks)
+        if not macros_module.add_boundary_pin(self.project, def_id, direction, block_uuid, pin_name):
+            return
+        self._resync_macro_instances(def_id)
+        self.set_dirty()
+
+    def _remove_macro_pin(self, direction, index: int):
+        """MacroPinsDialog's own `on_remove` callback — removes the
+        boundary pin at `index` from the macro currently being edited,
+        resyncs every instance, and returns the fresh definition for the
+        dialog to redraw itself from (None on failure — index went stale,
+        or somehow not inside a macro's edit view anymore — the dialog
+        leaves its own list untouched in that case)."""
+        def_id = self.current_macro_def_id
+        if def_id is None:
+            return None
+        from logic_studio.core import macros as macros_module
+        if not macros_module.remove_boundary_pin(self.project, def_id, direction, index):
+            return None
+        self._resync_macro_instances(def_id)
+        self.set_dirty()
+        return macros_module.get_definition(self.project, def_id)
+
+    def _resync_macro_instances(self, def_id: str) -> None:
+        """Rebuilds the pins of every placed instance of `def_id` —
+        anywhere in the project, live or nested inside another macro's own
+        stored definition — to match its (just-changed) boundary shape.
+        `live_block_lists` is assembled here from what MainWindow alone
+        knows about (the current view plus every stashed ancestor level);
+        core/macros.py's resync_all_instances() itself has no notion of a
+        "nav stack" at all, by design (ARCHITECTURE.md §24.10)."""
+        from logic_studio.core import macros as macros_module
+        live_block_lists = [self.project.blocks] + [entry["blocks"] for entry in self._macro_nav_stack]
+        macros_module.resync_all_instances(self.project, def_id, live_block_lists)
+
+    def _open_macro_pins_dialog(self) -> None:
+        """"Piny makrobloku..." (BreadcrumbBar) — a no-op if somehow
+        clicked while not actually inside a macro's edit view (the button
+        is only ever visible then, same guard as expose_macro_pin())."""
+        def_id = self.current_macro_def_id
+        if def_id is None:
+            return
+        from logic_studio.core.macros import get_definition
+        from logic_studio.ui.macro_pins_dialog import MacroPinsDialog
+
+        definition = get_definition(self.project, def_id)
+        if definition is None:
+            return
+        dialog = MacroPinsDialog(definition, self._remove_macro_pin, parent=self)
+        dialog.exec()
 
     def _update_disabled_blocks_status(self):
         """feat/clipboard-and-align §4.3: "Wyłączone bloki: N" in the

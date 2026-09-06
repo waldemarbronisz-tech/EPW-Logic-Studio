@@ -9,6 +9,7 @@ from logic_studio.core.macros import (
     set_definition, delete_definition, is_definition_in_use,
     build_definition, expand_project,
     instantiate_definition_blocks, update_definition_blocks,
+    add_boundary_pin, remove_boundary_pin, resync_all_instances,
 )
 from logic_studio.blocks.pin import Pin
 from logic_studio.blocks.logic_gates import AndGate
@@ -493,3 +494,216 @@ def test_compile_reports_the_same_error_instead_of_silently_dropping_the_wire():
 
     result = Compiler(p).compile()
     assert result is None
+
+
+# ---- add_boundary_pin() / remove_boundary_pin() / resync_all_instances() --
+# feat/macro-editable-pins: editing a macro's own exposed input/output
+# pins from inside its breadcrumb edit view, with every placed instance
+# (anywhere in the project) resynced immediately.
+
+def _bare_gate_definition():
+    """One AND gate, NOTHING exposed — build_definition() on a completely
+    unconnected block exposes no boundary pins at all (see
+    test_build_definition_unconnected_pins_are_not_exposed above), which
+    is exactly the "freshly created, nothing exposed yet" starting point
+    add_boundary_pin() tests want. Returns (definition, gate_uuid,
+    in1_name, in2_name, out_name)."""
+    gate = AndGate()
+    definition, _ = build_definition("Gate", [gate])
+    return definition, gate.uuid, gate.inputs[0].name, gate.inputs[1].name, gate.outputs[0].name
+
+
+def test_add_boundary_pin_exposes_an_internal_pin():
+    p = Project()
+    def_id = new_def_id()
+    definition, gate_uuid, in1, in2, out = _bare_gate_definition()
+    set_definition(p, def_id, definition)
+
+    assert add_boundary_pin(p, def_id, Pin.DIR_INPUT, gate_uuid, in1) is True
+
+    updated = get_definition(p, def_id)
+    assert len(updated["input_pins"]) == 1
+    assert updated["input_pins"][0]["block_uuid"] == gate_uuid
+    assert updated["input_pins"][0]["pin_name"] == in1
+    assert updated["input_pins"][0]["label"] == in1
+    assert updated["input_pins"][0]["data_type"] == Pin.TYPE_BOOLEAN
+
+def test_add_boundary_pin_output_side():
+    p = Project()
+    def_id = new_def_id()
+    definition, gate_uuid, in1, in2, out = _bare_gate_definition()
+    set_definition(p, def_id, definition)
+
+    assert add_boundary_pin(p, def_id, Pin.DIR_OUTPUT, gate_uuid, out) is True
+    updated = get_definition(p, def_id)
+    assert len(updated["output_pins"]) == 1
+    assert updated["input_pins"] == []
+
+def test_add_boundary_pin_rejects_duplicate_exposure():
+    p = Project()
+    def_id = new_def_id()
+    definition, gate_uuid, in1, in2, out = _bare_gate_definition()
+    set_definition(p, def_id, definition)
+    add_boundary_pin(p, def_id, Pin.DIR_INPUT, gate_uuid, in1)
+
+    assert add_boundary_pin(p, def_id, Pin.DIR_INPUT, gate_uuid, in1) is False
+    assert len(get_definition(p, def_id)["input_pins"]) == 1
+
+def test_add_boundary_pin_rejects_unknown_block_or_pin():
+    p = Project()
+    def_id = new_def_id()
+    definition, gate_uuid, in1, in2, out = _bare_gate_definition()
+    set_definition(p, def_id, definition)
+
+    assert add_boundary_pin(p, def_id, Pin.DIR_INPUT, "not-a-real-uuid", in1) is False
+    assert add_boundary_pin(p, def_id, Pin.DIR_INPUT, gate_uuid, "NotAPin") is False
+    assert add_boundary_pin(p, "not-a-real-def", Pin.DIR_INPUT, gate_uuid, in1) is False
+
+def test_remove_boundary_pin():
+    p = Project()
+    def_id = new_def_id()
+    set_definition(p, def_id, _and_macro_definition())
+    assert len(get_definition(p, def_id)["input_pins"]) == 2
+
+    assert remove_boundary_pin(p, def_id, Pin.DIR_INPUT, 0) is True
+    updated = get_definition(p, def_id)
+    assert len(updated["input_pins"]) == 1
+
+def test_remove_boundary_pin_rejects_out_of_range_or_missing_definition():
+    p = Project()
+    def_id = new_def_id()
+    set_definition(p, def_id, _and_macro_definition())
+
+    assert remove_boundary_pin(p, def_id, Pin.DIR_INPUT, 99) is False
+    assert remove_boundary_pin(p, def_id, Pin.DIR_INPUT, -1) is False
+    assert remove_boundary_pin(p, "missing", Pin.DIR_INPUT, 0) is False
+
+
+def _placed_instance(p, def_id):
+    inst = MacroInstanceBlock(def_id=def_id)
+    inst.configure(get_definition(p, def_id))
+    return inst
+
+
+def test_resync_adds_a_fresh_unconnected_pin_to_a_live_top_level_instance():
+    p = Project()
+    def_id = new_def_id()
+    set_definition(p, def_id, _and_macro_definition())  # In1, In2, Out already exposed
+    inst = _placed_instance(p, def_id)
+    p.add_block(inst)
+    assert len(inst.inputs) == 2
+
+    # In1/In2 are already exposed by _and_macro_definition() — add a NOT
+    # gate to the definition's own internals and expose ITS input as a
+    # brand new third boundary pin.
+    definition = get_definition(p, def_id)
+    from logic_studio.blocks.logic_gates import NotGate
+    not_gate_data = NotGate().serialize()
+    definition["blocks"].append(not_gate_data)
+    set_definition(p, def_id, definition)
+    assert add_boundary_pin(p, def_id, Pin.DIR_INPUT, not_gate_data["uuid"], not_gate_data["inputs"][0]["name"]) is True
+
+    resync_all_instances(p, def_id, [p.blocks])
+
+    assert len(inst.inputs) == 3
+    assert inst.inputs[2].name == not_gate_data["inputs"][0]["name"]
+    assert inst.inputs[2].connections == []
+
+def test_resync_preserves_wiring_of_surviving_pins():
+    p = Project()
+    def_id = new_def_id()
+    set_definition(p, def_id, _and_macro_definition())
+    inst = _placed_instance(p, def_id)
+    di = DigitalInputBlock()
+    do = DigitalOutputBlock()
+    di.outputs[0].connect(inst.inputs[0])
+    inst.outputs[0].connect(do.inputs[0])
+    for b in (di, inst, do):
+        p.add_block(b)
+
+    definition = get_definition(p, def_id)
+    gate_uuid = definition["blocks"][0]["uuid"]
+    in2_name = definition["blocks"][0]["inputs"][1]["name"]
+    # Remove the SECOND exposed input (In2, currently unconnected on the
+    # instance) — In1's own wiring to di must survive untouched, matched
+    # by (name, data_type), not position.
+    assert remove_boundary_pin(p, def_id, Pin.DIR_INPUT, 1) is True
+
+    resync_all_instances(p, def_id, [p.blocks])
+
+    assert len(inst.inputs) == 1
+    assert inst.inputs[0].name == "In1"
+    assert di.outputs[0].uuid in inst.inputs[0].connections
+    assert inst.inputs[0].uuid in di.outputs[0].connections
+    assert inst.outputs[0].uuid in do.inputs[0].connections
+
+def test_resync_disconnects_the_external_side_of_a_removed_pin():
+    p = Project()
+    def_id = new_def_id()
+    set_definition(p, def_id, _and_macro_definition())
+    inst = _placed_instance(p, def_id)
+    di1 = DigitalInputBlock()
+    di1.outputs[0].connect(inst.inputs[0])
+    p.add_block(di1)
+    p.add_block(inst)
+
+    assert remove_boundary_pin(p, def_id, Pin.DIR_INPUT, 0) is True  # removes In1, the connected one
+    resync_all_instances(p, def_id, [p.blocks])
+
+    assert len(inst.inputs) == 1
+    assert inst.inputs[0].name == "In2"
+    # di1's own output must no longer reference the now-gone In1 pin uuid
+    assert di1.outputs[0].connections == []
+
+def test_resync_updates_an_instance_nested_inside_another_macro_definition():
+    p = Project()
+    def_id_a = new_def_id()
+    set_definition(p, def_id_a, _and_macro_definition())
+
+    nested = MacroInstanceBlock(def_id=def_id_a)
+    nested.configure(get_definition(p, def_id_a))
+    sink = AndGate()
+    nested.outputs[0].connect(sink.inputs[0])
+    definition_b, _ = build_definition("WrapsA", [nested, sink])
+    def_id_b = new_def_id()
+    set_definition(p, def_id_b, definition_b)
+
+    assert remove_boundary_pin(p, def_id_a, Pin.DIR_INPUT, 0) is True  # removes In1
+    resync_all_instances(p, def_id_a, [p.blocks])  # p.blocks has no live instance of A; only inside B's own stored data
+
+    updated_b = get_definition(p, def_id_b)
+    nested_data = next(b for b in updated_b["blocks"] if b["type_id"] == f"macro.{def_id_a}")
+    assert len(nested_data["inputs"]) == 1
+    assert nested_data["inputs"][0]["name"] == "In2"
+    # the internal connection from nested's Out to sink's In1 must still
+    # be intact — resync only touched the INPUT side.
+    sink_data = next(b for b in updated_b["blocks"] if b["uuid"] == sink.uuid)
+    assert nested_data["outputs"][0]["uuid"] in sink_data["inputs"][0]["connections"]
+
+def test_resync_does_not_touch_instances_of_a_different_definition():
+    p = Project()
+    def_id_a = new_def_id()
+    def_id_c = new_def_id()
+    set_definition(p, def_id_a, _and_macro_definition())
+    set_definition(p, def_id_c, _and_macro_definition())
+    inst_a = _placed_instance(p, def_id_a)
+    inst_c = _placed_instance(p, def_id_c)
+    p.add_block(inst_a)
+    p.add_block(inst_c)
+
+    remove_boundary_pin(p, def_id_a, Pin.DIR_INPUT, 0)
+    resync_all_instances(p, def_id_a, [p.blocks])
+
+    assert len(inst_a.inputs) == 1
+    assert len(inst_c.inputs) == 2  # untouched
+
+def test_resync_is_a_no_op_when_definition_was_deleted():
+    p = Project()
+    def_id = new_def_id()
+    set_definition(p, def_id, _and_macro_definition())
+    inst = _placed_instance(p, def_id)
+    p.add_block(inst)
+    delete_definition(p, def_id)
+
+    resync_all_instances(p, def_id, [p.blocks])  # must not raise
+    assert len(inst.inputs) == 2  # untouched, nothing to resync against

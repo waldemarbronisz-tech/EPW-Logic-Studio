@@ -207,7 +207,10 @@ def test_nested_macro_breadcrumb_and_exit_commits_both_levels(qsettings):
     window.enter_macro_instance(inner_instance)
     assert window.current_macro_def_id == inner_def_id
     from PySide6.QtWidgets import QPushButton, QLabel
-    button_texts = [w.text() for w in window.breadcrumb_bar.findChildren(QPushButton)]
+    button_texts = [
+        w.text() for w in window.breadcrumb_bar.findChildren(QPushButton)
+        if w is not window.breadcrumb_bar._pins_button
+    ]
     assert button_texts == ["Główny", "MojMakro"]
     current_labels = [w.text() for w in window.breadcrumb_bar.findChildren(QLabel) if "bold" in w.styleSheet()]
     assert current_labels == ["Wewnetrzny"]
