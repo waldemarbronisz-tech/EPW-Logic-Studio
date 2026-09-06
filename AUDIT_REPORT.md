@@ -1,8 +1,8 @@
 # EPW Logic Studio — Pełny raport audytowy (dla Claude.ai)
 
-**Data:** 2026-09-05 (migawka §1-§10 odświeżona do stanu na branchu
-`feat/macro-blocks` (na `main` commit `1b4dafd`, po scaleniu PR #24
-`feat/signal-watch-panel`); wszystkie liczby poniżej wyliczone
+**Data:** 2026-09-06 (migawka §1-§10 odświeżona do stanu na branchu
+`fix/ci-pin-runner-and-pyside6` (na `main` commit `5bdb1bb`, po scaleniu
+PR #25 `feat/macro-blocks`); wszystkie liczby poniżej wyliczone
 bezpośrednio z repozytorium, nie przepisane z poprzedniej wersji —
 polecenia użyte do ich wyliczenia podane w każdej sekcji).
 **Zakres:** wyłącznie warstwa logiki — `EPW-Logic-Studio/` (moduł `logic_studio`, testy, przykłady `.epwlogic`). Pozostałe moduły platformy (`EPW-OS`, `EPW-Synoptic-Editor`) celowo pominięte.
@@ -27,7 +27,7 @@ Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) 
 
 ## 2. Status repozytorium
 
-- Gałąź: `feat/macro-blocks` (na `main` commit `1b4dafd`), jeszcze niescalona.
+- Gałąź: `fix/ci-pin-runner-and-pyside6` (na `main` commit `5bdb1bb`, po scaleniu PR #25 `feat/macro-blocks`), jeszcze niescalona.
 - **Testy: 1075/1075 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~23-25s.
 - **52 pliki testowe** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **13148 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
 - **Kod produkcyjny (`logic_studio/`): 14850 linii w 67 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
@@ -338,6 +338,14 @@ dziennika, branch `fix/audit-followups-multidevice-const`).
    (§31 pkt 2) — zmiana wymagałaby resynchronizacji każdej innej placed
    instancji tej samej definicji, nie zgłoszona jako potrzeba na tym
    etapie.
+5. CI na Linuksie padał z `exit code 135` (crash, sygnał `SIGBUS`) na
+   KAŻDYM uruchomieniu, niezależnie od kodu tego repozytorium — nawet na
+   samym `main` (§34 dziennika). Naprawa (przypięcie `ubuntu-22.04` +
+   `PySide6==6.11.2`, usunięcie nieużywanego `pytest-qt`) wypchnięta na
+   `fix/ci-pin-runner-and-pyside6`, **czeka na potwierdzenie zielonym
+   uruchomieniem** — bez dostępu do surowego logu joba diagnoza to
+   eliminacja pływających zależności, nie potwierdzona pojedyncza
+   przyczyna.
 
 ---
 
@@ -1363,6 +1371,67 @@ jawnie, jest podatne na tę samą klasę błędu, jeśli kiedyś pojawi się
 KOLEJNY typ bloku z własnym, nietypowym override `deserialize()`. Oba
 znalezione dotąd miejsca (`core/macros.py`, `scene.py::paste_clipboard()`)
 są już naprawione.
+
+## 34. Naprawa CI: crash `exit code 135` na każdym uruchomieniu, niezależny od kodu (branch `fix/ci-pin-runner-and-pyside6`)
+
+**Zgłoszony problem**: PR #25 (`feat/macro-blocks`) pokazywał czerwony
+check `Pytest / test (pull_request)` na każdym z pięciu swoich commitów,
+mimo lokalnie (Windows) niezmiennie zielonych 1071-1075/1075 testów i
+braku konfliktów z `main`.
+
+**Ustalone przez GitHub REST API** (`/repos/.../actions/workflows/pytest.yml/runs`,
+`/commits/{sha}/check-runs`, `/check-runs/{id}/annotations` —
+uwierzytelniony dostęp do surowych logów joba nie był dostępny, strona
+loguje "Sign in to view logs" nawet dla repo publicznego, więc DIAGNOZA
+PONIŻEJ opiera się na metadanych API, nie na samej treści traceback):
+KAŻDY z pięciu commitów PR #25 kończył się tym samym `Process completed
+with exit code 135` (sygnał 7, `SIGBUS` — twardy crash procesu, nie zwykłe
+niepowodzenie asercji pytest) — ale TEN SAM błąd wystąpił też na samym
+`main`, na commicie `1b4dafd` (merge PR #24, ZERO zmian kodu tego
+repozytorium), będącym pierwszym uruchomieniem PO ostatnim zielonym
+(`eb36719`, ok. 22h wcześniej). To jednoznacznie wyklucza cokolwiek w
+PR #25 (ani makrobloki, ani żadna z dwóch napraw z §32/§33) jako
+przyczynę — awaria zaczęła się WCZEŚNIEJ, na kodzie, który nigdy jej nie
+miał, gdy był ostatnio zielony.
+
+**Najbardziej prawdopodobna przyczyna** (bez dostępu do surowego logu —
+wniosek z eliminacji, nie potwierdzenie): `requirements.txt`'s
+`PySide6>=6.5.0` był NIEPRZYPIĘTY, ale sprawdzenie historii wydań na PyPI
+wyklucza nowe wydanie PySide6 dokładnie w oknie awarii (brak wydań między
+2026-08-18 a dziś) — więc to NIE wersja PySide6 się zmieniła między
+ostatnim zielonym a pierwszym czerwonym uruchomieniem. Pozostają dwa
+kandydaci poza kontrolą tego repozytorium: (a) `runs-on: ubuntu-latest`
+w workflow rotujący na nowszy domyślny obraz systemu z niekompatybilnymi
+bibliotekami systemowymi Qt/xcb, (b) `sudo apt-get update` w workflow
+instalujący za każdym razem NAJNOWSZE dostępne wersje pakietów `libxcb-*`/
+`libegl1` — obie te wartości mogą cicho dryfować między uruchomieniami
+bez ŻADNEGO commita w tym repozytorium.
+
+**Naprawa** (eliminacja wszystkich pływających zależności naraz, zamiast
+próby dokładnego namierzenia jednej — bez dostępu do logu nie było jak
+zweryfikować hipotezy inaczej niż empirycznie):
+1. `runs-on: ubuntu-latest` → `ubuntu-22.04` (konkretna wersja LTS,
+   zamiast etykiety, która sama w sobie może kiedyś wskazywać na inny
+   obraz).
+2. `requirements.txt`: `PySide6>=6.5.0` → `PySide6==6.11.2` (dokładnie ta
+   wersja, co lokalnie zweryfikowane środowisko Windows, na którym cały
+   ten PR był budowany i testowany).
+3. Usunięcie `pytest-qt` z kroku instalacji CI — grep całego `tests/` pod
+   kątem `qtbot`/pytest-qt nie znajduje ANI JEDNEGO użycia; sam fakt
+   zainstalowania podpina się jednak we własny plugin pytest i we
+   wnętrzności zarządzania `QApplication`/pętlą zdarzeń Qt niezależnie od
+   tego, czy jakikolwiek test faktycznie korzysta z jego fixture'ów —
+   zbędna zmienna, usunięta zamiast utrzymywana "na wszelki wypadek".
+
+**Status**: naprawa wypchnięta, **czeka na potwierdzenie zielonym
+uruchomieniem CI** — bez dostępu do surowego logu nie da się stwierdzić z
+całą pewnością, że to WŁAŚNIE te trzy zmiany usuwają przyczynę, tylko że
+usuwają WSZYSTKIE zidentyfikowane pływające zmienne na raz. Jeśli
+kolejne uruchomienie nadal padnie tym samym `exit code 135`, następny
+krok to rozważenie `xvfb-run` (rzeczywisty X11 zamiast wtyczki
+`QT_QPA_PLATFORM=offscreen`) jako alternatywnego backendu headless — nie
+wdrożone teraz, bo to większa zmiana bez dowodu, że akurat ona jest
+potrzebna.
 
 ## Zasada utrzymania tego dokumentu
 

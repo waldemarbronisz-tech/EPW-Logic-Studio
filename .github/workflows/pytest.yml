@@ -12,9 +12,24 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # fix/ci-pin-runner-and-pyside6: pinned to a specific LTS instead of
+    # the floating "ubuntu-latest" label — CI started failing with a
+    # native crash (exit code 135 / SIGBUS) on every run starting with
+    # the very first run after 2026-09-04 20:02 UTC, including on `main`
+    # itself with zero code changes of ours in between. `ubuntu-latest`
+    # rotating to a newer default image (with newer system Qt/xcb
+    # libraries this apt-get-installed set of packages, or PySide6 6.11.2
+    # itself, wasn't necessarily built/tested against) is the most likely
+    # explanation for a break with no corresponding commit — pinning the
+    # OS trades "always newest" for "reproducible", the same reasoning
+    # requirements.txt's own PySide6 pin below now follows.
+    runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v4
     - name: Set up Python 3.12
@@ -29,10 +44,27 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pytest pytest-qt pytest-randomly
+        # fix/ci-pin-runner-and-pyside6: pytest-qt dropped — grepping the
+        # whole suite for `qtbot`/pytest-qt turns up zero uses (no test
+        # actually needs its fixtures), yet it still hooks into Qt's own
+        # plugin/event-loop machinery at import time purely by being
+        # installed. Removing a dependency that provides nothing here but
+        # extra surface area for exactly the kind of native crash this CI
+        # is currently hunting.
+        pip install pytest pytest-randomly
     - name: Run Pytest Headless
       env:
         QT_QPA_PLATFORM: offscreen
+        # fix/ci-pin-runner-and-pyside6 diagnostic: installs Python's own
+        # signal handler for SIGSEGV/SIGBUS/SIGABRT/SIGFPE/SIGILL — on a
+        # native crash (exactly what's been failing every CI run since
+        # 2026-09-05, AUDIT_REPORT.md §34) it prints the Python-level
+        # stack frame that was executing at the moment of the crash
+        # BEFORE the process dies, straight into this step's own stdout.
+        # Actions' web UI has been refusing to show this repo's raw job
+        # logs without signing in, so this is the only way to actually
+        # see what's crashing rather than guessing from exit codes alone.
+        PYTHONFAULTHANDLER: 1
         # feat/clipboard-and-align §6: QSettings("BroniszLabs", "EPW Logic
         # Studio") falls back to a native, HOME-rooted config location on
         # any test that forgets to inject the `qsettings` fixture (the
@@ -51,5 +83,33 @@ jobs:
       # see MEMORY.md) automatically instead of only when someone happens
       # to audit for it by hand. A failure here is reproducible locally
       # with `pytest tests/ -p randomly --randomly-seed=<the printed seed>`.
+      #
+      # fix/ci-pin-runner-and-pyside6 diagnostic: `-v` (one line per test,
+      # so the faulthandler dump above lands right after the LAST test
+      # that started) and `set -o pipefail` (without it, `| tee`'s own
+      # exit code masks pytest's crash/failure exit code, so the step —
+      # and this whole diagnostic — would silently report success).
       run: |
-        pytest tests/
+        set -o pipefail
+        pytest tests/ -v 2>&1 | tee pytest_output.log
+
+    # fix/ci-pin-runner-and-pyside6 diagnostic: posts the tail of the run
+    # above as a PR comment whenever this job fails — GitHub's own log
+    # viewer has been refusing this repo's raw logs without signing in
+    # even though it's public, so this is how the failure gets seen at
+    # all. Only meaningful on a `pull_request` trigger (the `push`
+    # trigger, main only, has no PR number to comment on); remove once
+    # AUDIT_REPORT.md §34's crash is actually root-caused and fixed —
+    # this is a diagnostic aid, not a permanent feature of this workflow.
+    - name: Post failure log to the PR
+      if: failure() && github.event_name == 'pull_request'
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        {
+          echo '### Pytest Headless — failure log (auto-posted, AUDIT_REPORT.md §34 diagnostic)'
+          echo '```'
+          tail -c 60000 pytest_output.log
+          echo '```'
+        } > pytest_comment.md
+        gh pr comment "${{ github.event.pull_request.number }}" --body-file pytest_comment.md
