@@ -1692,22 +1692,47 @@ Wejście z UI: pozycja "Utwórz makroblok..." w menu kontekstowym bloku
 aktywna gdy zaznaczony jest 1+ blok, prosi o nazwę (`QInputDialog`).
 
 `add_block_from_library()` (umieszczenie DODATKOWEJ instancji istniejącej
-definicji, np. z przyszłego panelu biblioteki albo programowo) wywołuje
+definicji, z panelu biblioteki albo programowo) wywołuje
 `.configure(definition)` na świeżo utworzonej, pustej instancji PRZED
 zbudowaniem `BlockItem` — który czyta `block.inputs`/`outputs` już przy
 konstrukcji, żeby zbudować porty i wyliczyć rozmiar. Odwołanie do
 usuniętej w międzyczasie definicji jest cichym no-op (nie ma czego
 umieścić).
 
-### 24.7 Świadomie poza zakresem fundamentu
+### 24.7 Panel biblioteki (`ui/panels/library.py`)
 
-Panel biblioteki nie wylicza jeszcze zdefiniowanych w projekcie
-makrobloków (kategoria "Makrobloki" per-projekt, nie per-klasa jak każda
-inna kategoria w drzewie) i nawigacja "wejdź w makroblok" (podkanwa +
-breadcrumb, dwuklik) — oba świadomie odłożone jako kolejne kroki, pełny
-status w AUDIT_REPORT.md §30 i §10.
+Nowa sekcja "Makrobloki" — jedyna kategoria w drzewie, która NIE jest
+stałą listą klas `BlockRegistry` znaną przy imporcie, tylko danymi TEGO
+KONKRETNEGO projektu. `LibraryPanel.set_project(project)` odbudowuje ją z
+`project.settings["macro_definitions"]` (przez `core.macros.get_definitions()`,
+posortowane po nazwie) — wołane z tego samego miejsca co każdy inny panel
+zależny od projektu, `MainWindow._refresh_project_dependent_panels()`
+(pokrywa wczytanie/nowy projekt/undo/redo za darmo), PLUS dodatkowo od
+razu na końcu `create_macro_from_selection()` — ta ostatnia zmiana nie
+wymienia całego `self.project`, więc nie przechodzi przez zwykły punkt
+odświeżania.
+
+`_display_name()`/`_description()`/`_matches()` (zmienione z
+`@staticmethod` na zwykłe metody, żeby mogły czytać `self._project`)
+konsultują RZECZYWISTĄ definicję dla `type_id` zaczynającego się od
+`"macro."` (nazwa, liczba wejść/wyjść w tooltipie) zamiast budować gołą,
+bezargumentową `MacroInstanceBlock()` jak dla każdego innego typu — ta
+druga ścieżka dałaby generyczne "Makroblok" wszędzie, w tym w sekcji
+"Ostatnio używane" po umieszczeniu instancji. Odwołanie do usuniętej w
+międzyczasie definicji pokazuje `def_id` zamiast pustego/generycznego
+tekstu (`_macro_definition_name()` zwraca `None` tylko dla NIE-makro
+`type_id`, nigdy dla dangling reference). Przeciągnij-upuść
+(`LibraryTree`) i dwuklik-wstaw (`_on_item_double_clicked()`) działają
+bez zmian — obie ścieżki są generyczne, operują na gołym `type_id`
+tekstowym, nie znają różnicy między makroblokiem a wbudowanym typem.
+
+### 24.8 Świadomie poza zakresem fundamentu
+
+Nawigacja "wejdź w makroblok" (podkanwa + breadcrumb, dwuklik) —
+świadomie odłożona jako kolejny krok, pełny status w AUDIT_REPORT.md
+§30 i §10.
 
 Testy: `tests/test_macros.py` (27), `tests/test_macro_instance.py` (14),
 `tests/test_compiler.py` (+3), `tests/test_macro_creation.py` (9),
-`tests/test_macro_block_rendering.py` (5) — pełne rozbicie w
-AUDIT_REPORT.md §8/§30.
+`tests/test_macro_block_rendering.py` (5), `tests/test_library_panel_macros.py`
+(12) — pełne rozbicie w AUDIT_REPORT.md §8/§30.

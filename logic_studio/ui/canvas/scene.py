@@ -534,6 +534,18 @@ class LogicScene(QGraphicsScene):
 
         self.clearSelection()
         instance_item.setSelected(True)
+
+        # block_added (below) only records this INSTANCE under "Ostatnio
+        # używane" — it says nothing about the brand new DEFINITION just
+        # added to project.settings["macro_definitions"], so the library's
+        # own "Makrobloki" section needs its own explicit refresh here
+        # (the usual set_project() choke point only fires when the whole
+        # project is swapped — load/new/undo/redo — not for an in-place
+        # settings change like this one).
+        library_panel = getattr(window, 'library_panel', None)
+        if library_panel is not None:
+            library_panel.set_project(project)
+
         self.block_added.emit(instance.type_id)
         return True
 

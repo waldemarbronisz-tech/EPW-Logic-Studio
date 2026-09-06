@@ -28,11 +28,11 @@ Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) 
 ## 2. Status repozytorium
 
 - Gałąź: `feat/macro-blocks` (na `main` commit `1b4dafd`), jeszcze niescalona.
-- **Testy: 1030/1030 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~19-20s.
-- **49 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **12330 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
-- **Kod produkcyjny (`logic_studio/`): 14462 linii w 66 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
+- **Testy: 1042/1042 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~20-22s.
+- **50 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **12555 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
+- **Kod produkcyjny (`logic_studio/`): 14564 linii w 66 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
   - `blocks/`: 2424
-  - `ui/`: 8572
+  - `ui/`: 8674
   - `core/`: 1981
   - `compiler/`: 807
   - `engine/`: 458
@@ -238,9 +238,9 @@ Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyśc
 ### 7.3 `RuntimeSnapshot` / `RuntimeBlockState` / `RuntimePinState`
 Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 
-## 8. Testy ([tests/](tests/)) — 1030/1030 PASS
+## 8. Testy ([tests/](tests/)) — 1042/1042 PASS
 
-49 plików `test_*.py`, 12330 linii. Kilka największych/najbardziej reprezentatywnych plików:
+50 plików `test_*.py`, 12555 linii. Kilka największych/najbardziej reprezentatywnych plików:
 
 | Plik | Zakres |
 |---|---|
@@ -249,6 +249,7 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_macro_instance.py` | `MacroInstanceBlock` — konstrukcja, `configure()`, `deserialize()`, `clone()` (§24 dziennika) — 14 testów |
 | `test_macro_creation.py` | `LogicScene.create_macro_from_selection()`, przypadek makro w `add_block_from_library()`, wejście z menu kontekstowego (§24 dziennika) — 9 testów |
 | `test_macro_block_rendering.py` | render `MacroInstanceBlock` na kanwie, ikona biblioteki (§24 dziennika) — 5 testów |
+| `test_library_panel_macros.py` | sekcja "Makrobloki" w panelu biblioteki — `set_project()`, nazwa/opis/tooltip z rzeczywistej definicji, wyszukiwanie, odświeżanie po utworzeniu/undo/nowym projekcie (§24 dziennika) — 12 testów |
 | `test_grid_alignment.py` | siatka, snap, geometria — 176 testów |
 | `test_internal_bits.py` | rejestr sygnałów wewnętrznych, katalog sygnałów systemowych, synchronizacja typu pinu po wczytaniu (§28) + `SignalPickerDialog.selected_kind()` (§29 dziennika) — 57 testów |
 | `test_export_contract.py` | kontrakt eksportu, checksum, metadane — 33 testy |
@@ -273,7 +274,7 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_wire_routing.py` | kierunek wejścia/wyjścia przewodu z pinu — 6 testów |
 | `test_e2e.py`, `test_isolation.py`, `test_compiler.py`, `test_project.py`, `test_acceptance.py`, ... | pipeline end-to-end, izolacja `CompiledProgram`, kompilator, (de)serializacja projektu, scenariusze akceptacyjne |
 
-Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1030 passed w ~19-20s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
+Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1042 passed w ~20-22s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
 
 ## 9. Znane problemy i uwagi z audytu (wyłącznie OTWARTE)
 
@@ -323,13 +324,11 @@ dziennika, branch `fix/audit-followups-multidevice-const`).
    `pytest-randomly` (nieużywany lokalnie) by ujawnił szybciej. Nie
    odtworzone w sposób pozwalający wskazać konkretny plik/test jako
    przyczynę.
-4. Makrobloki (§24 ARCHITECTURE.md, §30 dziennika) — fundament gotowy,
-   dwa kolejne kroki świadomie odłożone jako osobna praca: (a) panel
-   biblioteki nie wylicza jeszcze zdefiniowanych w projekcie makrobloków —
-   dziś jedyny sposób umieszczenia drugiej instancji istniejącej definicji
-   to wywołanie API wprost, bez UI przeciągnij-upuść/dwuklik-wstaw; (b)
-   nawigacja "wejdź w makroblok" (podkanwa + breadcrumb) — ustalona z
-   właścicielem produktu jako docelowy zakres v1, jeszcze nie zaczęta.
+4. Makrobloki (§24 ARCHITECTURE.md, §30 dziennika) — fundament gotowy
+   łącznie z panelem biblioteki; jeden kolejny krok świadomie odłożony
+   jako osobna praca: nawigacja "wejdź w makroblok" (podkanwa +
+   breadcrumb) — ustalona z właścicielem produktu jako docelowy zakres
+   v1, jeszcze nie zaczęta.
 
 ---
 
@@ -1137,11 +1136,11 @@ Dwa pytania doprecyzowujące przed startem: (a) sposób tworzenia —
 zamiast pustego formularza od zera); (b) zakres v1 — **większa** z dwóch
 opcji: dwuklik ma docelowo "wchodzić" w makroblok jak w podkanwę
 (nawigacja breadcrumb), nie tylko tworzyć nieprzezroczysty blok. Ta PR
-dowozi **wyłącznie fundament** — model danych, integrację z kompilatorem,
-render na kanwie, tworzenie z zaznaczenia. Nawigacja "wejdź w blok"
-(podkanwa + breadcrumb) to świadomie OSOBNY, kolejny krok, jeszcze nie
-zaczęty — patrz §10 pkt otwarty. Pełny opis mechanizmu w ARCHITECTURE.md
-§24 — tu tylko status.
+dowozi **fundament** — model danych, integrację z kompilatorem, render na
+kanwie, tworzenie z zaznaczenia, panel biblioteki. Nawigacja "wejdź w
+blok" (podkanwa + breadcrumb) to świadomie OSOBNY, kolejny krok, jeszcze
+nie zaczęty — patrz §10 pkt otwarty. Pełny opis mechanizmu w
+ARCHITECTURE.md §24 — tu tylko status.
 
 | # | Punkt | Status |
 |---|---|---|
@@ -1152,16 +1151,9 @@ zaczęty — patrz §10 pkt otwarty. Pełny opis mechanizmu w ARCHITECTURE.md
 | 5 | Render na kanwie | Zrobione — nowy `shape_style` `"MACRO"` (`ui/canvas/shapes.py::draw_macro_shape()`, `BlockItem._paint_macro_block()`): zaokrąglony prostokąt z kolorowym paskiem akcentu (`instance.color`, `#6A4FB3` domyślnie) wzdłuż lewej krawędzi, nazwa definicji wyśrodkowana w treści — odróżnialny na pierwszy rzut oka od zwykłego bloku `COMPLEX` (goły prostokąt) i od każdej wbudowanej kategorii. Rozmiar/porty jak każdy inny wieloportowy blok (symetrycznie wokół środka). Ikona biblioteki (`ui/icons.py::block_icon()`) analogicznie. |
 | 6 | Tworzenie z zaznaczenia (`LogicScene.create_macro_from_selection()`) | Zrobione — buduje definicję z żywego zaznaczenia, zapisuje ją, ROZŁĄCZA każdy pin każdego ekstrahowanego bloku przez sam graf pinów (`Pin.disconnect()`, NIE przez wyszukiwanie grafiki `WireItem` — połączenie to prawdziwe dane od chwili `Pin.connect()`, niezależnie od tego, czy akurat istnieje dla niego grafika), usuwa ekstrahowane bloki, tworzy+konfiguruje nową instancję w ich miejsce, odtwarza każde przejście (`crossings`) jako prawdziwe `Pin.connect()` NA nowym pinie granicznym instancji plus odpowiadającą grafikę `WireItem`. Jeden wpis cofania, jak `duplicate_selected_items()`/`paste_clipboard()`. |
 | 7 | Wejście z UI | Zrobione (minimalne) — pozycja "Utwórz makroblok..." w menu kontekstowym bloku (`BlockItem.contextMenuEvent()`), aktywna gdy zaznaczony jest 1+ blok, prosi o nazwę (`QInputDialog`), woła punkt 6. `add_block_from_library()` konfiguruje instancję przez `.configure(definition)` PRZED budową `BlockItem` (który czyta `inputs`/`outputs` przy konstrukcji) — pozwala umieścić DODATKOWĄ instancję istniejącej definicji z tym samym `type_id`. |
+| 8 | Panel biblioteki wylicza zdefiniowane makrobloki | Zrobione — nowa sekcja "Makrobloki" (`ui/panels/library.py`), JEDYNA per-PROJEKTOWA (nie per-klasa jak każda inna) kategoria w drzewie: `LibraryPanel.set_project(project)` odbudowuje ją z `project.settings["macro_definitions"]`, wołane z TEGO SAMEGO miejsca co każdy inny panel zależny od projektu (`MainWindow._refresh_project_dependent_panels()` — pokrywa wczytanie/nowy projekt/undo/redo za darmo) plus dodatkowo od razu po `create_macro_from_selection()` (zmiana `settings` w miejscu, nie wymiana całego projektu, więc poza zwykłym punktem odświeżania). `_display_name()`/`_description()`/`_matches()` konsultują RZECZYWISTĄ definicję (nazwę, liczbę wejść/wyjść) zamiast generycznej `MacroInstanceBlock()` bez argumentów — naprawia to też wyświetlanie w sekcji "Ostatnio używane" dla makrobloków. Przeciągnij-upuść i dwuklik-wstaw działały już wcześniej bez zmian (generyczne, nie znają `type_id`). |
 
 ### Świadomie pominięte / poza zakresem tej PR (fundament)
-- **Panel biblioteki nie wylicza jeszcze zdefiniowanych w projekcie
-  makrobloków** — jedyny sposób umieszczenia DRUGIEJ instancji istniejącej
-  definicji to programowe wywołanie `add_block_from_library(type_id, ...)`
-  (mechanizm już to obsługuje, patrz punkt 7) — bez wpisu w drzewie
-  biblioteki (kategoria "Makrobloki" per-projekt, nie per-klasa jak każda
-  inna kategoria) nie ma jeszcze przeciągnij-upuść ani dwuklik-wstaw dla
-  makrobloków. Prawdziwa luka użyteczności — odnotowana jako pierwszy punkt
-  otwarty w §10, planowana jako następny krok.
 - **Nawigacja "wejdź w makroblok" (podkanwa + breadcrumb)** — świadomie
   osobny, kolejny krok (patrz wstęp tej sekcji); w tej PR dwuklik na
   instancji nie robi nic specjalnego (żadnego handlera nie dodano).
@@ -1194,10 +1186,12 @@ Validatora, brak mutacji żywego projektu), `tests/test_macro_creation.py`
 (9 — `create_macro_from_selection()` łącznie z przeciągnięciami
 zewnętrznymi i grafiką `WireItem`, przypadek biblioteki, wejście z menu
 kontekstowego), `tests/test_macro_block_rendering.py` (5 — `shape_style`,
-liczba portów, rozmiar, ikona biblioteki). Pełny zestaw: 1030 passed (980
-+ 50 nowych testów tej PR — patrz §8 dla rozbicia). Wszystkie 10
-`examples/*.epwlogic` nadal się kompilują (migracja v1→v8 w locie,
-żaden nie zawiera jeszcze makrobloków).
+liczba portów, rozmiar, ikona biblioteki), `tests/test_library_panel_macros.py`
+(12 — sekcja "Makrobloki", nazwa/opis/tooltip z rzeczywistej definicji,
+wyszukiwanie, odświeżanie po utworzeniu/undo/nowym projekcie). Pełny
+zestaw: 1042 passed (980 + 62 nowych testów tej PR — patrz §8 dla
+rozbicia). Wszystkie 10 `examples/*.epwlogic` nadal się kompilują
+(migracja v1→v8 w locie, żaden nie zawiera jeszcze makrobloków).
 
 **Naprawiony po drodze, przy okazji tej PR (nie zgłoszony osobno)**:
 `BaseLogicBlock.clone()` nie kopiował dotąd `execution_priority` ani

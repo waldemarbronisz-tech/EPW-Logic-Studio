@@ -440,6 +440,11 @@ class MainWindow(QMainWindow):
         # undo/redo swap the whole project, this rebuilds the watch rows
         # from its (possibly different) watched_signals list.
         self.watch_panel.set_project(self.project)
+        # feat/macro-blocks: same coverage again — rebuilds the library
+        # tree's "Makrobloki" category from THIS project's own
+        # macro_definitions (a per-project registry, unlike every other
+        # category, which is a fixed BlockRegistry class list).
+        self.library_panel.set_project(self.project)
         self._update_disabled_blocks_status()
 
     def _update_disabled_blocks_status(self):

@@ -27,6 +27,11 @@ from logic_studio.ui.icons import block_icon
 RECENT_LABEL = "Ostatnio używane"
 RECENT_MAX = 10
 
+# feat/macro-blocks: the library's ONE per-project category (every other
+# root here is a fixed, class-registered BlockRegistry category, known at
+# import time) — see LibraryPanel.set_project()/_rebuild_macro_section().
+MACRO_LABEL = "Makrobloki"
+
 DRAG_THRESHOLD_PX = 4
 
 TYPE_ID_ROLE = Qt.UserRole
@@ -105,11 +110,29 @@ class LibraryPanel(QWidget):
         layout.addWidget(self.tree)
 
         self._recent_root = None
+        self._macro_root = None
         self._category_roots = {}
+        # feat/macro-blocks: unlike every other category (a fixed
+        # BlockRegistry class list, known at import time), "Makrobloki" is
+        # per-PROJECT data — nothing to show until set_project() hands one
+        # over (MainWindow does so right after construction, in
+        # _refresh_project_dependent_panels()).
+        self._project = None
 
         self._populate_tree()
 
     # ---- Tree construction ----------------------------------------------
+
+    def set_project(self, project):
+        """feat/macro-blocks: called by MainWindow whenever the project is
+        swapped (load/new/undo/redo — the SAME choke point every other
+        project-dependent panel already goes through,
+        _refresh_project_dependent_panels()) and right after
+        LogicScene.create_macro_from_selection() adds a new definition —
+        rebuilds the "Makrobloki" section from THIS project's own
+        macro_definitions."""
+        self._project = project
+        self._rebuild_macro_section()
 
     def _populate_tree(self):
         from logic_studio.blocks.registry import BlockRegistry
@@ -120,6 +143,13 @@ class LibraryPanel(QWidget):
         self._recent_root = QTreeWidgetItem(self.tree, [RECENT_LABEL])
         self._recent_root.setExpanded(self._is_expanded(RECENT_LABEL, default=True))
         self._rebuild_recent_section()
+
+        # feat/macro-blocks: right after "Ostatnio używane" — a stable,
+        # predictable spot, since (unlike every category below) it isn't
+        # sorted alongside the rest by `sort_key()` at all.
+        self._macro_root = QTreeWidgetItem(self.tree, [MACRO_LABEL])
+        self._macro_root.setExpanded(self._is_expanded(MACRO_LABEL, default=True))
+        self._rebuild_macro_section()
 
         standard_categories = [
             "Bramki logiczne", "Detekcja zboczy", "Wejścia / Wyjścia", "Elementy Analogowe", "Timery",
@@ -162,21 +192,49 @@ class LibraryPanel(QWidget):
         item.setToolTip(0, self._description(type_id))
         return item
 
-    @staticmethod
-    def _display_name(type_id):
+    def _display_name(self, type_id):
+        # feat/macro-blocks: BlockRegistry.get_block_class("macro.<def_id>")
+        # returns MacroInstanceBlock — a real class, but `block_class()`
+        # (no args) gives a bare, UNCONFIGURED instance whose display_name
+        # is the generic "Makroblok", not this SPECIFIC macro's own name.
+        # Consult the project's actual definition instead, same as
+        # _rebuild_macro_section() already must.
+        macro_name = self._macro_definition_name(type_id)
+        if macro_name is not None:
+            return macro_name
         from logic_studio.blocks.registry import BlockRegistry
         block_class = BlockRegistry.get_block_class(type_id)
         if not block_class:
             return type_id
         return block_class().display_name
 
-    @staticmethod
-    def _description(type_id):
+    def _description(self, type_id):
+        from logic_studio.core.macros import macro_def_id, get_definition
+        def_id = macro_def_id(type_id)
+        if def_id is not None:
+            definition = get_definition(self._project, def_id) if self._project is not None else None
+            if definition is None:
+                return ""
+            n_in = len(definition.get("input_pins", []))
+            n_out = len(definition.get("output_pins", []))
+            return f"Makroblok użytkownika ({n_in} wej. / {n_out} wyj.)"
         from logic_studio.blocks.registry import BlockRegistry
         block_class = BlockRegistry.get_block_class(type_id)
         if not block_class:
             return ""
         return block_class().description
+
+    def _macro_definition_name(self, type_id):
+        """The actual macro definition's own "name" for `type_id`
+        ("macro.<def_id>"), or None if `type_id` isn't a macro instance at
+        all (as opposed to "" — a real, if empty, name — or the def_id
+        fallback for a dangling reference, both valid display strings)."""
+        from logic_studio.core.macros import macro_def_id, get_definition
+        def_id = macro_def_id(type_id)
+        if def_id is None:
+            return None
+        definition = get_definition(self._project, def_id) if self._project is not None else None
+        return definition.get("name", type_id) if definition is not None else type_id
 
     # ---- Expand-state persistence (§4.1) ---------------------------------
 
@@ -222,6 +280,25 @@ class LibraryPanel(QWidget):
             self._add_block_item(self._recent_root, type_id)
         self._recent_root.setHidden(self._recent_root.childCount() == 0)
 
+    # ---- Makrobloki (feat/macro-blocks) ------------------------------------
+
+    def _rebuild_macro_section(self):
+        """Rebuilds the "Makrobloki" root from `self._project`'s own
+        `macro_definitions` — called by set_project() (project swapped) and
+        by MainWindow right after LogicScene.create_macro_from_selection()
+        adds a new one. Unlike every other category here, this one has no
+        BlockRegistry entries behind it at all — each child's own type_id
+        ("macro.<def_id>") is resolved through core/macros.py instead."""
+        if self._macro_root is None:
+            return
+        self._macro_root.takeChildren()
+        if self._project is not None:
+            from logic_studio.core.macros import get_definitions, MACRO_TYPE_PREFIX
+            definitions = get_definitions(self._project)
+            for def_id, definition in sorted(definitions.items(), key=lambda kv: kv[1].get("name", "")):
+                self._add_block_item(self._macro_root, f"{MACRO_TYPE_PREFIX}{def_id}")
+        self._macro_root.setHidden(self._macro_root.childCount() == 0)
+
     def _on_current_item_changed(self, current, previous):
         type_id = current.data(0, TYPE_ID_ROLE) if current else None
         if type_id:
@@ -253,7 +330,18 @@ class LibraryPanel(QWidget):
     def _filter_tree(self, text):
         text = text.strip().lower()
 
-        for cat, root in self._category_roots.items():
+        # feat/macro-blocks: unified across every root (category, recent,
+        # macro) — previously category roots and _recent_root each ran
+        # their own near-identical copy of this loop; _macro_root needs
+        # the exact same treatment, so this pulls it out once instead of
+        # adding a third copy.
+        roots = list(self._category_roots.values())
+        if self._recent_root is not None:
+            roots.append(self._recent_root)
+        if self._macro_root is not None:
+            roots.append(self._macro_root)
+
+        for root in roots:
             visible_children = 0
             for i in range(root.childCount()):
                 child = root.child(i)
@@ -265,20 +353,17 @@ class LibraryPanel(QWidget):
             if text and visible_children:
                 root.setExpanded(True)
 
-        if self._recent_root:
-            visible_children = 0
-            for i in range(self._recent_root.childCount()):
-                child = self._recent_root.child(i)
-                match = not text or self._matches(child.data(0, TYPE_ID_ROLE), text)
-                child.setHidden(not match)
-                if match:
-                    visible_children += 1
-            self._recent_root.setHidden(visible_children == 0)
-
-    @staticmethod
-    def _matches(type_id, text):
+    def _matches(self, type_id, text):
         if not type_id:
             return False
+        macro_name = self._macro_definition_name(type_id)
+        if macro_name is not None:
+            # feat/macro-blocks: a macro instance's own definition name —
+            # BlockRegistry.get_block_class() would resolve the type_id to
+            # MacroInstanceBlock too, but `dummy = block_class()` (no
+            # args, the branch below) only ever gives the generic
+            # "Makroblok" name/description, never THIS macro's own.
+            return text in type_id.lower() or text in macro_name.lower()
         from logic_studio.blocks.registry import BlockRegistry
         block_class = BlockRegistry.get_block_class(type_id)
         if not block_class:
