@@ -239,8 +239,23 @@ class LogicScene(QGraphicsScene):
             # caught by test_copy_paste_two_connected_blocks: the remap
             # loop below has nothing to remap if connections was never
             # populated from pin_data in the first place.
+            #
+            # feat/macro-blocks (AUDIT_REPORT.md §33): every pin gets an
+            # EXPLICITLY fresh uuid here, never trusting whatever
+            # block_class.deserialize() happened to leave it with. That's
+            # already true incidentally for an ordinary block (its own
+            # deserialize() never restores pin uuids from `b_data`, so the
+            # constructor's own fresh ones stand) — but
+            # MacroInstanceBlock's own deserialize() override deliberately
+            # DOES restore pin uuids verbatim (correct for a genuine
+            # load-from-disk, see its own docstring). Left relying on the
+            # incidental behavior, pasting a macro instance minted a fresh
+            # BLOCK uuid but left its PINS carrying the exact same uuids as
+            # the original — two live pins sharing one uuid, silently
+            # resolving to whichever GraphBuilder happens to see first.
             for i, pin_data in enumerate(b_data.get("inputs", [])):
                 if i < len(new_block.inputs):
+                    new_block.inputs[i].uuid = str(uuid_module.uuid4())
                     uuid_map[pin_data["uuid"]] = new_block.inputs[i].uuid
                     new_block.inputs[i].connections = list(pin_data.get("connections", []))
                     for field in pin_copy_fields:
@@ -248,6 +263,7 @@ class LogicScene(QGraphicsScene):
                             setattr(new_block.inputs[i], field, pin_data[field])
             for i, pin_data in enumerate(b_data.get("outputs", [])):
                 if i < len(new_block.outputs):
+                    new_block.outputs[i].uuid = str(uuid_module.uuid4())
                     uuid_map[pin_data["uuid"]] = new_block.outputs[i].uuid
                     new_block.outputs[i].connections = list(pin_data.get("connections", []))
                     for field in pin_copy_fields:

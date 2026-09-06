@@ -226,3 +226,65 @@ def test_context_menu_prompt_cancelled_dialog_is_a_no_op(qsettings, monkeypatch)
 
     assert len(get_definitions(window.project)) == 0
     _close(window)
+
+
+# ---- copy/paste/duplicate of a placed macro instance ------------------
+# AUDIT_REPORT.md §33: a placed MacroInstanceBlock is just another block
+# from copy_selected_items()/paste_clipboard()'s own point of view (both
+# operate generically over BlockItem.logic_block), and MacroInstanceBlock.
+# deserialize() builds fully self-sufficient pins straight from the
+# copied data — so no special-casing should be needed here at all. These
+# tests exist to confirm that's actually true (found untested during a
+# post-implementation audit sweep, not a reported bug).
+
+def test_copy_paste_a_macro_instance_produces_a_second_configured_instance(qsettings):
+    _app()
+    window = _make_window(qsettings)
+    window.scene.add_block_from_library("input.di", 0, 0)
+    window.scene.add_block_from_library("logic.and", 200, 0)
+    window.scene.add_block_from_library("output.do", 400, 0)
+    di, gate, do = window.project.blocks
+    di.outputs[0].connect(gate.inputs[0])
+    gate.outputs[0].connect(do.inputs[0])
+    for item in _block_items(window):
+        if item.logic_block is gate:
+            item.setSelected(True)
+    window.scene.create_macro_from_selection("MojMakro")
+
+    from logic_studio.blocks.macro_instance import MacroInstanceBlock
+    original = next(b for b in window.project.blocks if isinstance(b, MacroInstanceBlock))
+
+    for item in _block_items(window):
+        item.setSelected(item.logic_block is original)
+    assert window.scene.copy_selected_items() is True
+    window.scene.paste_clipboard()
+
+    instances = [b for b in window.project.blocks if isinstance(b, MacroInstanceBlock)]
+    assert len(instances) == 2
+    pasted = next(b for b in instances if b.uuid != original.uuid)
+    assert pasted.def_id == original.def_id
+    assert pasted.display_name == "MojMakro"
+    assert [p.name for p in pasted.inputs] == [p.name for p in original.inputs]
+    assert [p.name for p in pasted.outputs] == [p.name for p in original.outputs]
+    assert pasted.short_id != original.short_id
+    assert pasted.inputs[0].uuid != original.inputs[0].uuid
+    _close(window)
+
+def test_duplicate_a_macro_instance(qsettings):
+    _app()
+    window = _make_window(qsettings)
+    window.scene.add_block_from_library("logic.and", 0, 0)
+    _select_all(window)
+    window.scene.create_macro_from_selection("Solo")
+
+    from logic_studio.blocks.macro_instance import MacroInstanceBlock
+    original = next(b for b in window.project.blocks if isinstance(b, MacroInstanceBlock))
+    for item in _block_items(window):
+        item.setSelected(item.logic_block is original)
+
+    window.scene.duplicate_selected_items()
+
+    instances = [b for b in window.project.blocks if isinstance(b, MacroInstanceBlock)]
+    assert len(instances) == 2
+    assert len({b.def_id for b in instances}) == 1
+    _close(window)

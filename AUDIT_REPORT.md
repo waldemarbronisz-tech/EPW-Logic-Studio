@@ -28,8 +28,8 @@ Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) 
 ## 2. Status repozytorium
 
 - Gałąź: `feat/macro-blocks` (na `main` commit `1b4dafd`), jeszcze niescalona.
-- **Testy: 1073/1073 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~23-25s.
-- **52 pliki testowe** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **13086 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
+- **Testy: 1075/1075 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~23-25s.
+- **52 pliki testowe** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **13148 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
 - **Kod produkcyjny (`logic_studio/`): 14850 linii w 67 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
   - `blocks/`: 2424
   - `ui/`: 8889
@@ -238,9 +238,9 @@ Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyśc
 ### 7.3 `RuntimeSnapshot` / `RuntimeBlockState` / `RuntimePinState`
 Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 
-## 8. Testy ([tests/](tests/)) — 1073/1073 PASS
+## 8. Testy ([tests/](tests/)) — 1075/1075 PASS
 
-52 pliki `test_*.py`, 13086 linii. Kilka największych/najbardziej reprezentatywnych plików:
+52 pliki `test_*.py`, 13148 linii. Kilka największych/najbardziej reprezentatywnych plików:
 
 | Plik | Zakres |
 |---|---|
@@ -254,7 +254,7 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_signals_panel.py` | panel "Sygnały", drzewo grupowane kategorią — 25 testów |
 | `test_macro_instance.py` | `MacroInstanceBlock` — konstrukcja, `configure()`, `deserialize()`, `clone()` (§24 dziennika) — 11 testów |
 | `test_library_panel_macros.py` | sekcja "Makrobloki" w panelu biblioteki — `set_project()`, nazwa/opis/tooltip z rzeczywistej definicji, wyszukiwanie, odświeżanie po utworzeniu/undo/nowym projekcie (§24 dziennika) — 12 testów |
-| `test_macro_creation.py` | `LogicScene.create_macro_from_selection()`, przypadek makro w `add_block_from_library()`, wejście z menu kontekstowego (§24 dziennika) — 9 testów |
+| `test_macro_creation.py` | `LogicScene.create_macro_from_selection()`, przypadek makro w `add_block_from_library()`, wejście z menu kontekstowego, kopiuj/wklej/duplikuj instancji (§24/§33 dziennika) — 11 testów |
 | `test_breadcrumb_bar.py` | `BreadcrumbBar` — widoczność, przyciski/etykieta, sygnał `navigate_to` (§31 dziennika) — 8 testów |
 | `test_macro_block_rendering.py` | render `MacroInstanceBlock` na kanwie, ikona biblioteki (§24 dziennika) — 5 testów |
 | `test_grid_alignment.py` | siatka, snap, geometria — 176 testów |
@@ -281,7 +281,7 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_wire_routing.py` | kierunek wejścia/wyjścia przewodu z pinu — 6 testów |
 | `test_e2e.py`, `test_isolation.py`, `test_compiler.py`, `test_project.py`, `test_acceptance.py`, ... | pipeline end-to-end, izolacja `CompiledProgram`, kompilator, (de)serializacja projektu, scenariusze akceptacyjne |
 
-Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1073 passed w ~23-25s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
+Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1075 passed w ~23-25s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
 
 ## 9. Znane problemy i uwagi z audytu (wyłącznie OTWARTE)
 
@@ -1321,6 +1321,48 @@ zamiast programu z martwym połączeniem). Pełny zestaw: 1073 passed (1071
 + 2 nowych testów). Wszystkie 10 `examples/*.epwlogic` nadal się
 kompilują (żaden z nich nie zawiera makrobloków, więc ta zmiana nie mogła
 ich dotknąć).
+
+## 33. Naprawa: kopiowanie/wklejanie instancji makrobloku duplikowało uuid pinów (branch `feat/macro-blocks`)
+
+Kolejne znalezisko z tego samego celowego przeglądu audytowego co §32 —
+kopiuj/wklej placed `MacroInstanceBlock` był zupełnie nieprzetestowany od
+początku prac nad makroblokami, mimo że to zwyczajna, oczekiwana operacja
+(Ctrl+C/Ctrl+V albo Ctrl+D na makrobloku).
+
+**Problem**: `scene.py::paste_clipboard()` mintuje świeży uuid dla samego
+wklejanego BLOKU (`new_block.uuid = uuid4()`), ale nigdy jawnie nie robi
+tego dla jego PINÓW — polega na tym, że `block_class.deserialize(b_data)`
+i tak już zostawia piny ze świeżymi, losowymi uuid (prawdziwe dla
+KAŻDEGO zwykłego typu bloku, bo jego `deserialize()` nigdy nie
+przywraca uuid pinów z `b_data`). `MacroInstanceBlock.deserialize()`
+łamie to milczące założenie: JEGO override CELOWO przywraca uuid pinów
+dosłownie z zapisanych danych (poprawne dla zwykłego wczytania z pliku —
+patrz jego własny docstring). Skutek: wklejona instancja makrobloku
+dostawała nowy uuid BLOKU, ale jej piny miały DOKŁADNIE te same uuid co
+oryginał — dwa żywe piny, dwa różne bloki, jeden wspólny uuid, cicho
+rozstrzygane na rzecz tego, który `GraphBuilder` akurat zobaczy
+pierwszy. Dokładnie ta sama klasa błędu, którą już raz naprawiono w
+`core/macros.py::_expand_instance()` (dziennik §30, punkt "Naprawiony po
+drodze") — tam poprawiona, tu przeoczona, bo to inny plik z tym samym
+milczącym założeniem.
+
+**Naprawa**: `paste_clipboard()` przypisuje teraz jawnie świeży uuid
+KAŻDEMU pinowi wprost, zamiast polegać na przypadkowym zachowaniu
+`deserialize()` — identyczna poprawka jak w §30, tym razem w miejscu,
+które wcześniej jej nie dostało.
+
+Testy: `tests/test_macro_creation.py` (+2 — kopiuj/wklej instancji
+makrobloku daje drugą, poprawnie skonfigurowaną instancję z NIEZALEŻNYMI
+uuid pinów; duplikuj instancji). Pełny zestaw: 1075 passed (1073 + 2
+nowych testów). Wszystkie 10 `examples/*.epwlogic` nadal się kompilują.
+
+**Wniosek do zapamiętania** (nie osobny punkt do naprawienia, tylko
+obserwacja z audytu): każde MIEJSCE w kodzie, które zakłada "block_class.
+deserialize() zawsze zostawia świeże uuid pinów" zamiast wymuszać to
+jawnie, jest podatne na tę samą klasę błędu, jeśli kiedyś pojawi się
+KOLEJNY typ bloku z własnym, nietypowym override `deserialize()`. Oba
+znalezione dotąd miejsca (`core/macros.py`, `scene.py::paste_clipboard()`)
+są już naprawione.
 
 ## Zasada utrzymania tego dokumentu
 
