@@ -1869,15 +1869,67 @@ wewnątrz `"blocks"` INNEJ definicji (`project.settings`) — te nigdy nie są
 żywe niezależnie od głębokości nawigacji, więc są przepisywane
 bezpośrednio jako słowniki.
 
-### 24.10 Świadomie poza zakresem
+### 24.11 Współdzielenie między projektami (`core/macro_library.py`, feat/macro-library-import-export)
+
+Eksport/import pojedynczej definicji makrobloku jako osobny plik
+`.epwmacro` (JSON) — pozwala inżynierowi zbudować raz wielokrotnego
+użytku blok i przenieść go do INNEGO projektu, albo przekazać koledze,
+zamiast odtwarzać go ręcznie za każdym razem.
+
+**Kształt pliku**: `{"format": "EPW_MACRO_LIBRARY", "schema_version": 1,
+"root_def_id": "<oryginalny def_id — wyłącznie informacyjny, NIGDY nie
+używany wprost przy imporcie>", "definitions": {"<def_id>": {...taki sam
+kształt co wpis w `macro_definitions`...}, ...}}`.
+
+**Eksport paczkuje ZALEŻNOŚCI, nie tylko żądaną definicję**:
+`collect_dependencies()` rekurencyjnie zbiera żądaną definicję PLUS
+każdą INNĄ definicję, od której ta (albo jej własna zależność)
+transytywnie zależy — zagnieżdżona instancja makrobloku gdziekolwiek w
+`"blocks"`. Eksport tylko jednego elementu wielopoziomowej hierarchii
+zostawiłby w docelowym projekcie martwe odwołania `"macro.<def_id>"` od
+razu, jak tylko docelowy projekt spróbowałby to skompilować. Brakująca
+zależność (odwołanie już martwe W ŹRÓDLE) jest po prostu pomijana przy
+zbieraniu — to `expand_project()`'a rola zgłosić to jako błąd
+kompilacji, nie tej funkcji.
+
+**Import mintuje ŚWIEŻE `def_id` dla KAŻDEJ definicji w paczce** —
+nigdy nie ponownie używa/nie koliduje z niczym już istniejącym w
+docelowym projekcie, nawet jeśli treść jest identyczna z czymś już tam
+obecnym (ta aplikacja nigdzie indziej też nie cichcem deduplikuje —
+duplikat adresu to legalny, częsty wzorzec, §21). Każde odwołanie
+`"macro.<stary_def_id>"` WEWNĄTRZ `"blocks"` importowanej definicji jest
+przepisywane na nowy id zgodnie z `id_map` — zagnieżdżone zależności
+nadal się rozwiązują poprawnie po imporcie. Odwołanie do czegoś spoza
+tej paczki (już martwe w ŹRÓDLE) zostaje BEZ zmian — ten sam błąd
+"brakująca definicja" w projekcie docelowym, co miałby w źródłowym,
+nigdy cicho nie zamaskowany.
+
+**UI** (`ui/panels/library.py`): eksport — prawym przyciskiem na wpis w
+sekcji "Makrobloki" → "Eksportuj makroblok..."; import — zawsze widoczny
+przycisk "Importuj makroblok..." pod polem wyszukiwania (import nie
+zależy od żadnego zaznaczenia, w przeciwieństwie do eksportu). Import
+robi `project.push_state()` DOPIERO po potwierdzeniu, że plik jest
+poprawny (`validate_bundle()`) — odrzucony plik nie zostawia
+zmarnowanego wpisu cofania.
+
+**Pułapka przy testowaniu, nie w produkcyjnym kodzie**: `QMenu.exec()`
+(opakowana metoda C++ przez Shiboken) nie daje się niezawodnie
+monkeypatchować jak zwykła metoda Pythona — próba i tak uruchamia
+PRAWDZIWY modalny `exec()`, który w headless teście wisi w nieskończoność
+(nic nie symuluje kliknięcia w jego pętli zdarzeń). `LibraryPanel._on_tree_context_menu()`
+woła zamiast tego własną, zwykłą metodę Pythona `_exec_context_menu()`
+— TĘ testy mogą bezpiecznie podmienić.
+
+### 24.12 Świadomie poza zakresem
 
 Wizualne oznaczenie "jesteś teraz wewnątrz makrobloku" na kanwie poza
 samym breadcrumbem (np. inne tło) — nie zgłoszone jako potrzeba, pełny
-status w AUDIT_REPORT.md §31/§35.
+status w AUDIT_REPORT.md §31/§35/§36.
 
 Testy: `tests/test_macros.py` (42), `tests/test_macro_instance.py` (11),
 `tests/test_compiler.py` (+3), `tests/test_macro_creation.py` (9),
 `tests/test_macro_block_rendering.py` (5), `tests/test_library_panel_macros.py`
 (12), `tests/test_breadcrumb_bar.py` (11), `tests/test_macro_navigation.py`
 (15), `tests/test_macro_pins_dialog.py` (7), `tests/test_macro_pin_editing.py`
-(14) — pełne rozbicie w AUDIT_REPORT.md §8/§30/§31/§32/§35.
+(14), `tests/test_macro_library.py` (17), `tests/test_library_panel_macro_sharing.py`
+(12) — pełne rozbicie w AUDIT_REPORT.md §8/§30/§31/§32/§35/§36.
