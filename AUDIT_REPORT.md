@@ -1,8 +1,8 @@
 # EPW Logic Studio — Pełny raport audytowy (dla Claude.ai)
 
 **Data:** 2026-09-06 (migawka §1-§10 odświeżona do stanu na branchu
-`fix/ci-pin-runner-and-pyside6` (na `main` commit `5bdb1bb`, po scaleniu
-PR #25 `feat/macro-blocks`); wszystkie liczby poniżej wyliczone
+`feat/macro-editable-pins` (na `main` commit `04ab85b`, po scaleniu PR #26
+`fix/ci-pin-runner-and-pyside6`); wszystkie liczby poniżej wyliczone
 bezpośrednio z repozytorium, nie przepisane z poprzedniej wersji —
 polecenia użyte do ich wyliczenia podane w każdej sekcji).
 **Zakres:** wyłącznie warstwa logiki — `EPW-Logic-Studio/` (moduł `logic_studio`, testy, przykłady `.epwlogic`). Pozostałe moduły platformy (`EPW-OS`, `EPW-Synoptic-Editor`) celowo pominięte.
@@ -27,13 +27,13 @@ Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) 
 
 ## 2. Status repozytorium
 
-- Gałąź: `fix/ci-pin-runner-and-pyside6` (na `main` commit `5bdb1bb`, po scaleniu PR #25 `feat/macro-blocks`), jeszcze niescalona.
-- **Testy: 1075/1075 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~23-25s.
-- **52 pliki testowe** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **13148 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
-- **Kod produkcyjny (`logic_studio/`): 14850 linii w 67 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
+- Gałąź: `feat/macro-editable-pins` (na `main` commit `04ab85b`, po scaleniu PR #26 `fix/ci-pin-runner-and-pyside6`), jeszcze niescalona.
+- **Testy: 1111/1111 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~27-29s.
+- **54 pliki testowe** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **13805 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
+- **Kod produkcyjny (`logic_studio/`): 15391 linii w 68 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
   - `blocks/`: 2424
-  - `ui/`: 8889
-  - `core/`: 2052
+  - `ui/`: 9160
+  - `core/`: 2322
   - `compiler/`: 807
   - `engine/`: 458
   - `app.py`/`__init__.py` (top-level): 220
@@ -238,15 +238,17 @@ Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyśc
 ### 7.3 `RuntimeSnapshot` / `RuntimeBlockState` / `RuntimePinState`
 Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 
-## 8. Testy ([tests/](tests/)) — 1075/1075 PASS
+## 8. Testy ([tests/](tests/)) — 1111/1111 PASS
 
-52 pliki `test_*.py`, 13148 linii. Kilka największych/najbardziej reprezentatywnych plików:
+54 pliki `test_*.py`, 13805 linii. Kilka największych/najbardziej reprezentatywnych plików:
 
 | Plik | Zakres |
 |---|---|
 | `test_canvas_rendering.py` | rysowanie bloków/kanwy — 141 testów |
-| `test_macros.py` | model danych makrobloków — definicje, `build_definition()`, `expand_project()` (zagnieżdżanie, cykle, brakujące definicje, błąd granicy zakotwiczonej na zagnieżdżonej instancji), `instantiate_definition_blocks()`/`update_definition_blocks()` (nawigacja), `core/macros.py` (§24/§31/§32 dziennika) — 30 testów |
-| `test_macro_navigation.py` | nawigacja breadcrumb "wejdź w makroblok" — wejście/wyjście, commit przy wyjściu, zamrożone piny graniczne, zagnieżdżenie, normalizacja do głównego poziomu przy zapisie/kompilacji/undo/redo/nowym projekcie (§31 dziennika) — 15 testów |
+| `test_macros.py` | model danych makrobloków — definicje, `build_definition()`, `expand_project()` (zagnieżdżanie, cykle, brakujące definicje, błąd granicy zakotwiczonej na zagnieżdżonej instancji), `instantiate_definition_blocks()`/`update_definition_blocks()`, `add_boundary_pin()`/`remove_boundary_pin()`/`resync_all_instances()`, `core/macros.py` (§24/§31/§32/§35 dziennika) — 42 testy |
+| `test_macro_navigation.py` | nawigacja breadcrumb "wejdź w makroblok" — wejście/wyjście, commit przy wyjściu, zagnieżdżenie, normalizacja do głównego poziomu przy zapisie/kompilacji/undo/redo/nowym projekcie (§31 dziennika) — 15 testów |
+| `test_macro_pin_editing.py` | edytowalne piny makrobloku end-to-end — wystaw/usuń pin z menu kontekstowego/dialogu, resync na żywej instancji i zagnieżdżonej w innej definicji (§35 dziennika) — 14 testów |
+| `test_macro_pins_dialog.py` | `MacroPinsDialog` — listy wejść/wyjść, usuwanie przez callback, odświeżanie (§35 dziennika) — 7 testów |
 | `test_internal_bits.py` | rejestr sygnałów wewnętrznych, katalog sygnałów systemowych, synchronizacja typu pinu po wczytaniu (§28) + `SignalPickerDialog.selected_kind()` (§29 dziennika) — 57 testów |
 | `test_export_contract.py` | kontrakt eksportu, checksum, metadane — 33 testy |
 | `test_blocks.py` | logika pojedynczych bloków — 31 testów |
@@ -255,7 +257,7 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_macro_instance.py` | `MacroInstanceBlock` — konstrukcja, `configure()`, `deserialize()`, `clone()` (§24 dziennika) — 11 testów |
 | `test_library_panel_macros.py` | sekcja "Makrobloki" w panelu biblioteki — `set_project()`, nazwa/opis/tooltip z rzeczywistej definicji, wyszukiwanie, odświeżanie po utworzeniu/undo/nowym projekcie (§24 dziennika) — 12 testów |
 | `test_macro_creation.py` | `LogicScene.create_macro_from_selection()`, przypadek makro w `add_block_from_library()`, wejście z menu kontekstowego, kopiuj/wklej/duplikuj instancji (§24/§33 dziennika) — 11 testów |
-| `test_breadcrumb_bar.py` | `BreadcrumbBar` — widoczność, przyciski/etykieta, sygnał `navigate_to` (§31 dziennika) — 8 testów |
+| `test_breadcrumb_bar.py` | `BreadcrumbBar` — widoczność, przyciski/etykieta, sygnał `navigate_to`, przycisk "Piny makrobloku..." (§31/§35 dziennika) — 11 testów |
 | `test_macro_block_rendering.py` | render `MacroInstanceBlock` na kanwie, ikona biblioteki (§24 dziennika) — 5 testów |
 | `test_grid_alignment.py` | siatka, snap, geometria — 176 testów |
 | `test_internal_bits.py` | rejestr sygnałów wewnętrznych, katalog sygnałów systemowych, synchronizacja typu pinu po wczytaniu (§28) + `SignalPickerDialog.selected_kind()` (§29 dziennika) — 57 testów |
@@ -281,7 +283,7 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_wire_routing.py` | kierunek wejścia/wyjścia przewodu z pinu — 6 testów |
 | `test_e2e.py`, `test_isolation.py`, `test_compiler.py`, `test_project.py`, `test_acceptance.py`, ... | pipeline end-to-end, izolacja `CompiledProgram`, kompilator, (de)serializacja projektu, scenariusze akceptacyjne |
 
-Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1075 passed w ~23-25s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
+Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1111 passed w ~27-29s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
 
 ## 9. Znane problemy i uwagi z audytu (wyłącznie OTWARTE)
 
@@ -331,21 +333,25 @@ dziennika, branch `fix/audit-followups-multidevice-const`).
    `pytest-randomly` (nieużywany lokalnie) by ujawnił szybciej. Nie
    odtworzone w sposób pozwalający wskazać konkretny plik/test jako
    przyczynę.
-4. Makrobloki (§24 ARCHITECTURE.md, §30/§31 dziennika) — cały ustalony
-   zakres v1 gotowy (fundament, panel biblioteki, nawigacja breadcrumb).
-   Jeden świadomy ograniczenie pozostaje: edycja `input_pins`/
-   `output_pins` definicji z poziomu jej własnego wnętrza jest zamrożona
-   (§31 pkt 2) — zmiana wymagałaby resynchronizacji każdej innej placed
-   instancji tej samej definicji, nie zgłoszona jako potrzeba na tym
-   etapie.
+4. Makrobloki (§24 ARCHITECTURE.md, §30/§31/§35 dziennika) — cały ustalony
+   zakres gotowy, WŁĄCZNIE z edytowalnymi pinami granicznymi + resync
+   (§35) — §31 pkt 2's dawne ograniczenie zniesione. Jedyne pozostałe,
+   świadomie pominięte: wizualne oznaczenie "jesteś wewnątrz makrobloku"
+   na kanwie poza samym breadcrumbem (§24.10 ARCHITECTURE.md) — nie
+   zgłoszone jako potrzeba.
 5. CI na Linuksie padał z `exit code 135` (crash, sygnał `SIGBUS`) na
    KAŻDYM uruchomieniu, niezależnie od kodu tego repozytorium — nawet na
    samym `main` (§34 dziennika). Naprawa (przypięcie `ubuntu-22.04` +
-   `PySide6==6.11.2`, usunięcie nieużywanego `pytest-qt`) wypchnięta na
-   `fix/ci-pin-runner-and-pyside6`, **czeka na potwierdzenie zielonym
-   uruchomieniem** — bez dostępu do surowego logu joba diagnoza to
-   eliminacja pływających zależności, nie potwierdzona pojedyncza
-   przyczyna.
+   `PySide6==6.11.2`, usunięcie nieużywanego `pytest-qt`, diagnostyka
+   faulthandler + auto-komentarz PR) scalona (PR #26) — jeden przebieg po
+   naprawie przeszedł, jeden wcześniejszy (te same przypięcia) padł
+   `exit code 139` (SIGSEGV) po ~45s zamiast natychmiast — wygląda na
+   awarię ZALEŻNĄ OD KOLEJNOŚCI testów (`pytest-randomly` losuje inną za
+   każdym razem), tej samej klasy co już odnotowana niestabilność
+   Windowsa (pkt 3 powyżej), tu ujawniająca się jako twardy crash zamiast
+   miękkiego błędu asercji. Nie potwierdzone wielokrotnymi zielonymi
+   powtórzeniami przed scaleniem — warto obserwować kolejne uruchomienia
+   CI na `main`.
 
 ---
 
@@ -1423,15 +1429,77 @@ zweryfikować hipotezy inaczej niż empirycznie):
    tego, czy jakikolwiek test faktycznie korzysta z jego fixture'ów —
    zbędna zmienna, usunięta zamiast utrzymywana "na wszelki wypadek".
 
-**Status**: naprawa wypchnięta, **czeka na potwierdzenie zielonym
-uruchomieniem CI** — bez dostępu do surowego logu nie da się stwierdzić z
-całą pewnością, że to WŁAŚNIE te trzy zmiany usuwają przyczynę, tylko że
-usuwają WSZYSTKIE zidentyfikowane pływające zmienne na raz. Jeśli
-kolejne uruchomienie nadal padnie tym samym `exit code 135`, następny
-krok to rozważenie `xvfb-run` (rzeczywisty X11 zamiast wtyczki
-`QT_QPA_PLATFORM=offscreen`) jako alternatywnego backendu headless — nie
-wdrożone teraz, bo to większa zmiana bez dowodu, że akurat ona jest
-potrzebna.
+**Status**: PR scalony (#26) — ale NIE w pełni potwierdzony. Kolejny
+przebieg po tych trzech zmianach padł z `exit code 139` (SIGSEGV) po
+~45s (blisko realnego czasu całego zestawu) zamiast natychmiastowego
+`exit code 135` sprzed naprawy; przebieg PO DODANIU diagnostyki
+(`PYTHONFAULTHANDLER`, poniżej) przeszedł w całości. Ponieważ
+`pytest-randomly` losuje inną kolejność testów za każdym uruchomieniem,
+to wygląda na awarię ZALEŻNĄ OD KOLEJNOŚCI — ta sama klasa niestabilności
+co już odnotowana na Windowsie (§10 pkt 3), tu ujawniająca się jako
+twardy crash procesu zamiast miękkiego błędu asercji, prawdopodobnie
+zależną od tego, JAKIE dwa testy akurat wylądowały obok siebie w danym
+losowaniu. Nie potwierdzone wieloma kolejnymi zielonymi uruchomieniami
+przed scaleniem — diagnostyka (`PYTHONFAULTHANDLER=1` + auto-komentarz
+PR z ogonem logu) zostaje w workflow na przyszłość, żeby następne
+wystąpienie od razu pokazało DOKŁADNIE który test i która linia Pythona
+były wykonywane w chwili crashu, zamiast trzeba było znów zgadywać z
+samych kodów wyjścia. Jeśli `xvfb-run` (rzeczywisty X11 zamiast wtyczki
+`QT_QPA_PLATFORM=offscreen`) okaże się potrzebny, to następny krok — nie
+wdrożone teraz bez dowodu, że akurat ono jest potrzebne.
+
+## 35. Makrobloki: edytowalne piny graniczne + resynchronizacja instancji (branch `feat/macro-editable-pins`)
+
+Pierwsza z czterech pozycji wybranych po §30/§31/§34 (edytowalne piny,
+import/eksport bibliotek makrobloków, diff wersji projektu, eksport do
+PDF — właściciel produktu wybrał wszystkie cztery, realizowane po
+kolei). Domyka jedyne znane ograniczenie makrobloków (§31 pkt 2): piny
+`input_pins`/`output_pins` definicji są teraz edytowalne z poziomu jej
+własnego wnętrza, z natychmiastową resynchronizacją każdej placed
+instancji w całym projekcie. Pełny opis mechanizmu w ARCHITECTURE.md
+§24.9 — tu tylko status.
+
+| # | Punkt | Status |
+|---|---|---|
+| 1 | Model danych (`core/macros.py`) | Zrobione — `add_boundary_pin()`/`remove_boundary_pin()` (dodają/usuwają wpis w `input_pins`/`output_pins`, walidując że anchor block/pin istnieje i kierunek się zgadza), `resync_all_instances()` (przebudowuje piny KAŻDEJ instancji def_id — żywej, gdziekolwiek na stosie nawigacji, lub osadzonej jako dane wewnątrz INNEJ definicji — dopasowując po `(nazwa, typ)`, nie pozycji, więc okablowanie pinów, które przetrwały zmianę, zostaje nietknięte). Zmiana nazwy pinu nierozróżnialna od usuń+dodaj — świadomie, żadna operacja "zmień nazwę" nie istnieje. |
+| 2 | Dodawanie pinu — kontekstowo na kanwie | Zrobione — prawym przyciskiem na blok wewnątrz aktualnie edytowanego makrobloku → "Wystaw pin makrobloku" (`BlockItem.populate_expose_pin_menu()`), listuje tylko WŁASNE piny tego bloku jeszcze niewystawione, menu nieobecne poza widokiem wnętrza makrobloku. |
+| 3 | Usuwanie pinu — dedykowany dialog | Zrobione — przycisk "Piny makrobloku..." w `BreadcrumbBar` (widoczny razem z całym paskiem okruszków) otwiera `MacroPinsDialog` (`ui/macro_pins_dialog.py`) — dwie listy z przyciskiem "Usuń zaznaczone" każda, Qt-cienki, deleguje każde usunięcie do `MainWindow._remove_macro_pin()`. |
+| 4 | Commit i resync natychmiastowy | Zrobione — inaczej niż `update_definition_blocks()` (odroczone do wyjścia z breadcrumb), zmiana granicy jest widoczna dla wszystkich instancji od razu po kliknięciu, bez stanu pośredniego. |
+
+**Błąd znaleziony i naprawiony w trakcie budowy (przed scaleniem)**:
+`add_boundary_pin()` wyszukuje wskazany blok w ZAPISANEJ definicji
+(`definition["blocks"]`) — ale blok umieszczony w TEJ SAMEJ sesji edycji
+(przed jakimkolwiek wyjściem z breadcrumb) jeszcze tam nie istnieje,
+`update_definition_blocks()` normalnie odroczone do wyjścia. Skutek:
+próba wystawienia pinu na świeżo umieszczonym bloku cicho nie znajdowała
+go wcale. Naprawione — `MainWindow.expose_macro_pin()` woła
+`update_definition_blocks()` NAJPIERW, zawsze, więc zapisana definicja
+zawsze odzwierciedla to, co faktycznie widać na kanwie, zanim
+`add_boundary_pin()` czegokolwiek w niej szuka. Złapane przez własne
+testy tej gałęzi przed scaleniem, nie przez użytkownika.
+
+Testy: `tests/test_macros.py` (+12 — `add_boundary_pin()`/
+`remove_boundary_pin()` łącznie z odrzucaniem duplikatów/nieznanych
+bloków, `resync_all_instances()` łącznie z zachowaniem okablowania
+przetrwałych pinów, rozłączeniem zewnętrznej strony usuniętego pinu,
+resynchronizacją instancji zagnieżdżonej w innej definicji, brakiem
+wpływu na instancje INNEJ definicji), `tests/test_breadcrumb_bar.py`
+(+3 — przycisk "Piny makrobloku...", w tym regresja na własną naprawę
+poniżej), `tests/test_macro_pins_dialog.py` (7 — listy, usuwanie przez
+callback, odświeżanie), `tests/test_macro_pin_editing.py` (14 —
+end-to-end: wystawienie z menu kontekstowego, usunięcie przez dialog,
+resync żywej instancji i zagnieżdżonej, flaga "dirty", zachowanie poza
+widokiem makrobloku). Pełny zestaw: 1111 passed (1075 + 36 nowych
+testów tej PR — patrz §8 dla rozbicia). Wszystkie 10
+`examples/*.epwlogic` nadal się kompilują.
+
+**Naprawiony po drodze, przy okazji tej PR (nie zgłoszony osobno)**:
+`BreadcrumbBar.set_path()`'s czyszcząca pętla zakładała DOKŁADNIE jeden
+trwały element na końcu układu (rozciągliwy odstęp) — dodanie DRUGIEGO
+trwałego elementu (przycisk "Piny makrobloku...") bez poprawienia tej
+pętli usuwałoby przycisk na pierwszym samym wywołaniu `set_path()`.
+Naprawione zanim trafiło do jakiegokolwiek commita na `main` — złapane
+przez `tests/test_breadcrumb_bar.py::test_pins_button_survives_several_set_path_calls_in_a_row`.
 
 ## Zasada utrzymania tego dokumentu
 

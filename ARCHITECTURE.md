@@ -1805,15 +1805,79 @@ LogicScene/makr wcale — `MainWindow._refresh_breadcrumb()` liczy nazwy
 (`get_definition()` dla każdego `def_id` na stosie plus bieżący, "Główny"
 dla `None`) i woła `set_path()`.
 
-### 24.9 Świadomie poza zakresem
+### 24.9 Edytowalne piny graniczne (feat/macro-editable-pins)
 
-Edycja `input_pins`/`output_pins` z poziomu wnętrza makrobloku (§24.8) i
-wizualne oznaczenie "jesteś teraz wewnątrz makrobloku" na kanwie poza
-samym breadcrumbem — oba świadomie odłożone, pełny status w
-AUDIT_REPORT.md §31.
+§24.8's frozen-boundary-pins limitation jest zniesiona: `input_pins`/
+`output_pins` można teraz dodawać/usuwać z poziomu wnętrza definicji,
+z natychmiastową resynchronizacją KAŻDEJ placed instancji w całym
+projekcie (`core/macros.py::add_boundary_pin()`/`remove_boundary_pin()`/
+`resync_all_instances()`).
 
-Testy: `tests/test_macros.py` (30), `tests/test_macro_instance.py` (11),
+**Dodawanie** — kontekstowo, na kanwie: prawym przyciskiem na blok
+wewnątrz aktualnie edytowanego makrobloku → "Wystaw pin makrobloku"
+(`BlockItem.populate_expose_pin_menu()`) listuje TYLKO piny tego bloku
+jeszcze niewystawione → klik woła `MainWindow.expose_macro_pin()`. Menu
+w ogóle nie pojawia się poza widokiem wnętrza makrobloku (analogicznie do
+`populate_duplicate_reference_menu()`).
+
+**Usuwanie** — dedykowanym dialogiem: przycisk "Piny makrobloku..." w
+`BreadcrumbBar` (widoczny dokładnie wtedy, kiedy cały pasek okruszków —
+czyli wewnątrz makrobloku) otwiera `ui/macro_pins_dialog.py::MacroPinsDialog`
+— dwie listy (wejścia/wyjścia) z przyciskiem "Usuń zaznaczone" każda.
+Dialog jest Qt-cienki: nigdy nie dotyka `core/macros.py` sam — każde
+usunięcie deleguje do `MainWindow._remove_macro_pin()` (rzeczywiste
+`remove_boundary_pin()`+resync), dostaje z powrotem świeżą definicję i
+odświeża się nią.
+
+**Commit-i-resync NATYCHMIASTOWY, nie odroczony** — inaczej niż
+`update_definition_blocks()` (§24.8, wołane dopiero przy wyjściu z
+breadcrumb): zmiana kształtu granicy musi być widoczna dla WSZYSTKICH
+instancji od razu, nie ma stanu pośredniego "w trakcie, jeszcze nie
+zastosowane" sensownego dla pinów tak, jak jest dla bloków wewnętrznych.
+
+**Pułapka znaleziona i naprawiona podczas budowy**: `add_boundary_pin()`
+wyszukuje `block_uuid` w ZAPISANEJ definicji (`definition["blocks"]`) —
+ale blok właśnie umieszczony w TEJ SAMEJ sesji edycji jeszcze tam nie
+istnieje (`update_definition_blocks()` normalnie odroczone do wyjścia z
+breadcrumb, §24.8). `MainWindow.expose_macro_pin()` woła teraz
+`update_definition_blocks()` NAJPIERW, zawsze, żeby zapisana definicja
+odzwierciedlała to, co faktycznie widać na kanwie, zanim `add_boundary_pin()`
+w ogóle spróbuje czegokolwiek w niej szukać — złapane przez własne testy
+(`test_macro_pin_editing.py`) przed scaleniem, nie przez użytkownika.
+
+**Algorytm resynchronizacji** (`core/macros.py::_resync_pin_list()`) —
+dopasowanie każdej instancji WŁASNYCH bieżących pinów do NOWEJ listy
+granicznej definicji po `(nazwa, typ)`, nie po pozycji: pin, który wciąż
+pasuje, zachowuje swój obiekt (uuid, połączenia — całe okablowanie
+przetrwa nietknięte); pin bez dopasowania w nowej definicji jest USUNIĘTY
+(jego uuid czyszczony z połączeń każdego innego pinu na tym samym
+poziomie — `_disconnect_removed_pins_live()` dla żywych obiektów,
+odpowiednik dla zapisanych danych w `_resync_instance_dict()`); nowy slot
+bez dopasowania dostaje świeży, niepodłączony pin. Zmiana ETYKIETY pinu
+jest nierozróżnialna od usunięcia+dodania w tym schemacie — świadomie:
+`add_boundary_pin()`/`remove_boundary_pin()` nie oferują operacji
+"zmień nazwę" wcale, bo nie da się jej rozstrzygnąć dokładniej bez
+osobnej, trwałej tożsamości pinu niezależnej od etykiety — nieopłacalna
+złożoność modelu danych jak na to, co i tak pokrywa usuń+dodaj (kosztem
+okablowania TEGO JEDNEGO pinu na każdej instancji).
+
+Resynchronizacja obejmuje DWA rodzaje instancji: żywe obiekty (bieżący
+`project.blocks` PLUS każdy odłożony na stosie `_macro_nav_stack` poziom
+przodka — `core/macros.py` samo nie ma pojęcia o "stosie nawigacji",
+MainWindow składa tę listę) oraz instancje osadzone jako zwykłe dane
+wewnątrz `"blocks"` INNEJ definicji (`project.settings`) — te nigdy nie są
+żywe niezależnie od głębokości nawigacji, więc są przepisywane
+bezpośrednio jako słowniki.
+
+### 24.10 Świadomie poza zakresem
+
+Wizualne oznaczenie "jesteś teraz wewnątrz makrobloku" na kanwie poza
+samym breadcrumbem (np. inne tło) — nie zgłoszone jako potrzeba, pełny
+status w AUDIT_REPORT.md §31/§35.
+
+Testy: `tests/test_macros.py` (42), `tests/test_macro_instance.py` (11),
 `tests/test_compiler.py` (+3), `tests/test_macro_creation.py` (9),
 `tests/test_macro_block_rendering.py` (5), `tests/test_library_panel_macros.py`
-(12), `tests/test_breadcrumb_bar.py` (8), `tests/test_macro_navigation.py`
-(15) — pełne rozbicie w AUDIT_REPORT.md §8/§30/§31/§32.
+(12), `tests/test_breadcrumb_bar.py` (11), `tests/test_macro_navigation.py`
+(15), `tests/test_macro_pins_dialog.py` (7), `tests/test_macro_pin_editing.py`
+(14) — pełne rozbicie w AUDIT_REPORT.md §8/§30/§31/§32/§35.

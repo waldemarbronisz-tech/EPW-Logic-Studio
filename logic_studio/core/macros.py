@@ -116,13 +116,14 @@ def is_definition_in_use(project, def_id: str) -> bool:
 # globally-unique short_id, and why the "Makrobloki" library section stays
 # consistent regardless of nav depth.
 #
-# v1 scope: a definition's OWN input_pins/output_pins (what it exposes to
-# the OUTSIDE) are FIXED once created — editing a macro's internals can
-# freely add/remove/rewire its INTERNAL blocks, but never changes its own
-# boundary pins. This sidesteps a much harder problem (resyncing every
-# OTHER placed instance of the same definition, at every nesting depth,
-# the moment its exposed shape changes) that a first version doesn't need
-# to solve — see ARCHITECTURE.md §24.9.
+# feat/macro-editable-pins: a definition's OWN input_pins/output_pins
+# (what it exposes to the OUTSIDE) CAN be changed from inside its own
+# breadcrumb edit view too — add_boundary_pin()/remove_boundary_pin()
+# below — with every existing placed instance, anywhere in the project
+# (including nested inside OTHER macros' own stored definitions),
+# resynced immediately by resync_all_instances(). See that function's
+# own docstring for the resync algorithm and ARCHITECTURE.md §24.10 for
+# the full design writeup.
 
 def instantiate_definition_blocks(definition: dict) -> tuple:
     """Builds fresh LIVE `BaseLogicBlock` objects from `definition["blocks"]`
@@ -161,16 +162,256 @@ def instantiate_definition_blocks(definition: dict) -> tuple:
 def update_definition_blocks(project, def_id: str, blocks: list) -> bool:
     """Commits `blocks` (this definition's OWN blocks, just edited directly
     via breadcrumb navigation) back into its stored definition —
-    `"input_pins"`/`"output_pins"`/`"name"` are left untouched (frozen by
-    design, see module-level note above). Returns False (no-op) if the
-    definition was deleted while it was being edited — nothing left to
-    commit back into."""
+    `"input_pins"`/`"output_pins"`/`"name"` are left untouched (those are
+    add_boundary_pin()/remove_boundary_pin()'s job instead, committed and
+    resynced immediately rather than deferred like this function). Returns
+    False (no-op) if the definition was deleted while it was being edited
+    — nothing left to commit back into."""
     definition = get_definition(project, def_id)
     if definition is None:
         return False
     definition["blocks"] = [b.serialize() for b in blocks]
     set_definition(project, def_id, definition)
     return True
+
+
+# ---- Editable boundary pins (feat/macro-editable-pins) ---------------------
+# Unlike update_definition_blocks() above (deferred until the engineer
+# leaves the macro's breadcrumb view), a boundary-pin change is committed
+# AND resynced onto every instance IMMEDIATELY — there's no "in-progress,
+# not yet applied" state for a pin add/remove the way there is for
+# internal-block edits, since every instance needs to agree on the shape
+# right away for the canvas (whichever level happens to be visible next)
+# to ever show something consistent.
+
+def add_boundary_pin(project, def_id: str, direction, block_uuid: str, pin_name: str) -> bool:
+    """Exposes an additional input/output pin on `def_id`'s own
+    definition, anchored at one of its internal blocks' own pins
+    (`block_uuid`/`pin_name`, matched against the definition's stored
+    `"blocks"` — must exist, with `direction` matching that pin's own:
+    an exposed INPUT anchors an internal INPUT pin, so the macro
+    instance's own input can drive it from outside; ditto OUTPUT).
+    Returns False (no-op) if the definition, block, or pin doesn't exist,
+    or this exact (block_uuid, pin_name) is already exposed on this side
+    — does NOT resync instances itself, call resync_all_instances() right
+    after (kept separate so a caller building several changes at once,
+    e.g. exposing many pins together, only resyncs once at the end)."""
+    from logic_studio.blocks.pin import Pin
+
+    definition = get_definition(project, def_id)
+    if definition is None:
+        return False
+    boundary_key = "input_pins" if direction == Pin.DIR_INPUT else "output_pins"
+    pin_list_key = "inputs" if direction == Pin.DIR_INPUT else "outputs"
+
+    block_data = next((b for b in definition["blocks"] if b.get("uuid") == block_uuid), None)
+    if block_data is None:
+        return False
+    pin_data = next((p for p in block_data.get(pin_list_key, []) if p.get("name") == pin_name), None)
+    if pin_data is None:
+        return False
+    already_exposed = any(
+        e.get("block_uuid") == block_uuid and e.get("pin_name") == pin_name
+        for e in definition[boundary_key]
+    )
+    if already_exposed:
+        return False
+
+    definition[boundary_key].append({
+        "block_uuid": block_uuid,
+        "pin_name": pin_name,
+        "data_type": Pin._decode_data_type(pin_data.get("data_type")),
+        "label": pin_name,
+    })
+    set_definition(project, def_id, definition)
+    return True
+
+
+def remove_boundary_pin(project, def_id: str, direction, index: int) -> bool:
+    """Removes the boundary pin at position `index` from `def_id`'s own
+    input_pins/output_pins. Returns False (no-op) for a missing
+    definition or an out-of-range index. Does NOT resync instances
+    itself — same reasoning as add_boundary_pin()."""
+    from logic_studio.blocks.pin import Pin
+
+    definition = get_definition(project, def_id)
+    if definition is None:
+        return False
+    boundary_key = "input_pins" if direction == Pin.DIR_INPUT else "output_pins"
+    entries = definition[boundary_key]
+    if index < 0 or index >= len(entries):
+        return False
+    entries.pop(index)
+    set_definition(project, def_id, definition)
+    return True
+
+
+def _resync_pin_list(current_pins, new_boundary_entries, direction):
+    """The shared matching rule behind resync_all_instances(): given an
+    instance's CURRENT pins (one side only — inputs or outputs) and the
+    definition's NEW boundary-pin entries for that same side, returns
+    `(new_pins, removed_pins)`.
+
+    A current pin is REUSED — same object, same uuid, same connections,
+    its wiring survives completely untouched — for whichever new slot
+    matches it by `(name, data_type)`; a new slot with no match gets a
+    brand new, unconnected Pin. Matching by (name, data_type) rather than
+    position is what keeps inserting a pin before an existing one, or
+    removing one from the middle, from scrambling every survivor's own
+    identity just because its index shifted.
+
+    Every current pin NOT reused this way is a removed boundary pin,
+    returned in `removed_pins` — the caller is responsible for tearing
+    down whatever else in that same block list still references it by
+    uuid (this function only ever sees ONE instance's own pins, never the
+    rest of the level it lives in, so it can't do that part itself).
+
+    Renaming a pin's label is indistinguishable from removing the old one
+    and adding a new one under this scheme — accepted deliberately:
+    add_boundary_pin()/remove_boundary_pin() offer no "rename" operation
+    at all, precisely because there's no more precise way to resync a
+    rename than this without a dedicated, persistent pin identity kept
+    separate from its label (not worth the extra schema/model complexity
+    for what a remove-then-add already covers, at the cost of that one
+    pin's own wiring at every instance)."""
+    remaining = list(current_pins)
+    new_pins = []
+    for entry in new_boundary_entries:
+        label = entry.get("label", entry.get("pin_name", ""))
+        data_type = entry.get("data_type", "Boolean")
+        match = next((p for p in remaining if p.name == label and p.data_type == data_type), None)
+        if match is not None:
+            remaining.remove(match)
+            new_pins.append(match)
+        else:
+            from logic_studio.blocks.pin import Pin
+            new_pins.append(Pin(label, direction, data_type))
+    return new_pins, remaining
+
+
+def _resync_instance_live(instance, new_definition):
+    """Rebuilds a LIVE MacroInstanceBlock's own inputs/outputs in place to
+    match `new_definition`'s current boundary shape, preserving every
+    surviving pin's own wiring. Returns the list of removed Pin objects
+    (both sides) — the caller must scrub any OTHER pin in the same block
+    list that still references one of them by uuid."""
+    from logic_studio.blocks.pin import Pin
+
+    new_inputs, removed_inputs = _resync_pin_list(instance.inputs, new_definition.get("input_pins", []), Pin.DIR_INPUT)
+    new_outputs, removed_outputs = _resync_pin_list(instance.outputs, new_definition.get("output_pins", []), Pin.DIR_OUTPUT)
+    instance.inputs = new_inputs
+    instance.outputs = new_outputs
+    instance.display_name = new_definition.get("name", instance.display_name)
+    return removed_inputs + removed_outputs
+
+
+def _disconnect_removed_pins_live(block_list, removed_pins):
+    removed_uuids = {p.uuid for p in removed_pins}
+    if not removed_uuids:
+        return
+    for block in block_list:
+        for pin in block.inputs + block.outputs:
+            pin.connections = [c for c in pin.connections if c not in removed_uuids]
+
+
+def _resync_instance_dict(b_data, new_definition, sibling_blocks_data):
+    """Same rebuild as _resync_instance_live(), but for a macro instance
+    that ISN'T currently live Python objects — one embedded in some OTHER
+    definition's own stored `"blocks"` list (project.settings, plain
+    dicts, not touched by this edit session's live nav stack at all).
+    Rewrites `b_data["inputs"]`/`["outputs"]` and `b_data["display_name"]`
+    in place, and scrubs `sibling_blocks_data` (every OTHER block dict in
+    that SAME definition) of any dangling reference to a removed pin's
+    uuid — the dict-data equivalent of _disconnect_removed_pins_live()."""
+    from logic_studio.blocks.pin import Pin
+
+    def resync_side(data_key, boundary_key, direction):
+        remaining = list(b_data.get(data_key, []))
+        new_list = []
+        for entry in new_definition.get(boundary_key, []):
+            label = entry.get("label", entry.get("pin_name", ""))
+            data_type = entry.get("data_type", "Boolean")
+            match = next(
+                (p for p in remaining
+                 if p.get("name") == label and Pin._decode_data_type(p.get("data_type")) == data_type),
+                None,
+            )
+            if match is not None:
+                remaining.remove(match)
+                new_list.append(match)
+            else:
+                new_list.append(Pin(label, direction, data_type).serialize())
+        b_data[data_key] = new_list
+        return remaining
+
+    removed_inputs = resync_side("inputs", "input_pins", Pin.DIR_INPUT)
+    removed_outputs = resync_side("outputs", "output_pins", Pin.DIR_OUTPUT)
+    b_data["display_name"] = new_definition.get("name", b_data.get("display_name"))
+
+    removed_uuids = {p["uuid"] for p in removed_inputs + removed_outputs}
+    if not removed_uuids:
+        return
+    for sibling in sibling_blocks_data:
+        for key in ("inputs", "outputs"):
+            for pin_data in sibling.get(key, []):
+                pin_data["connections"] = [c for c in pin_data.get("connections", []) if c not in removed_uuids]
+
+
+def resync_all_instances(project, def_id: str, live_block_lists: list) -> None:
+    """Call immediately after add_boundary_pin()/remove_boundary_pin()
+    changes `def_id`'s own boundary shape — walks EVERY instance of this
+    definition reachable anywhere in the project and rebuilds its pins to
+    match, preserving each surviving pin's own wiring (see
+    _resync_pin_list()'s docstring for the matching rule). A no-op if the
+    definition itself was deleted in the meantime.
+
+    Two kinds of instance, handled differently:
+
+    - LIVE ones — real Python objects, found by scanning
+      `live_block_lists`: every block list that's CURRENTLY live Python
+      objects, not just settings data. That's `project.blocks` itself
+      PLUS every ancestor level's own stashed list if the caller is mid
+      breadcrumb-navigation (MainWindow's own `_macro_nav_stack` entries
+      — this module has no notion of a "nav stack" itself, so the caller
+      assembles the list). A sibling level NOT on the current breadcrumb
+      path (a different macro's own edit view, never entered this
+      session) has no live objects at all — see the next case.
+    - Instances embedded in some OTHER definition's own stored `"blocks"`
+      (project.settings) are rewritten directly as dicts instead — they
+      aren't live objects right now regardless of nav state.
+
+    `def_id`'s OWN "blocks" are deliberately never scanned here — a
+    macro can't contain a live instance of itself (compile-time cycle
+    detection, core/macros.py::expand_project()) in any project this
+    module itself ever produced; a hand-edited file that smuggled one in
+    anyway is exactly the "cycle" `expand_project()` already catches and
+    refuses to compile, not something this function needs to guard
+    against on its own."""
+    new_definition = get_definition(project, def_id)
+    if new_definition is None:
+        return
+    type_id = MACRO_TYPE_PREFIX + def_id
+
+    for block_list in live_block_lists:
+        for block in block_list:
+            if getattr(block, "type_id", None) != type_id:
+                continue
+            removed = _resync_instance_live(block, new_definition)
+            _disconnect_removed_pins_live(block_list, removed)
+
+    definitions = project.settings.get(SETTINGS_KEY, {})
+    for other_def_id, other_definition in definitions.items():
+        if other_def_id == def_id:
+            continue
+        blocks_data = other_definition.get("blocks", [])
+        changed = False
+        for b_data in blocks_data:
+            if b_data.get("type_id") != type_id:
+                continue
+            _resync_instance_dict(b_data, new_definition, blocks_data)
+            changed = True
+        if changed:
+            set_definition(project, other_def_id, other_definition)
 
 
 # ---- Building a definition from a live selection ---------------------------

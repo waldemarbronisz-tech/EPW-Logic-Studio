@@ -951,6 +951,13 @@ class BlockItem(QGraphicsItem):
             create_macro_action = menu.addAction("Utwórz makroblok...")
             create_macro_action.setEnabled(selected_block_count >= 1)
 
+        # feat/macro-editable-pins: only ever present while actually
+        # inside a macro's own breadcrumb edit view — wires its own
+        # actions straight to MainWindow.expose_macro_pin(), same
+        # self-contained pattern as populate_duplicate_reference_menu()
+        # above, so no dispatch-if-chain entry is needed below for it.
+        self.populate_expose_pin_menu(menu)
+
         action = menu.exec(QCursor.pos())
         if action == del_action:
             if self.scene():
@@ -981,6 +988,49 @@ class BlockItem(QGraphicsItem):
         if not ok or not name.strip():
             return
         scene.create_macro_from_selection(name.strip())
+
+    def populate_expose_pin_menu(self, menu):
+        """feat/macro-editable-pins: while inside a macro's own breadcrumb
+        edit view (MainWindow.current_macro_def_id is not None), adds
+        "Wystaw pin makrobloku" listing every one of THIS block's own pins
+        not already exposed as one of the macro's boundary pins — clicking
+        one calls MainWindow.expose_macro_pin(). Adds nothing at all
+        outside that view (the plain top-level canvas has no "current
+        macro" to expose a pin on), mirroring populate_duplicate_reference_
+        menu()'s own self-contained wiring."""
+        window = self._current_window()
+        def_id = getattr(window, 'current_macro_def_id', None)
+        if def_id is None:
+            return None
+        project = self._current_project()
+        if project is None:
+            return None
+        from logic_studio.core.macros import get_definition
+        definition = get_definition(project, def_id)
+        if definition is None:
+            return None
+
+        already_exposed = {
+            (e.get("block_uuid"), e.get("pin_name"))
+            for e in definition.get("input_pins", []) + definition.get("output_pins", [])
+        }
+        from logic_studio.blocks.pin import Pin
+        candidates = [
+            (pin, Pin.DIR_INPUT, "Wejście") for pin in self.logic_block.inputs
+            if (self.logic_block.uuid, pin.name) not in already_exposed
+        ] + [
+            (pin, Pin.DIR_OUTPUT, "Wyjście") for pin in self.logic_block.outputs
+            if (self.logic_block.uuid, pin.name) not in already_exposed
+        ]
+
+        submenu = menu.addMenu("Wystaw pin makrobloku")
+        submenu.menuAction().setEnabled(bool(candidates))
+        for pin, direction, kind_label in candidates:
+            action = submenu.addAction(f"{kind_label}: {pin.name}")
+            action.triggered.connect(
+                lambda checked=False, pn=pin.name, d=direction: window.expose_macro_pin(self.logic_block.uuid, pn, d)
+            )
+        return submenu
 
     def _current_signal_reference(self) -> str:
         """feat/signal-crossref §4: the signal_id "Pokaż użycia sygnału"
