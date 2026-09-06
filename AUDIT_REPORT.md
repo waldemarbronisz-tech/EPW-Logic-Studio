@@ -28,8 +28,8 @@ Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) 
 ## 2. Status repozytorium
 
 - Gałąź: `feat/macro-blocks` (na `main` commit `1b4dafd`), jeszcze niescalona.
-- **Testy: 1071/1071 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~23-25s.
-- **52 pliki testowe** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **13013 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
+- **Testy: 1073/1073 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~23-25s.
+- **52 pliki testowe** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **13086 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
 - **Kod produkcyjny (`logic_studio/`): 14850 linii w 67 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
   - `blocks/`: 2424
   - `ui/`: 8889
@@ -238,14 +238,14 @@ Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyśc
 ### 7.3 `RuntimeSnapshot` / `RuntimeBlockState` / `RuntimePinState`
 Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 
-## 8. Testy ([tests/](tests/)) — 1071/1071 PASS
+## 8. Testy ([tests/](tests/)) — 1073/1073 PASS
 
-52 pliki `test_*.py`, 13013 linii. Kilka największych/najbardziej reprezentatywnych plików:
+52 pliki `test_*.py`, 13086 linii. Kilka największych/najbardziej reprezentatywnych plików:
 
 | Plik | Zakres |
 |---|---|
 | `test_canvas_rendering.py` | rysowanie bloków/kanwy — 141 testów |
-| `test_macros.py` | model danych makrobloków — definicje, `build_definition()`, `expand_project()` (zagnieżdżanie, cykle, brakujące definicje), `instantiate_definition_blocks()`/`update_definition_blocks()` (nawigacja), `core/macros.py` (§24/§31 dziennika) — 28 testów |
+| `test_macros.py` | model danych makrobloków — definicje, `build_definition()`, `expand_project()` (zagnieżdżanie, cykle, brakujące definicje, błąd granicy zakotwiczonej na zagnieżdżonej instancji), `instantiate_definition_blocks()`/`update_definition_blocks()` (nawigacja), `core/macros.py` (§24/§31/§32 dziennika) — 30 testów |
 | `test_macro_navigation.py` | nawigacja breadcrumb "wejdź w makroblok" — wejście/wyjście, commit przy wyjściu, zamrożone piny graniczne, zagnieżdżenie, normalizacja do głównego poziomu przy zapisie/kompilacji/undo/redo/nowym projekcie (§31 dziennika) — 15 testów |
 | `test_internal_bits.py` | rejestr sygnałów wewnętrznych, katalog sygnałów systemowych, synchronizacja typu pinu po wczytaniu (§28) + `SignalPickerDialog.selected_kind()` (§29 dziennika) — 57 testów |
 | `test_export_contract.py` | kontrakt eksportu, checksum, metadane — 33 testy |
@@ -281,7 +281,7 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_wire_routing.py` | kierunek wejścia/wyjścia przewodu z pinu — 6 testów |
 | `test_e2e.py`, `test_isolation.py`, `test_compiler.py`, `test_project.py`, `test_acceptance.py`, ... | pipeline end-to-end, izolacja `CompiledProgram`, kompilator, (de)serializacja projektu, scenariusze akceptacyjne |
 
-Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1071 passed w ~23-25s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
+Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1073 passed w ~23-25s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
 
 ## 9. Znane problemy i uwagi z audytu (wyłącznie OTWARTE)
 
@@ -1277,6 +1277,50 @@ rozszerzone `tests/test_macros.py` (+6 —
 `instantiate_definition_blocks()`/`update_definition_blocks()`). Pełny
 zestaw: 1071 passed (1042 + 29 nowych testów tej PR — patrz §8 dla
 rozbicia). Wszystkie 10 `examples/*.epwlogic` nadal się kompilują.
+
+## 32. Naprawa: cicha utrata połączenia przy pewnym kształcie zagnieżdżenia makrobloków (branch `feat/macro-blocks`)
+
+Znalezione w ramach dalszego przeglądu audytowego po §30/§31 (wybranego
+jako kolejny krok zamiast nowej dużej funkcji) — celowa weryfikacja
+świeżo dodanego kodu makrobloków pod kątem przypadków brzegowych, nie
+zgłoszenie użytkownika.
+
+**Problem**: `core/macros.py::_expand_instance()`'s docstring od początku
+zakładał, że pin graniczny definicji zakotwiczony BEZPOŚREDNIO na pinie
+ZAGNIEŻDŻONEJ instancji makrobloku (a nie na zwykłym bloku wewnętrznym) —
+kształt, którego `expand_project()` nie potrafi poprawnie rozwiązać, bo
+ta zagnieżdżona instancja sama zostaje zastąpiona/odrzucona podczas
+ekspansji — jest "nieosiągalny z normalnego UI" (własne piny zagnieżdżonej
+instancji nie są niby indywidualnie zaznaczalne z zewnętrznej kanwy). To
+założenie okazało się BŁĘDNE: zaznaczenie JUŻ UMIESZCZONEJ instancji
+makrobloku razem z innymi blokami i zbudowanie z tego zaznaczenia
+WIĘKSZEGO makrobloku (`create_macro_from_selection()`) trafia w ten
+dokładny kształt bez przeszkód — `build_definition()` traktuje każdy blok
+generycznie, instancję makrobloku włącznie, a jej własny pin graniczny
+jest zwykłym, zaznaczalnym pinem z zewnątrz. Skutek: `expand_project()`
+kończył się BEZ błędu, ale z pinem wskazującym na uuid, który nigdy nie
+trafia do spłaszczonego grafu — sygnał cicho przestawał działać, bez
+żadnego ostrzeżenia ani błędu kompilacji, aż do momentu ręcznej weryfikacji
+działania na sprzęcie. Na platformie automatyki przemysłowej to realne
+zagrożenie bezpieczeństwa, nie kosmetyczna luka.
+
+**Naprawa**: `expand_project()`'s końcowy przebieg przepinania (`core/macros.py`)
+zamienia dotychczasowy cichy `continue` na twardy błąd kompilacji —
+DOKŁADNIE tak samo traktowany jak cykl czy brakująca definicja
+(`Compiler.compile()` odrzuca kompilację, `expanded_blocks` puste,
+komunikat wskazujący na przyczynę i sugerujący obejście — dodanie bloku
+pośredniczącego). Nie ROZWIĄZUJE samego ograniczenia (pełne rozwiązanie
+wymagałoby rekurencyjnego przechodzenia przez łańcuch granic zagnieżdżenia
+— osobna, większa praca, nie zgłoszona jako potrzeba), ale usuwa realne
+niebezpieczeństwo cichego, niezauważonego błędu — teraz kompilacja
+odmawia, zamiast produkować program z martwym połączeniem.
+
+Testy: `tests/test_macros.py` (+2 — `expand_project()` zwraca błąd zamiast
+pustej listy błędów dla tego kształtu, `Compiler.compile()` zwraca `None`
+zamiast programu z martwym połączeniem). Pełny zestaw: 1073 passed (1071
++ 2 nowych testów). Wszystkie 10 `examples/*.epwlogic` nadal się
+kompilują (żaden z nich nie zawiera makrobloków, więc ta zmiana nie mogła
+ich dotknąć).
 
 ## Zasada utrzymania tego dokumentu
 

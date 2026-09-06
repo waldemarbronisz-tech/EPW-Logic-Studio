@@ -275,7 +275,28 @@ def expand_project(project) -> tuple:
         external_pin = pin_map.get(external_uuid)
         new_pin = pin_map.get(new_uuid)
         if external_pin is None or new_pin is None:
-            continue  # defensive: the external pin's own block was itself removed/never existed
+            # AUDIT_REPORT.md §32: this is NOT the harmless "block already
+            # removed" case the old comment here assumed — external_pin
+            # missing would mean the LIVE project referenced a pin that
+            # never existed (can't happen; `blocks` came from this same
+            # project). new_pin missing means a macro's own exposed
+            # boundary pin was anchored directly on a NESTED macro
+            # instance's own pin, never on one of ITS internal blocks —
+            # the one shape _expand_instance() can't resolve (its own
+            # docstring explains why: that instance is itself replaced/
+            # discarded during expansion, so its pin never survives into
+            # the final flattened graph for this to point at). Silently
+            # dropping the connection here used to compile "successfully"
+            # while quietly producing a signal that does nothing — on an
+            # industrial-automation platform that's a hazard, not a
+            # cosmetic gap, so this is now a hard compile error instead.
+            errors.append(
+                "Nie można rozwiązać połączenia makrobloku: wystawiony pin "
+                "wskazuje bezpośrednio na pin zagnieżdżonej instancji innego "
+                "makrobloku zamiast na zwykły blok wewnętrzny. Dodaj blok "
+                "pośredniczący (np. bufor) między nimi i spróbuj ponownie."
+            )
+            continue
         if old_uuid in external_pin.connections:
             external_pin.connections.remove(old_uuid)
         if new_uuid not in external_pin.connections:
@@ -283,6 +304,8 @@ def expand_project(project) -> tuple:
         if external_uuid not in new_pin.connections:
             new_pin.connections.append(external_uuid)
 
+    if errors:
+        return [], errors
     return expanded, []
 
 
@@ -375,11 +398,17 @@ def _expand_instance(instance_block, def_id, macro_def, macro_defs, expanding, e
     # Note the boundary pins BEFORE recursively expanding — for a nested
     # macro instance that ALSO happens to sit at this definition's own
     # boundary, its pins wouldn't survive with the same uuid past
-    # expansion. Deliberately unsupported (a definition's own exposed
-    # pin must reference a plain, non-macro internal block) — the normal
-    # "create macro from selection" UI can never produce this, since a
-    # nested macro's OWN internal pins are never individually selectable
-    # from the outer canvas in the first place.
+    # expansion. UNSUPPORTED (a definition's own exposed pin must
+    # reference a plain, non-macro internal block) — AUDIT_REPORT.md §32:
+    # this WAS assumed unreachable from the normal "create macro from
+    # selection" UI (a nested macro's own internal pins aren't
+    # individually selectable from the outer canvas), but selecting an
+    # ALREADY-PLACED macro instance alongside other blocks and building a
+    # bigger macro from THAT selection reaches it just fine — the nested
+    # instance's own boundary pin is a completely ordinary, selectable
+    # pin from the outside. expand_project()'s final rewire pass below
+    # now reports this as a hard compile error (never silently drops the
+    # connection) when it can't resolve one of these.
     boundary_pins = []  # (direction, instance_pin_index, internal_pin)
     for i, boundary in enumerate(macro_def.get("input_pins", [])):
         internal_block = block_by_old_uuid.get(boundary["block_uuid"])

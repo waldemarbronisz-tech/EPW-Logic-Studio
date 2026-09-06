@@ -1645,10 +1645,14 @@ przebiegu po zbudowaniu kompletnej, spłaszczonej listy.
 przetestowane (`test_macros.py`), JEDEN wyjątek udokumentowany wprost w
 `_expand_instance()`'s docstring: własny pin zagnieżdżonej instancji
 użyty BEZPOŚREDNIO jako pin graniczny definicji zewnętrznej (bez
-pośredniczącego zwykłego bloku) nie przetrwa ekspansji — normalny
-przepływ UI (zaznacz+utwórz) nigdy tego nie wytworzy, bo własne piny
-zagnieżdżonej instancji nie są indywidualnie zaznaczalne z zewnętrznej
-kanwy.
+pośredniczącego zwykłego bloku) nie przetrwa ekspansji — REACHABLE z
+normalnego UI (AUDIT_REPORT.md §32: zaznaczenie już umieszczonej
+instancji makrobloku razem z innymi blokami i zbudowanie z tego
+zaznaczenia większego makrobloku trafia dokładnie w ten kształt), więc
+`expand_project()` zgłasza to jako twardy błąd kompilacji — DOKŁADNIE
+jak cykl czy brakująca definicja — zamiast (jak wcześniej) cicho
+gubić połączenie. Obejście: dodać zwykły blok pośredniczący (np. bufor)
+między zagnieżdżoną instancją a granicą nowej definicji.
 
 ### 24.5 Render na kanwie
 
@@ -1808,8 +1812,8 @@ wizualne oznaczenie "jesteś teraz wewnątrz makrobloku" na kanwie poza
 samym breadcrumbem — oba świadomie odłożone, pełny status w
 AUDIT_REPORT.md §31.
 
-Testy: `tests/test_macros.py` (28), `tests/test_macro_instance.py` (11),
+Testy: `tests/test_macros.py` (30), `tests/test_macro_instance.py` (11),
 `tests/test_compiler.py` (+3), `tests/test_macro_creation.py` (9),
 `tests/test_macro_block_rendering.py` (5), `tests/test_library_panel_macros.py`
 (12), `tests/test_breadcrumb_bar.py` (8), `tests/test_macro_navigation.py`
-(15) — pełne rozbicie w AUDIT_REPORT.md §8/§30/§31.
+(15) — pełne rozbicie w AUDIT_REPORT.md §8/§30/§31/§32.

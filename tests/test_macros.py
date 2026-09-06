@@ -420,3 +420,76 @@ def test_update_definition_blocks_no_op_when_definition_was_deleted():
 
     assert update_definition_blocks(p, def_id, blocks) is False
     assert get_definition(p, def_id) is None
+
+
+# ---- AUDIT_REPORT.md §32: a boundary pin anchored directly on a nested
+# macro instance's own pin must fail compilation loudly, never silently
+# drop the connection. Reachable from the normal UI: selecting an
+# ALREADY-PLACED macro instance alongside other blocks and building a
+# bigger macro from that selection anchors the crossing on the nested
+# instance's own pin, exactly this shape — build_definition() treats any
+# block generically, a macro instance included.
+
+def test_expand_project_errors_when_boundary_anchors_directly_on_a_nested_instance():
+    p = Project()
+    def_id_a = new_def_id()
+    set_definition(p, def_id_a, _and_macro_definition())
+
+    nested_a_instance = MacroInstanceBlock(def_id=def_id_a)
+    nested_a_instance.configure(get_definition(p, def_id_a))
+    di = DigitalInputBlock()
+    do = DigitalOutputBlock()
+    di.outputs[0].connect(nested_a_instance.inputs[0])
+    nested_a_instance.outputs[0].connect(do.inputs[0])
+
+    # build_definition() from JUST the nested instance anchors both
+    # crossings directly on ITS OWN pins — the unsupported shape.
+    definition_b, _ = build_definition("WrapsNestedDirectly", [nested_a_instance])
+    def_id_b = new_def_id()
+    set_definition(p, def_id_b, definition_b)
+
+    di.outputs[0].disconnect(nested_a_instance.inputs[0])
+    nested_a_instance.outputs[0].disconnect(do.inputs[0])
+    instance_b = MacroInstanceBlock(def_id=def_id_b)
+    instance_b.configure(get_definition(p, def_id_b))
+    di.outputs[0].connect(instance_b.inputs[0])
+    instance_b.outputs[0].connect(do.inputs[0])
+    for b in (di, instance_b, do):
+        p.add_block(b)
+
+    expanded, errors = expand_project(p)
+
+    assert expanded == []
+    assert len(errors) >= 1
+    assert any("zagnieżdżon" in e for e in errors)
+
+def test_compile_reports_the_same_error_instead_of_silently_dropping_the_wire():
+    """Same shape as above, through Compiler.compile() — must fail
+    compilation, never return a program with a dangling connection."""
+    from logic_studio.compiler.core import Compiler
+
+    p = Project()
+    def_id_a = new_def_id()
+    set_definition(p, def_id_a, _and_macro_definition())
+
+    nested_a_instance = MacroInstanceBlock(def_id=def_id_a)
+    nested_a_instance.configure(get_definition(p, def_id_a))
+    di = DigitalInputBlock()
+    do = DigitalOutputBlock()
+    di.outputs[0].connect(nested_a_instance.inputs[0])
+    nested_a_instance.outputs[0].connect(do.inputs[0])
+    definition_b, _ = build_definition("WrapsNestedDirectly", [nested_a_instance])
+    def_id_b = new_def_id()
+    set_definition(p, def_id_b, definition_b)
+
+    di.outputs[0].disconnect(nested_a_instance.inputs[0])
+    nested_a_instance.outputs[0].disconnect(do.inputs[0])
+    instance_b = MacroInstanceBlock(def_id=def_id_b)
+    instance_b.configure(get_definition(p, def_id_b))
+    di.outputs[0].connect(instance_b.inputs[0])
+    instance_b.outputs[0].connect(do.inputs[0])
+    for b in (di, instance_b, do):
+        p.add_block(b)
+
+    result = Compiler(p).compile()
+    assert result is None
