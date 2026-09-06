@@ -14,7 +14,18 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # fix/ci-pin-runner-and-pyside6: pinned to a specific LTS instead of
+    # the floating "ubuntu-latest" label — CI started failing with a
+    # native crash (exit code 135 / SIGBUS) on every run starting with
+    # the very first run after 2026-09-04 20:02 UTC, including on `main`
+    # itself with zero code changes of ours in between. `ubuntu-latest`
+    # rotating to a newer default image (with newer system Qt/xcb
+    # libraries this apt-get-installed set of packages, or PySide6 6.11.2
+    # itself, wasn't necessarily built/tested against) is the most likely
+    # explanation for a break with no corresponding commit — pinning the
+    # OS trades "always newest" for "reproducible", the same reasoning
+    # requirements.txt's own PySide6 pin below now follows.
+    runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v4
     - name: Set up Python 3.12
@@ -29,7 +40,14 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install pytest pytest-qt pytest-randomly
+        # fix/ci-pin-runner-and-pyside6: pytest-qt dropped — grepping the
+        # whole suite for `qtbot`/pytest-qt turns up zero uses (no test
+        # actually needs its fixtures), yet it still hooks into Qt's own
+        # plugin/event-loop machinery at import time purely by being
+        # installed. Removing a dependency that provides nothing here but
+        # extra surface area for exactly the kind of native crash this CI
+        # is currently hunting.
+        pip install pytest pytest-randomly
     - name: Run Pytest Headless
       env:
         QT_QPA_PLATFORM: offscreen
