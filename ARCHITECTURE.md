@@ -1480,3 +1480,340 @@ nagranie po restarcie aplikacji. Rozszerzone `tests/test_crossref.py` (6)
 — `classify_signal_id()`. Rozszerzone `tests/test_internal_bits.py` (2)
 — `SignalPickerDialog.selected_kind()`. Wszystkie 10 `examples/*.epwlogic`
 nadal się kompilują (migracja v1→v7 w locie).
+
+## 24. Makrobloki (feat/macro-blocks)
+
+Druga nowa FUNKCJA po §23 — grupowanie podgrafu istniejących bloków w
+jeden, nazwany, wielokrotnego użytku typ bloku ("makroblok"). Realny
+problem przy większych schematach: powtarzający się wzorzec (np. bramka
+blokady z timerem opóźnienia) dziś trzeba przerysowywać ręcznie za każdym
+razem, bez sposobu na jego nazwanie i ponowne użycie jako jednej całości.
+Cały ustalony zakres v1 gotowy — model danych, kompilacja, render, panel
+biblioteki i nawigacja breadcrumb "wejdź w makroblok" (§24.8); jedno
+świadome ograniczenie zostaje (§24.9). Dziennik AUDIT_REPORT.md §30/§31
+ma pełny status po etapach.
+
+### 24.1 Model danych (`core/macros.py`)
+
+`project.settings["macro_definitions"]`, słownik `def_id -> definition`:
+
+```
+{"name": str,
+ "blocks": [...serialize()'d bloki wewnętrzne, TYLKO połączenia
+            WEWNĘTRZNE — połączenie z bloku wewnętrznego na zewnątrz
+            pierwotnego zaznaczenia jest tu odcięte, zapisane osobno
+            jako wpis w "input_pins"/"output_pins" poniżej...],
+ "input_pins":  [{"block_uuid", "pin_name", "data_type", "label"}, ...],
+ "output_pins": [{"block_uuid", "pin_name", "data_type", "label"}, ...]}
+```
+
+`input_pins`/`output_pins` są uporządkowane — indeks `i` to WŁASNY i-ty
+pin wejściowy/wyjściowy INSTANCJI makrobloku, identyfikujący dokładnie,
+przed którym pinem którego bloku wewnętrznego stoi. `def_id` to krótki,
+stabilny, maszynowo generowany id (`new_def_id()`, 8 znaków hex) — NIGDY
+wyświetlana `name`, którą inżynier może dowolnie zmieniać; `type_id`
+KAŻDEJ instancji to `"macro.<def_id>"`.
+
+Jedyne sankcjonowane API (ten sam wzorzec co `DeviceModel`/
+`core/internal_bits.py`/`core/watch.py` — nikt nie czyta/pisze
+`project.settings["macro_definitions"]` bezpośrednio):
+`get_definitions()`/`get_definition()` (kopia, nie żywy słownik —
+mutowanie zwróconego dict nie wpływa na projekt), `set_definition()`,
+`delete_definition()`, `is_definition_in_use(project, def_id)` (skanuje
+`project.blocks` po `type_id == "macro.<def_id>"` — używane do ostrzeżenia
+przed usunięciem definicji, o które nic jeszcze w UI nie prosi, patrz
+§30 dziennika). `EPWLOGIC_SCHEMA_VERSION` 7→8, migracja `_migrate_v7_to_v8`
+(pusta domyślnie — funkcja nie istniała wcześniej).
+
+**Dlaczego instancja makrobloku nie może być zwykłym wpisem
+`BlockRegistry`**: każdy inny typ bloku to pojedyncza klasa Pythona o
+STAŁYM układzie pinów, rejestrowana raz przy imporcie
+(`BlockRegistry.register()` nawet tworzy tymczasową instancję,
+`dummy = block_class()` — realny, wymuszony wymóg bezargumentowego
+konstruktora). Układ pinów makrobloku jest z natury DANYMI PROJEKTU (ile
+akurat wejść/wyjść deklaruje TA KONKRETNA definicja) — nie ma jednej
+klasy Pythona, której stały konstruktor mógłby wyrazić KAŻDY możliwy
+makroblok, jaki projekt może zdefiniować. `MacroInstanceBlock`
+(`blocks/macro_instance.py`) to zamiast tego jedna klasa, której piny
+budowane są osobnym wywołaniem `configure(definition)`.
+
+### 24.2 `MacroInstanceBlock` (`blocks/macro_instance.py`)
+
+Jedna klasa reprezentująca DOWOLNĄ instancję DOWOLNEGO makrobloku.
+`__init__(def_id="")` ustawia `type_id = f"macro.{def_id}"` (albo bare
+`"macro."` dla niekonfigurowanej/uszkodzonej instancji), zero pinów.
+`configure(definition)` buduje właściwe `inputs`/`outputs` z
+`definition["input_pins"]`/`["output_pins"]` (etykieta z `"label"`, z
+fallbackiem na `"pin_name"`) oraz `display_name` z `definition["name"]`
+— wołane RAZ, zaraz po konstrukcji, przez którąkolwiek ścieżkę właśnie
+tworzącą genuine nową instancję (utworzenie z zaznaczenia, umieszczenie
+istniejącej definicji z biblioteki) lub deserializującą starą (patrz
+niżej — TA ścieżka buduje piny inaczej, celowo nigdy nie konsultując
+żywej definicji).
+
+`def_id` jest w `_TRANSIENT_FIELDS` — NIE jest osobnym, niezależnie
+serializowanym polem, bo jest w pełni zakodowany w `type_id`, którego
+JEDNYM deliberatywnym wyjątkiem od reguły `BaseLogicBlock.deserialize()`
+("`type_id` nigdy nie jest przywracany z pliku — ustala go klasa") jest
+właśnie `MacroInstanceBlock.deserialize()`: musi wiedzieć, KTÓRĄ
+definicję reprezentuje, więc `type_id` jest tu jedynym polem
+identyfikującym coś poza samą klasą. Poza tym override buduje `inputs`/
+`outputs` bezpośrednio z WŁASNYCH zapisanych list instancji przez
+`Pin.deserialize()` (który w jednym kroku odkodowuje `name`/`data_type`/
+`uuid`/`connections` z danych) — NIE konsultując
+`project.settings["macro_definitions"]` wcale: zapisana instancja to już
+kompletny, poprawny zapis tego, jak wyglądała w chwili zapisu.
+Zresynchronizowanie instancji z definicją, która zmieniła kształt PO
+zapisaniu instancji, celowo nie jest zadaniem tej metody (temat dla
+przyszłej nawigacji "wejdź w blok", §30 dziennika) — `Project.deserialize()`
+nie przekazuje zresztą `project` przez tę classmethod (współdzieloną przez
+każdy zarejestrowany typ bloku, żaden inny go nie potrzebuje). `clone()`
+kopiuje `def_id` dodatkowo do tego, co generyczny `BaseLogicBlock.clone()`
+już robi (piny klonowane generycznie tak samo jak dla każdego innego
+bloku, bo iterują po `self.inputs`/`self.outputs` niezależnie od tego,
+jak akurat zostały zbudowane).
+
+### 24.3 Integracja z `BlockRegistry`
+
+`create_block(type_id)`/`get_block_class(type_id)` rozwiązują prefiks
+`"macro."` CENTRALNIE przez `core/macros.py::macro_def_id(type_id)` —
+jeśli nie `None`, zwracają `MacroInstanceBlock`/nową jego instancję
+zamiast szukać w `_type_id_map`. Jedno miejsce obsługujące automatycznie
+KAŻDY punkt wywołania (`Project.deserialize()`'s block-loading loop,
+`scene.py::paste_clipboard()`, `scene.py::add_block_from_library()`) —
+żaden z nich nie ma własnego przypadku specjalnego dla `"macro."`.
+`create_block()` zwraca instancję z ZEREM pinów (`configure()` to osobny
+krok, patrz §24.5/§24.6) — nigdy nie zarejestrowaną przez
+`BlockRegistry.register()`, więc nie pojawia się w `get_categories()`/
+`get_blocks_in_category()` (stąd inwentarz "69 zarejestrowanych typów
+bloków", AUDIT_REPORT.md §2, jest niezmieniony przez tę funkcję).
+
+### 24.4 Kompilacja — spłaszczanie w czasie kompilacji (`expand_project()`)
+
+`Compiler.compile()` woła `core.macros.expand_project(self.project)` jako
+KROK 0, przed Validatorem/GraphBuilderem/Exporterem. Zwraca
+`(expanded_blocks, errors)` — `project.blocks` z KAŻDĄ instancją
+makrobloku rekurencyjnie zastąpioną świeżymi, niezależnie z-uuid'owanymi
+kopiami bloków WŁASNEJ definicji, podłączonymi dokładnie tam, gdzie były
+zewnętrzne połączenia instancji; sama instancja nigdy nie trafia do
+wyniku. `errors` niepuste (i `expanded_blocks` zawsze `[]`) przy cyklu
+(makroblok pośrednio zawierający sam siebie) albo odwołaniu do
+brakującej/usuniętej definicji — `Compiler.compile()` zgłasza to
+DOKŁADNIE jak błąd Validatora, przerywając przed jego uruchomieniem.
+Nigdy nie mutuje `self.project` — buduje wyłącznie świeże obiekty.
+
+`Validator`/`GraphBuilder`/`Exporter` uruchamiane są przeciwko lekkiemu
+`_ExpandedProjectView` (`compiler/core.py`) zamiast żywego projektu —
+obiekt niosący tylko `.blocks` (spłaszczona lista) i `.settings`
+(WSPÓLNY z żywym projektem — każde odwołanie do `DeviceModel`/
+`system_signals` w tych trzech etapach czyta wyłącznie `.settings`,
+nigdy `.blocks` poza tym co dostał). Żaden z trzech etapów nie wie, że
+makrobloki istnieją — ten sam wzorzec, który trzyma `ExecutionEngine`/
+`IOProvider` niezależne od sprzętu (§1). Finalny izolowany
+`CompiledProgram` dla `ExecutionEngine` używa TYCH SAMYCH `expanded_blocks`
+(nie druga, osobna ekspansja) — `expand_project()` już zwraca świeże,
+odizolowane od żywego projektu obiekty (dokładnie ten sam poziom
+izolacji, po który wcześniej służył osobny przebieg
+`serialize()`/`deserialize()`), a druga niezależna ekspansja dałaby
+NOWE, losowe uuid'y każdemu blokowi wewnątrz makrobloku — inne niż te,
+na których `execution_order` (zbudowany z pierwszej ekspansji) już się
+opiera. `Compiler._compute_cycle_delayed_reads()` i rozwiązywanie
+zakresu `input.ai`/id sygnału wewnętrznego (§10) działają na tej samej
+spłaszczonej liście, więc blok żyjący wewnątrz definicji makrobloku
+traktowany jest identycznie jak blok na najwyższym poziomie.
+
+**Algorytm** (`_expand_blocks()`/`_expand_instance()`): dla każdego bloku
+nie-makro na danym poziomie — `clone(preserve_uuid=True)` (uuid/piny
+zachowane, żeby połączenia z resztą grafu na tym samym poziomie się
+zgadzały; `short_id` dodatkowo skopiowany mimo że `clone()` normalnie go
+czyści, żeby komunikaty kompilatora nadal wskazywały ten sam blok, jaki
+inżynier widzi na kanwie). Dla instancji makrobloku — każdy blok WŁASNEJ
+definicji deserializowany świeżo, z NOWYM losowym uuid (blok i KAŻDY jego
+pin, bezwarunkowo — nie polegając na przypadkowej własności, że
+`block_class.deserialize()` akurat nie odtwarza uuid pinów: prawdziwe dla
+zwykłych bloków, ale `MacroInstanceBlock.deserialize()` WŁAŚNIE to robi,
+poprawnie, dla zwykłego wczytania z pliku — patrz §24.2), gwarantując, że
+DWIE placed instancje tej samej definicji nigdy nie kolidują uuid'ami po
+ekspansji. Połączenia wewnętrzne definicji przemapowane na świeże uuid'y
+(ten sam schemat dwuprzebiegowy co `scene.py::paste_clipboard()`); piny
+graniczne (`input_pins`/`output_pins`) zanotowane PRZED rekurencyjnym
+zejściem w głąb (dla ewentualnej zagnieżdżonej instancji), przekazywane
+dalej w globalnej `rewire_plan` listy, zastosowanej w jednym końcowym
+przebiegu po zbudowaniu kompletnej, spłaszczonej listy.
+
+**Zagnieżdżanie makrobloku wewnątrz makrobloku** działa i jest
+przetestowane (`test_macros.py`), JEDEN wyjątek udokumentowany wprost w
+`_expand_instance()`'s docstring: własny pin zagnieżdżonej instancji
+użyty BEZPOŚREDNIO jako pin graniczny definicji zewnętrznej (bez
+pośredniczącego zwykłego bloku) nie przetrwa ekspansji — REACHABLE z
+normalnego UI (AUDIT_REPORT.md §32: zaznaczenie już umieszczonej
+instancji makrobloku razem z innymi blokami i zbudowanie z tego
+zaznaczenia większego makrobloku trafia dokładnie w ten kształt), więc
+`expand_project()` zgłasza to jako twardy błąd kompilacji — DOKŁADNIE
+jak cykl czy brakująca definicja — zamiast (jak wcześniej) cicho
+gubić połączenie. Obejście: dodać zwykły blok pośredniczący (np. bufor)
+między zagnieżdżoną instancją a granicą nowej definicji.
+
+### 24.5 Render na kanwie
+
+Nowy `shape_style` `"MACRO"` (`BlockItem._determine_shape_style()`) —
+rozmiar identyczny jak `COMPLEX` (symetrycznie wokół środka, zależny od
+liczby pinów), ale rysowany osobno: `shapes.draw_macro_shape()` —
+zaokrąglony prostokąt z grubym paskiem akcentu koloru `instance.color`
+(`#6A4FB3` domyślnie, ustawiony w konstruktorze) wzdłuż lewej krawędzi,
+nazwa definicji wyśrodkowana w treści (`BlockItem._paint_macro_block()`)
+— odróżnialny na pierwszy rzut oka od gołego prostokąta `COMPLEX` i od
+każdej wbudowanej kategorii, bez potrzeby bespoke symbolu jak
+bramki/IO. Ikona biblioteki (`ui/icons.py::block_icon()`) tym samym
+`draw_macro_shape()` plus generyczne znaczniki liczby pinów
+(`draw_complex_icon_pin_marks()`).
+
+### 24.6 Tworzenie z zaznaczenia (`LogicScene.create_macro_from_selection()`)
+
+1. `core.macros.build_definition(name, blocks)` z żywego zaznaczenia
+   (bez mutacji) → `(definition, crossings)`.
+2. Jeden `project.push_state()` dla całej operacji.
+3. `set_definition()` zapisuje nową definicję pod świeżym `new_def_id()`.
+4. KAŻDY pin KAŻDEGO ekstrahowanego bloku rozłączany przez sam graf
+   pinów (`Pin.disconnect()`, oba końce) — NIE przez wyszukiwanie
+   grafiki `WireItem` dotykającej bloku: połączenie jest prawdziwymi
+   danymi od chwili `Pin.connect()`, niezależnie od tego, czy akurat
+   istnieje dla niego grafika na kanwie (w normalnym użyciu zawsze
+   istnieje — realne okablowanie zawsze przeciągane myszą — ale nic tu
+   nie powinno na tym polegać). Dopiero POTEM usuwana jest sama grafika
+   `WireItem` dotykająca ekstrahowanych bloków (czysto kosmetyczne
+   sprzątanie kanwy, zero efektów ubocznych na poziomie pinów).
+5. Ekstrahowane bloki usuwane z projektu i z kanwy.
+6. Nowa `MacroInstanceBlock` tworzona, `configure()`'d, umieszczana w
+   miejscu dawnego lewego-górnego rogu zaznaczenia.
+7. Każde `crossings` odtwarzane jako prawdziwe `boundary_pin.connect(
+   external_pin)` (reguła jedynego sterownika `Pin.connect()` odrzuciłaby
+   próbę, gdyby krok 4 nie wyczyścił starego połączenia) plus
+   odpowiadająca grafika `WireItem` między portami na kanwie.
+
+Wejście z UI: pozycja "Utwórz makroblok..." w menu kontekstowym bloku
+(`BlockItem.contextMenuEvent()`/`_prompt_create_macro_from_selection()`),
+aktywna gdy zaznaczony jest 1+ blok, prosi o nazwę (`QInputDialog`).
+
+`add_block_from_library()` (umieszczenie DODATKOWEJ instancji istniejącej
+definicji, z panelu biblioteki albo programowo) wywołuje
+`.configure(definition)` na świeżo utworzonej, pustej instancji PRZED
+zbudowaniem `BlockItem` — który czyta `block.inputs`/`outputs` już przy
+konstrukcji, żeby zbudować porty i wyliczyć rozmiar. Odwołanie do
+usuniętej w międzyczasie definicji jest cichym no-op (nie ma czego
+umieścić).
+
+### 24.7 Panel biblioteki (`ui/panels/library.py`)
+
+Nowa sekcja "Makrobloki" — jedyna kategoria w drzewie, która NIE jest
+stałą listą klas `BlockRegistry` znaną przy imporcie, tylko danymi TEGO
+KONKRETNEGO projektu. `LibraryPanel.set_project(project)` odbudowuje ją z
+`project.settings["macro_definitions"]` (przez `core.macros.get_definitions()`,
+posortowane po nazwie) — wołane z tego samego miejsca co każdy inny panel
+zależny od projektu, `MainWindow._refresh_project_dependent_panels()`
+(pokrywa wczytanie/nowy projekt/undo/redo za darmo), PLUS dodatkowo od
+razu na końcu `create_macro_from_selection()` — ta ostatnia zmiana nie
+wymienia całego `self.project`, więc nie przechodzi przez zwykły punkt
+odświeżania.
+
+`_display_name()`/`_description()`/`_matches()` (zmienione z
+`@staticmethod` na zwykłe metody, żeby mogły czytać `self._project`)
+konsultują RZECZYWISTĄ definicję dla `type_id` zaczynającego się od
+`"macro."` (nazwa, liczba wejść/wyjść w tooltipie) zamiast budować gołą,
+bezargumentową `MacroInstanceBlock()` jak dla każdego innego typu — ta
+druga ścieżka dałaby generyczne "Makroblok" wszędzie, w tym w sekcji
+"Ostatnio używane" po umieszczeniu instancji. Odwołanie do usuniętej w
+międzyczasie definicji pokazuje `def_id` zamiast pustego/generycznego
+tekstu (`_macro_definition_name()` zwraca `None` tylko dla NIE-makro
+`type_id`, nigdy dla dangling reference). Przeciągnij-upuść
+(`LibraryTree`) i dwuklik-wstaw (`_on_item_double_clicked()`) działają
+bez zmian — obie ścieżki są generyczne, operują na gołym `type_id`
+tekstowym, nie znają różnicy między makroblokiem a wbudowanym typem.
+
+### 24.8 Nawigacja breadcrumb "wejdź w makroblok" (`MainWindow`)
+
+Dwuklik na placed `MacroInstanceBlock` (`BlockItem.mouseDoubleClickEvent()`
+→ `MainWindow.enter_macro_instance()`) "wchodzi" w niego jak w podkanwę —
+kanwa zaczyna pokazywać WŁASNE bloki wewnętrzne definicji, edytowalne
+dokładnie tak samo jak główny projekt.
+
+**Mechanizm — podmiana `self.project.blocks`, nigdy `self.project.settings`.**
+`enter_macro_instance()`:
+1. `core.macros.instantiate_definition_blocks(definition)` buduje świeże
+   ŻYWE bloki z `definition["blocks"]` (uuid/short_id/piny przywrócone
+   dokładnie jak w `Project.deserialize()`'owej pętli ładowania bloków,
+   celowo nie tej samej funkcji — ta druga robi też migracyjne
+   księgowanie, np. wyrównanie do siatki, `_legacy_force_state`, resync
+   licznika `short_id`, niepotrzebne dla danych, które ta sama aplikacja
+   właśnie zapisała).
+2. Bieżący poziom (`self.project.blocks`, cokolwiek to teraz jest — główny
+   projekt albo inna definicja) jest ODKŁADANY na stos `self._macro_nav_stack`
+   jako `{"def_id", "blocks"}` — DOKŁADNIE ta sama referencja do listy
+   Pythona, nie kopia.
+3. `self.project.blocks = <świeże bloki definicji>`, `self.current_macro_def_id
+   = def_id`, kanwa przebudowana (`_reconstruct_scene()`).
+
+Od tego momentu KAŻDA istniejąca operacja sceny — dodaj blok, usuń, podłącz
+przewód, zaznacz, kopiuj/wklej, a nawet Undo/Redo — działa BEZ ŻADNEJ
+zmiany kodu, bo żadna z nich czyta/pisze cokolwiek poza `self.project.blocks`/
+`self.project.add_block()`/`remove_block()` i nie wie ani nie musi wiedzieć,
+który "poziom" to aktualnie reprezentuje. Liczniki `short_id`
+(`project.settings["short_id_counters"]`, WSPÓLNE niezależnie od poziomu,
+bo `.settings` nigdy nie jest podmieniane) gwarantują, że blok dodany
+wewnątrz makrobloku dostaje globalnie unikalny identyfikator bez żadnej
+dodatkowej logiki — ten sam mechanizm, ta sama gwarancja co przy
+kompilacyjnej ekspansji (§24.4).
+
+**Wyjście — `_navigate_to_breadcrumb_index(index)`**: pętla "dopóki stos
+jest głębszy niż `index`": commit bieżącego poziomu do JEGO WŁASNEJ
+definicji (`update_definition_blocks()`, pomijany na głównym poziomie),
+zdjęcie wierzchołka stosu, przywrócenie jego `def_id`/`blocks`. Każdy
+poziom commitowany osobno w kolejności od najgłębszego — poprawne też dla
+przeskoczenia od razu kilku poziomów (np. kliknięcie "Główny" z głębokości
+3): każdy z pomijanych poziomów i tak przechodzi przez dokładnie jedną
+iterację pętli, więc dostaje swój własny commit.
+
+**Zakres v1 — piny graniczne ZAMROŻONE.** Edycja wnętrza makrobloku może
+dowolnie dodawać/usuwać/przełączać bloki WEWNĘTRZNE, ale
+`input_pins`/`output_pins`/`name` samej definicji nigdy się nie zmieniają
+z tego poziomu (`update_definition_blocks()` jawnie ich nie dotyka).
+Świadoma decyzja, nie przeoczenie: zmiana kształtu definicji wymagałaby
+resynchronizacji KAŻDEJ innej placed instancji tej samej definicji, na
+każdej głębokości zagnieżdżenia w całym projekcie — dużo trudniejszy
+problem, którego pierwsza wersja nie musi rozwiązywać (AUDIT_REPORT.md
+§31 pkt 2).
+
+**Normalizacja do głównego poziomu przed operacjami całościowymi.** Zapis/
+Zapisz jako, Kompilacja/Uruchomienie i Undo/Redo najpierw wołają
+`_exit_all_macro_levels()` (= `_navigate_to_breadcrumb_index(0)` — commit
+każdego oczekującego poziomu, powrót do głównego); Nowy projekt/Otwórz
+wołają `_reset_macro_nav()` (twardy reset BEZ commitu, cały projekt i tak
+jest odrzucany). Bez tego: Zapis zapisałby jako `"blocks"` głównego
+projektu to, co akurat pokazuje kanwa (błędne, jeśli to wnętrze
+makrobloku); Undo/Redo mogłoby przywrócić snapshot sprzed wejścia w
+bieżący poziom, rozsynchronizowując breadcrumb (wciąż twierdzący "jesteś
+w makroblok X") z tym, co faktycznie pokazuje kanwa. Ustalone z
+właścicielem produktu jako jedno pytanie doprecyzowujące (Zapis), potem
+zastosowane konsekwentnie do pozostałych trzech operacji jako to samo
+rozwiązanie tego samego problemu.
+
+**Breadcrumb UI** (`ui/panels/breadcrumb.py::BreadcrumbBar`) — Qt-cienki
+pasek nad kanwą (ukryty na głównym poziomie), pokazujący pełną ścieżkę;
+każdy wpis poza ostatnim to klikalny przycisk emitujący `navigate_to(index)`,
+ostatni to pogrubiona etykieta bieżącego poziomu. Nie zna Project/
+LogicScene/makr wcale — `MainWindow._refresh_breadcrumb()` liczy nazwy
+(`get_definition()` dla każdego `def_id` na stosie plus bieżący, "Główny"
+dla `None`) i woła `set_path()`.
+
+### 24.9 Świadomie poza zakresem
+
+Edycja `input_pins`/`output_pins` z poziomu wnętrza makrobloku (§24.8) i
+wizualne oznaczenie "jesteś teraz wewnątrz makrobloku" na kanwie poza
+samym breadcrumbem — oba świadomie odłożone, pełny status w
+AUDIT_REPORT.md §31.
+
+Testy: `tests/test_macros.py` (30), `tests/test_macro_instance.py` (11),
+`tests/test_compiler.py` (+3), `tests/test_macro_creation.py` (9),
+`tests/test_macro_block_rendering.py` (5), `tests/test_library_panel_macros.py`
+(12), `tests/test_breadcrumb_bar.py` (8), `tests/test_macro_navigation.py`
+(15) — pełne rozbicie w AUDIT_REPORT.md §8/§30/§31/§32.

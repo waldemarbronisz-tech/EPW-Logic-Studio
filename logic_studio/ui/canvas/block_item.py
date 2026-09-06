@@ -188,7 +188,13 @@ class BlockItem(QGraphicsItem):
             self._size_doc_block()
 
         else:
-            self.shape_style = "COMPLEX"
+            # feat/macro-blocks: a placed macro instance's own category is
+            # "Makrobloki" — sized exactly like every other COMPLEX block
+            # (a macro's pin count is genuinely arbitrary project data,
+            # same as any other multi-pin block here) but painted
+            # distinctly (_paint_macro_block(), shapes.draw_macro_shape())
+            # so it reads as "a macro" rather than a plain unknown block.
+            self.shape_style = "MACRO" if self.category == "Makrobloki" else "COMPLEX"
             # §1.4: same symmetric-around-center rule as gates — height
             # driven by whichever side (inputs or outputs) has more pins.
             inputs_count = len(self.logic_block.inputs)
@@ -317,6 +323,8 @@ class BlockItem(QGraphicsItem):
             self._paint_io_tag(painter)
         elif self.shape_style == "DOC":
             self._paint_doc_block(painter)
+        elif self.shape_style == "MACRO":
+            self._paint_macro_block(painter)
         else:
             self._paint_complex_block(painter)
 
@@ -687,6 +695,23 @@ class BlockItem(QGraphicsItem):
                 painter.setPen(QPen(style.COLOR_ERROR))
                 painter.drawText(line_rect, Qt.AlignTop | Qt.AlignHCenter, sim_text)
 
+    # ---- Macro instances (feat/macro-blocks) ---------------------------------
+
+    def _paint_macro_block(self, painter):
+        """A placed MacroInstanceBlock — shapes.draw_macro_shape() gives it
+        an accent-colored bar (self.header_color, from the instance's own
+        `.color`) down its left edge, then its display_name (the macro
+        DEFINITION's own name — see MacroInstanceBlock.configure()) is
+        centered in the body, same convention as _paint_complex_block()'s
+        type-name label."""
+        rect = QRectF(0, 0, self.width, self.height)
+        shapes.draw_macro_shape(painter, rect, self.header_color)
+
+        painter.setPen(style.COLOR_OUTLINE)
+        font = QFont(style.FONT_FAMILY, style.FONT_SIZE_PIN_LABEL, QFont.Bold)
+        painter.setFont(font)
+        painter.drawText(rect.adjusted(8, 2, -2, -2), Qt.AlignCenter | Qt.TextWordWrap, self.logic_block.display_name)
+
     # ---- Documentation blocks (§6) ---------------------------------------------
 
     def _paint_doc_block(self, painter):
@@ -912,6 +937,20 @@ class BlockItem(QGraphicsItem):
             from logic_studio.ui.canvas.scene import populate_align_menu
             populate_align_menu(menu.addMenu("Wyrównaj"), scene)
 
+        # feat/macro-blocks: group the current selection (1+ blocks) into a
+        # new, named, reusable block — LogicScene.create_macro_from_selection()
+        # does the actual work; this just prompts for the macro's name.
+        # Enabled off the SAME selection Delete/Duplicate above already
+        # implicitly operate on (scene.selectedItems()), not just `self` —
+        # a block reached via right-click is already the active selection
+        # by the time contextMenuEvent runs.
+        create_macro_action = None
+        if scene is not None:
+            selected_block_count = len([i for i in scene.selectedItems() if isinstance(i, BlockItem)])
+            menu.addSeparator()
+            create_macro_action = menu.addAction("Utwórz makroblok...")
+            create_macro_action.setEnabled(selected_block_count >= 1)
+
         action = menu.exec(QCursor.pos())
         if action == del_action:
             if self.scene():
@@ -926,6 +965,22 @@ class BlockItem(QGraphicsItem):
         elif action == toggle_enabled_action:
             if self.scene():
                 self.scene().set_blocks_enabled([self], not self.logic_block.enabled)
+        elif action == create_macro_action:
+            self._prompt_create_macro_from_selection()
+
+    def _prompt_create_macro_from_selection(self):
+        """feat/macro-blocks: asks for the new macro's name, then hands off
+        to LogicScene.create_macro_from_selection() — split out from
+        contextMenuEvent() so it's testable without driving a real modal
+        QInputDialog, same reasoning as _start_doc_edit()/apply_doc_text()
+        above."""
+        scene = self.scene()
+        if scene is None:
+            return
+        name, ok = QInputDialog.getText(None, "Utwórz makroblok", "Nazwa makrobloku:", QLineEdit.Normal, "Makroblok")
+        if not ok or not name.strip():
+            return
+        scene.create_macro_from_selection(name.strip())
 
     def _current_signal_reference(self) -> str:
         """feat/signal-crossref §4: the signal_id "Pokaż użycia sygnału"
@@ -1069,6 +1124,15 @@ class BlockItem(QGraphicsItem):
     def mouseDoubleClickEvent(self, event):
         if self.shape_style == "DOC":
             self._start_doc_edit()
+            event.accept()
+            return
+        if self.shape_style == "MACRO":
+            # feat/macro-blocks: "wejdź w makroblok jak w podkanwę" —
+            # MainWindow.enter_macro_instance() swaps the canvas to this
+            # instance's own internal blocks (ARCHITECTURE.md §24.9).
+            window = self._current_window()
+            if window is not None and hasattr(window, 'enter_macro_instance'):
+                window.enter_macro_instance(self.logic_block)
             event.accept()
             return
         super().mouseDoubleClickEvent(event)

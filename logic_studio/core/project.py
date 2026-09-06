@@ -20,7 +20,7 @@ class _HistoryEntry:
 # Bump when the on-disk .epwlogic schema changes in a way that requires migration.
 # Every bump needs a matching _migrate_vN_to_v(N+1)(data) function registered in
 # _MIGRATIONS below — see AUDIT_REPORT.md §2 "Wersjonowanie schematów".
-EPWLOGIC_SCHEMA_VERSION = 7
+EPWLOGIC_SCHEMA_VERSION = 8
 
 
 def _migrate_v1_to_v2(data: dict) -> dict:
@@ -189,9 +189,20 @@ def _migrate_v6_to_v7(data: dict) -> dict:
     return data
 
 
+def _migrate_v7_to_v8(data: dict) -> dict:
+    """v7 -> v8 (feat/macro-blocks): settings.macro_definitions introduced
+    — user-defined macro block definitions (core/macros.py). Defaults to
+    an empty dict — no v7 file could have had any entries, the feature
+    didn't exist yet."""
+    settings = data.setdefault("settings", {})
+    settings.setdefault("macro_definitions", {})
+    data["schema_version"] = 8
+    return data
+
+
 # Keyed by the version a migration upgrades FROM. Project.deserialize() walks
 # this sequentially — apply the migration for the file's current version,
-# re-check, repeat — so a v1 file goes through v1->v2->...->v6->v7 in one load.
+# re-check, repeat — so a v1 file goes through v1->v2->...->v7->v8 in one load.
 _MIGRATIONS = {
     1: _migrate_v1_to_v2,
     2: _migrate_v2_to_v3,
@@ -199,6 +210,7 @@ _MIGRATIONS = {
     4: _migrate_v4_to_v5,
     5: _migrate_v5_to_v6,
     6: _migrate_v6_to_v7,
+    7: _migrate_v7_to_v8,
 }
 
 
@@ -255,6 +267,12 @@ class Project:
             # append_history_sample()/get_history()/clear_history()/
             # clear_all_history(), never this dict directly.
             "watch_history": {},
+            # feat/macro-blocks: user-defined macro block definitions —
+            # def_id -> {"name", "blocks", "input_pins", "output_pins"}.
+            # Always read/written through core/macros.py's
+            # get_definition()/set_definition()/delete_definition(), never
+            # this dict directly.
+            "macro_definitions": {},
         }
 
         self.undo_stack = []
@@ -419,6 +437,7 @@ class Project:
         proj.settings.setdefault("io_labels", {})
         proj.settings.setdefault("ela_devices", ["ELA01"])
         proj.settings.setdefault("ada_devices", ["ADA01"])
+        proj.settings.setdefault("macro_definitions", {})
 
         block_data_list = data.get("blocks", [])
 
@@ -442,6 +461,9 @@ class Project:
         unknown_type_ids = []
         for b_data in block_data_list:
             type_id = b_data.get("type_id")
+            # BlockRegistry.get_block_class() resolves a macro instance's
+            # type_id ("macro.<def_id>") to MacroInstanceBlock itself
+            # (feat/macro-blocks) — this call site needs no special case.
             block_class = BlockRegistry.get_block_class(type_id)
 
             if not block_class:
