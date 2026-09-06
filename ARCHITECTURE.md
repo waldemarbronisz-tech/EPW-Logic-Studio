@@ -1994,3 +1994,103 @@ tej gałęzi — przerebase'owana na aktualny `main` przy scalaniu, więc te
 liczby JUŻ sumują się z §24.11/§24.12 powyżej, w przeciwieństwie do
 wcześniejszej wersji tej sekcji pisanej jeszcze na równoległej gałęzi).
 Wszystkie 10 `examples/*.epwlogic` nadal się kompilują.
+
+## 26. Eksport do PDF (feat/pdf-export)
+
+Czwarta i ostatnia z 4 pozycji wybranych po zamknięciu §24 — dokumentacja
+"as-built" gotowa do wydruku/podpisu klienta: bieżący schemat na kanwie
+plus, opcjonalnie, ta sama lista sygnałów co "Eksportuj listę
+sygnałów..." (§14), tyle że złożona na stronie zamiast jako CSV.
+
+**Ta gałąź jest zbudowana NA SZCZYCIE `feat/project-diff` (§25 powyżej)**,
+nie równolegle do niej — obie odgałęzione pierwotnie od tego samego
+commitu `main` (`f0b972d`, PR #27, tuż po `feat/macro-library-import-export`
+było już scalone jako PR #28), ale ta gałąź została PRZEREBASE'OWANA na
+`feat/project-diff` właśnie po to, żeby scalanie w kolejności project-diff
+→ pdf-export przebiegło bez konfliktów w ARCHITECTURE.md/AUDIT_REPORT.md
+(sekcje numerowane sekwencyjnie, §25 potem §26, zamiast dwóch gałęzi
+próbujących zająć ten sam numer). Scalać w TEJ kolejności.
+
+### 26.1 `ui/pdf_export.py` — dlaczego nie `core/`
+
+W przeciwieństwie do większości plików `core/*.py` w tym projekcie, tu
+nie ma sensownej Qt-wolnej wersji "wyrenderuj `QGraphicsScene` na
+stronę" do wydzielenia — cały mechanizm (`QPainter`/`QPdfWriter`/
+`QGraphicsScene.render()`) jest z natury zależny od Qt, dokładnie tak
+samo jak `ui/canvas/shapes.py`. Jedyny fragment, który JEST czystą,
+Qt-wolną logiką — treść listy sygnałów (co wydrukować, nie jak to
+rozłożyć na stronie) — jest celowo wydzielony do osobnej funkcji,
+`signal_list_rows(crossref)`, testowalnej bez konstruowania realnego
+`QPdfWriter`.
+
+`_KIND_SHORT` to celowo OSOBNA, mała kopia tego samego słownika z
+`ui/panels/signals.py` (tam prywatnego, stąd niereimportowanego) —
+ten sam duch co `ui/icons.py`'s `_shape_style_for()`, które odtwarza
+logikę kształtu `BlockItem` zamiast sięgać do jego wnętrza.
+
+### 26.2 `export_schematic_to_pdf(scene, project, path, include_signal_list=True)`
+
+Główny punkt wejścia. Kolejność działań:
+
+1. `scene.clearSelection()` — zaznaczenie na kanwie to afordancja
+   edycji na żywo (przerywana obwódka), nie coś, co powinno trafić do
+   wydrukowanego dokumentu.
+2. `QPdfWriter(path)` skonfigurowany na A4 poziomo, 150 DPI.
+3. Strona 1 (`_draw_schematic_page`): blok tytułowy (nazwa projektu z
+   `project.settings["name"]`, znacznik czasu wygenerowania) + sam
+   schemat, renderowany przez `scene.render(painter, target, source,
+   Qt.KeepAspectRatio)` z `source = scene.itemsBoundingRect()` (RZECZYWISTY
+   zajęty obszar, nie stały, ogromny `sceneRect` kanwy — który
+   wydrukowałby niemal pustą stronę). Pusty projekt (brak bloków) nie
+   wywala się — po prostu kończy się na samym bloku tytułowym.
+4. Jeśli `include_signal_list` i lista sygnałów niepusta
+   (`core/crossref.py::build_crossref()`, TE SAME dane co panel Sygnały/
+   jego CSV, §14): `writer.newPage()` + `_draw_signal_list_pages()`.
+5. `painter.end()` w `finally` — plik musi zostać poprawnie zamknięty
+   nawet jeśli rysowanie samego schematu rzuci wyjątek w trakcie.
+
+### 26.3 Paginacja listy sygnałów (`_draw_signal_list_pages`)
+
+Prosta, ręczna paginacja: rysuje nagłówek kolumn, potem wiersz po
+wierszu, i wywołuje `writer.newPage()` (plus ponowny nagłówek) gdy
+kolejny wiersz przekroczyłby dolny margines strony (`PAGE_MARGIN`).
+Układ kolumn (`_COLUMN_X`/`_COLUMN_HEADERS`/`_ROW_HEIGHT`) to stałe
+modułowe, nie konfiguracja — ta sama filozofia co stałe layoutu w
+`ui/canvas/shapes.py`.
+
+**Test tej funkcji bez prawdziwego pliku/urządzenia**: `QPdfWriter.
+newPage()` to metoda C++/Shiboken — próba jej monkeypatchowania
+(`monkeypatch.setattr(QPdfWriter, "newPage", ...)`) miałaby dokładnie
+ten sam problem, co próba monkeypatchowania `QMenu.exec()` w
+`feat/macro-library-import-export` (AUDIT_REPORT.md — realny `exec()`
+zostałby uruchomiony mimo patcha, tu zamiast zawieszenia byłby po
+prostu ignorowany patch). Zamiast tego: `_draw_signal_list_pages()`
+przyjmuje `writer` wyłącznie przez jego trzy używane metody
+(`width()`/`height()`/`newPage()`) — w testach podstawiany jest zwykły
+obiekt Pythona (`_FakeWriter`) zliczający wywołania `newPage()`, sparowany
+z prawdziwym, ale nigdy nie `begin()`'owanym na urządzeniu `QPainter()`
+(Qt toleruje wywołania rysujące na nieaktywnym painterze jako
+no-op, zweryfikowane empirycznie przed napisaniem testu). Dzięki temu
+logika paginacji jest testowana w pełnej izolacji od plików/PDF.
+
+### 26.4 Wpięcie w `MainWindow` — "Eksportuj do PDF..." (menu Project)
+
+`MainWindow._export_pdf()`: `_exit_all_macro_levels()` najpierw — ten
+sam powód co `compile_project()`/`_save_project()` (§24.8) — eksport
+zawsze dokumentuje PRAWDZIWY projekt najwyższego poziomu, nigdy tylko
+wnętrze makrobloku aktualnie otwartego w widoku breadcrumb. Potem
+`QFileDialog.getSaveFileName` (dopisanie `.pdf` jeśli brak), wywołanie
+`export_schematic_to_pdf()` w `try/except` z `QMessageBox.critical` przy
+błędzie, i komunikat na pasku stanu przy sukcesie.
+
+### 26.5 Świadomie poza zakresem
+
+Wybór podzbioru bloków do wydruku (np. tylko zaznaczenie) — cała
+kanwa albo nic; wielostronicowy schemat dla bardzo dużych projektów
+(obecnie cały schemat ściskany na jedną stronę z zachowaniem proporcji)
+— nie zgłoszone jako potrzeba.
+
+Testy: `tests/test_pdf_export.py` (15) — `signal_list_rows()` (3),
+paginacja izolowana (2), `export_schematic_to_pdf()` end-to-end z
+prawdziwym `QPdfWriter`+`tmp_path` (5), wpięcie `MainWindow._export_pdf()`
+(5) — pełne rozbicie w AUDIT_REPORT.md §38.

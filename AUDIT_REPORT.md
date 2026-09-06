@@ -1,11 +1,14 @@
 # EPW Logic Studio — Pełny raport audytowy (dla Claude.ai)
 
 **Data:** 2026-09-06 (migawka §1-§10 odświeżona do stanu na branchu
-`feat/project-diff` (na `main` commit `c5d2f71`, po scaleniu PR #28
-`feat/macro-library-import-export`, przerebase'owana z jej wcześniejszej
-bazy `f0b972d`/PR #27 przy scalaniu); wszystkie liczby poniżej wyliczone
-bezpośrednio z repozytorium, nie przepisane z poprzedniej wersji —
-polecenia użyte do ich wyliczenia podane w każdej sekcji.
+`feat/pdf-export` (zbudowanej NA SZCZYCIE `feat/project-diff`, przy
+commicie `92339b9`, ta z kolei na `main` commit `c5d2f71` po scaleniu
+PR #28 `feat/macro-library-import-export`); wszystkie liczby poniżej
+wyliczone bezpośrednio z repozytorium, nie przepisane z poprzedniej
+wersji — polecenia użyte do ich wyliczenia podane w każdej sekcji.
+**Scalać w kolejności `feat/project-diff` → `feat/pdf-export`** — ta
+druga została przerebase'owana na pierwszą właśnie po to, żeby to
+scalanie przebiegło bez konfliktów, patrz uwaga na początku §38.
 **Zakres:** wyłącznie warstwa logiki — `EPW-Logic-Studio/` (moduł `logic_studio`, testy, przykłady `.epwlogic`). Pozostałe moduły platformy (`EPW-OS`, `EPW-Synoptic-Editor`) celowo pominięte.
 **Cel dokumentu:** dać modelowi bez dostępu do repo pełny, samodzielny obraz architektury, stanu i znanych problemów, żeby mógł doradzać / kontynuować pracę bez dodatkowych pytań.
 **Struktura dokumentu:** §1-§10 to opisowa migawka BIEŻĄCEGO stanu — ma być
@@ -28,21 +31,21 @@ Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) 
 
 ## 2. Status repozytorium
 
-- Gałąź: `feat/project-diff` (na `main` commit `c5d2f71`, po scaleniu PR #28 `feat/macro-library-import-export`), jeszcze niescalona.
-- **Testy: 1182/1182 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~34s.
-- **59 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **14902 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
-- **Kod produkcyjny (`logic_studio/`): 15954 linii w 71 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
+- Gałąź: `feat/pdf-export` (zbudowana na szczycie `feat/project-diff`, ta na `main` commit `c5d2f71`, po scaleniu PR #28 `feat/macro-library-import-export`), jeszcze niescalona.
+- **Testy: 1197/1197 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~36s.
+- **60 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **15165 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
+- **Kod produkcyjny (`logic_studio/`): 16138 linii w 72 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
   - `blocks/`: 2424
-  - `ui/`: 9418
+  - `ui/`: 9602
   - `core/`: 2627
   - `compiler/`: 807
   - `engine/`: 458
   - `app.py`/`__init__.py` (top-level): 220
 - **69 zarejestrowanych typów bloków w 12 kategoriach** — patrz §5 (polecenie i pełna lista tam), bez zmian od ostatniej migawki. Makrobloki (§24 ARCHITECTURE.md) NIE dodają wpisów tutaj — `MacroInstanceBlock` jest celowo nigdy rejestrowany w `BlockRegistry` (jego układ pinów to dane projektu, nie stała klasy), rozwiązywany osobno przez prefiks `"macro."`.
 - **10 przykładowych projektów** w `examples/*.epwlogic` — wszystkie otwierają się, kompilują i eksportują z bieżącym kodem (zweryfikowane przy każdym PR, patrz dziennik).
-- **125 commitów** w historii (`git log --oneline | wc -l`, przed commitem tej gałęzi) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
+- **126 commitów** w historii (`git log --oneline | wc -l`, przed commitem tej gałęzi) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
 
-Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §25 na tej gałęzi), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
+Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §26 na tej gałęzi), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
 
 ## 3. Struktura katalogów
 
@@ -239,12 +242,13 @@ Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyśc
 ### 7.3 `RuntimeSnapshot` / `RuntimeBlockState` / `RuntimePinState`
 Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 
-## 8. Testy ([tests/](tests/)) — 1182/1182 PASS
+## 8. Testy ([tests/](tests/)) — 1197/1197 PASS
 
-59 plików `test_*.py`, 14902 linii. Kilka największych/najbardziej reprezentatywnych plików:
+60 plików `test_*.py`, 15165 linii. Kilka największych/najbardziej reprezentatywnych plików:
 
 | Plik | Zakres |
 |---|---|
+| `test_pdf_export.py` | `signal_list_rows()`, paginacja `_draw_signal_list_pages()` w izolacji (fałszywy `writer` + `QPainter` nieaktywny), `export_schematic_to_pdf()` end-to-end z realnym `QPdfWriter`, wpięcie `MainWindow._export_pdf()` (§38 dziennika) — 15 testów |
 | `test_canvas_rendering.py` | rysowanie bloków/kanwy — 141 testów |
 | `test_macros.py` | model danych makrobloków — definicje, `build_definition()`, `expand_project()` (zagnieżdżanie, cykle, brakujące definicje, błąd granicy zakotwiczonej na zagnieżdżonej instancji), `instantiate_definition_blocks()`/`update_definition_blocks()`, `add_boundary_pin()`/`remove_boundary_pin()`/`resync_all_instances()`, `core/macros.py` (§24/§31/§32/§35 dziennika) — 42 testy |
 | `test_macro_navigation.py` | nawigacja breadcrumb "wejdź w makroblok" — wejście/wyjście, commit przy wyjściu, zagnieżdżenie, normalizacja do głównego poziomu przy zapisie/kompilacji/undo/redo/nowym projekcie (§31 dziennika) — 15 testów |
@@ -284,7 +288,7 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_wire_routing.py` | kierunek wejścia/wyjścia przewodu z pinu — 6 testów |
 | `test_e2e.py`, `test_isolation.py`, `test_compiler.py`, `test_project.py`, `test_acceptance.py`, ... | pipeline end-to-end, izolacja `CompiledProgram`, kompilator, (de)serializacja projektu, scenariusze akceptacyjne |
 
-Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1182 passed w ~34s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
+Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1197 passed w ~36s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
 
 ## 9. Znane problemy i uwagi z audytu (wyłącznie OTWARTE)
 
@@ -1561,6 +1565,63 @@ gałęzi równoległej.
 Testy: `tests/test_project_diff.py` (24), `tests/test_project_diff_dialog.py`
 (8), `tests/test_project_diff_menu.py` (10). Pełny zestaw: 1182
 passed (1140 po scaleniu PR #28 + 42 nowych testów tej gałęzi). Wszystkie
+10 `examples/*.epwlogic` nadal się kompilują.
+
+## 38. Nowa funkcja: eksport schematu i listy sygnałów do PDF (branch `feat/pdf-export`)
+
+Czwarta i ostatnia z 4 pozycji zaproponowanych po zamknięciu PR #27,
+wszystkie cztery wybrane przez użytkownika naraz: dokumentacja "as-built"
+gotowa do wydruku/podpisu klienta — bieżący schemat na kanwie plus,
+opcjonalnie, ta sama lista sygnałów co "Eksportuj listę sygnałów..."
+(§17/§29 dziennika), złożona na stronie PDF zamiast jako CSV.
+
+**Ta gałąź jest zbudowana NA SZCZYCIE `feat/project-diff` (§37 powyżej)**,
+nie równolegle do niej — pierwotnie odgałęziona od tej samej bazy `main`
+co `feat/macro-library-import-export` (§36) i `feat/project-diff` (§37),
+ale przerebase'owana na `feat/project-diff` właśnie po to, żeby scalanie
+w kolejności project-diff → pdf-export przebiegło bez konfliktów
+numeracji sekcji. **Scalać w TEJ kolejności** (po `feat/macro-library-
+import-export`, już scalonej jako PR #28).
+
+Nowy moduł `ui/pdf_export.py` (nie `core/` — genuinie zależny od Qt,
+`QPainter`/`QPdfWriter`/`QGraphicsScene.render()`, ten sam powód co
+`ui/canvas/shapes.py`; szczegóły projektowe w ARCHITECTURE.md §26).
+Jedyny fragment czystej, Qt-wolnej logiki — `signal_list_rows(crossref)`
+(treść listy sygnałów, niezależna od układu strony) — wydzielony osobno
+żeby był testowalny bez konstruowania realnego `QPdfWriter`.
+
+**Decyzja projektowa warta odnotowania**: paginacja
+(`_draw_signal_list_pages()`) wywołuje `writer.newPage()` po stronie C++
+(`QPdfWriter`, Shiboken) — próba monkeypatchowania TEJ metody miałaby
+dokładnie ten sam problem, co udokumentowana wcześniej próba
+monkeypatchowania `QMenu.exec()` (feat/macro-library-import-export —
+patch po cichu nie przejmuje kontroli nad realną metodą C++). Zamiast
+tego funkcja przyjmuje `writer` wyłącznie przez jego trzy używane metody
+(`width()`/`height()`/`newPage()`), więc test podstawia zwykły obiekt
+Pythona zliczający wywołania, sparowany z prawdziwym, ale nigdy
+`begin()`'owanym na urządzeniu `QPainter()` — zweryfikowane empirycznie
+(skrypt uruchomiony ręcznie przed napisaniem testu, potwierdzone: brak
+wyjątku, poprawna liczba wywołań `newPage()`) że Qt toleruje wywołania
+rysujące na nieaktywnym painterze jako no-op.
+
+Wpięcie w `MainWindow`: nowa akcja "Eksportuj do PDF..." w menu Project,
+obok "Eksportuj listę sygnałów...". `_export_pdf()` normalizuje do
+prawdziwego poziomu głównego projektu najpierw (`_exit_all_macro_levels()`
+— ten sam powód co `compile_project()`/`_save_project()`, §31 dziennika),
+żeby eksport nigdy przypadkiem nie udokumentował tylko wnętrza otwartego
+akurat makrobloku.
+
+Testy: `tests/test_pdf_export.py` (15) — `signal_list_rows()` pusty/
+rzeczywisty projekt/sortowanie (3), paginacja w izolacji, przepełnienie i
+brak przepełnienia (2), `export_schematic_to_pdf()` end-to-end z
+prawdziwym `QPdfWriter`+`tmp_path`: plik niepusty, pusty projekt,
+czyszczenie zaznaczenia przed renderem, pominięcie cross-referencji przy
+`include_signal_list=False`, plik z listą sygnałów większy niż bez niej
+(5), wpięcie `MainWindow._export_pdf()`: tworzenie pliku, dopisanie
+rozszerzenia `.pdf`, anulowanie dialogu to no-op, normalizacja poza
+widok makrobloku najpierw, błąd zgłoszony przez `QMessageBox` (5).
+Pełny zestaw: 1197 passed (1182 po scaleniu `feat/project-diff`
++ 15 nowych testów tej gałęzi). Wszystkie
 10 `examples/*.epwlogic` nadal się kompilują.
 
 ## Zasada utrzymania tego dokumentu

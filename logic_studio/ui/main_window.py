@@ -162,10 +162,15 @@ class MainWindow(QMainWindow):
         self.act_export_signals = self._make_action(
             "Eksportuj listę sygnałów...", lambda: self.signals_panel.prompt_export_csv()
         )
+        # feat/pdf-export: as-built documentation — the current schematic
+        # plus (optionally) the same signal list Eksportuj listę
+        # sygnałów... already exports as CSV, laid out on paper instead.
+        self.act_export_pdf = self._make_action("Eksportuj do PDF...", self._export_pdf)
 
         project_menu = menubar.addMenu("Project")
         project_menu.addAction(self.act_project_settings)
         project_menu.addAction(self.act_export_signals)
+        project_menu.addAction(self.act_export_pdf)
 
         # --- Logic ---
         self.act_compile = self._make_action("Compile", self.compile_project, "F5", icon_name="compile")
@@ -749,6 +754,31 @@ class MainWindow(QMainWindow):
                 json.dump(runtime_data, f, indent=4)
 
             self.output_panel.log_message(f"Runtime exported to {path}")
+
+    def _export_pdf(self):
+        # feat/pdf-export: same reasoning as compile_project()/
+        # _save_project() below — act on the TRUE top-level project,
+        # never on whatever a macro's own edit view happens to be
+        # showing right now, so a client-facing PDF never accidentally
+        # documents only one macro's internals.
+        self._exit_all_macro_levels()
+
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+        path, _ = QFileDialog.getSaveFileName(self, "Eksportuj do PDF", "", "PDF Files (*.pdf)")
+        if not path:
+            return
+        if not path.endswith(".pdf"):
+            path += ".pdf"
+
+        from logic_studio.ui.pdf_export import export_schematic_to_pdf
+        try:
+            export_schematic_to_pdf(self.scene, self.project, path)
+        except Exception as e:
+            QMessageBox.critical(self, "Błąd eksportu PDF", f"Nie udało się wyeksportować PDF:\n{str(e)}")
+            return
+
+        self.statusBar().showMessage(f"Wyeksportowano do {path}", 5000)
 
     def compile_project(self):
         # feat/macro-blocks: Compile/Run always act on the TRUE top-level
