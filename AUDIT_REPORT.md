@@ -1,10 +1,10 @@
 # EPW Logic Studio — Pełny raport audytowy (dla Claude.ai)
 
 **Data:** 2026-09-06 (migawka §1-§10 odświeżona do stanu na branchu
-`feat/macro-editable-pins` (na `main` commit `04ab85b`, po scaleniu PR #26
-`fix/ci-pin-runner-and-pyside6`); wszystkie liczby poniżej wyliczone
-bezpośrednio z repozytorium, nie przepisane z poprzedniej wersji —
-polecenia użyte do ich wyliczenia podane w każdej sekcji).
+`feat/macro-library-import-export` (na `main` commit `f0b972d`, po
+scaleniu PR #27 `feat/macro-editable-pins`); wszystkie liczby poniżej
+wyliczone bezpośrednio z repozytorium, nie przepisane z poprzedniej
+wersji — polecenia użyte do ich wyliczenia podane w każdej sekcji).
 **Zakres:** wyłącznie warstwa logiki — `EPW-Logic-Studio/` (moduł `logic_studio`, testy, przykłady `.epwlogic`). Pozostałe moduły platformy (`EPW-OS`, `EPW-Synoptic-Editor`) celowo pominięte.
 **Cel dokumentu:** dać modelowi bez dostępu do repo pełny, samodzielny obraz architektury, stanu i znanych problemów, żeby mógł doradzać / kontynuować pracę bez dodatkowych pytań.
 **Struktura dokumentu:** §1-§10 to opisowa migawka BIEŻĄCEGO stanu — ma być
@@ -27,13 +27,13 @@ Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) 
 
 ## 2. Status repozytorium
 
-- Gałąź: `feat/macro-editable-pins` (na `main` commit `04ab85b`, po scaleniu PR #26 `fix/ci-pin-runner-and-pyside6`), jeszcze niescalona.
-- **Testy: 1111/1111 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~27-29s.
-- **54 pliki testowe** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **13805 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
-- **Kod produkcyjny (`logic_studio/`): 15391 linii w 68 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
+- Gałąź: `feat/macro-library-import-export` (na `main` commit `f0b972d`, po scaleniu PR #27 `feat/macro-editable-pins`), jeszcze niescalona.
+- **Testy: 1140/1140 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~29-31s.
+- **56 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **14321 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
+- **Kod produkcyjny (`logic_studio/`): 15631 linii w 69 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
   - `blocks/`: 2424
-  - `ui/`: 9160
-  - `core/`: 2322
+  - `ui/`: 9261
+  - `core/`: 2461
   - `compiler/`: 807
   - `engine/`: 458
   - `app.py`/`__init__.py` (top-level): 220
@@ -238,9 +238,9 @@ Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyśc
 ### 7.3 `RuntimeSnapshot` / `RuntimeBlockState` / `RuntimePinState`
 Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 
-## 8. Testy ([tests/](tests/)) — 1111/1111 PASS
+## 8. Testy ([tests/](tests/)) — 1140/1140 PASS
 
-54 pliki `test_*.py`, 13805 linii. Kilka największych/najbardziej reprezentatywnych plików:
+56 plików `test_*.py`, 14321 linii. Kilka największych/najbardziej reprezentatywnych plików:
 
 | Plik | Zakres |
 |---|---|
@@ -256,6 +256,8 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_signals_panel.py` | panel "Sygnały", drzewo grupowane kategorią — 25 testów |
 | `test_macro_instance.py` | `MacroInstanceBlock` — konstrukcja, `configure()`, `deserialize()`, `clone()` (§24 dziennika) — 11 testów |
 | `test_library_panel_macros.py` | sekcja "Makrobloki" w panelu biblioteki — `set_project()`, nazwa/opis/tooltip z rzeczywistej definicji, wyszukiwanie, odświeżanie po utworzeniu/undo/nowym projekcie (§24 dziennika) — 12 testów |
+| `test_macro_library.py` | eksport/import bibliotek makrobloków — zbieranie zależności zagnieżdżonych, przepisywanie odwołań, walidacja formatu/wersji, `core/macro_library.py` (§36 dziennika) — 17 testów |
+| `test_library_panel_macro_sharing.py` | eksport/import z UI panelu biblioteki — zapis/odczyt pliku, menu kontekstowe, odświeżanie drzewa, pełny obieg między dwoma projektami (§36 dziennika) — 12 testów |
 | `test_macro_creation.py` | `LogicScene.create_macro_from_selection()`, przypadek makro w `add_block_from_library()`, wejście z menu kontekstowego, kopiuj/wklej/duplikuj instancji (§24/§33 dziennika) — 11 testów |
 | `test_breadcrumb_bar.py` | `BreadcrumbBar` — widoczność, przyciski/etykieta, sygnał `navigate_to`, przycisk "Piny makrobloku..." (§31/§35 dziennika) — 11 testów |
 | `test_macro_block_rendering.py` | render `MacroInstanceBlock` na kanwie, ikona biblioteki (§24 dziennika) — 5 testów |
@@ -283,7 +285,7 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_wire_routing.py` | kierunek wejścia/wyjścia przewodu z pinu — 6 testów |
 | `test_e2e.py`, `test_isolation.py`, `test_compiler.py`, `test_project.py`, `test_acceptance.py`, ... | pipeline end-to-end, izolacja `CompiledProgram`, kompilator, (de)serializacja projektu, scenariusze akceptacyjne |
 
-Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1111 passed w ~27-29s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
+Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1140 passed w ~29-31s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
 
 ## 9. Znane problemy i uwagi z audytu (wyłącznie OTWARTE)
 
@@ -333,12 +335,12 @@ dziennika, branch `fix/audit-followups-multidevice-const`).
    `pytest-randomly` (nieużywany lokalnie) by ujawnił szybciej. Nie
    odtworzone w sposób pozwalający wskazać konkretny plik/test jako
    przyczynę.
-4. Makrobloki (§24 ARCHITECTURE.md, §30/§31/§35 dziennika) — cały ustalony
-   zakres gotowy, WŁĄCZNIE z edytowalnymi pinami granicznymi + resync
-   (§35) — §31 pkt 2's dawne ograniczenie zniesione. Jedyne pozostałe,
-   świadomie pominięte: wizualne oznaczenie "jesteś wewnątrz makrobloku"
-   na kanwie poza samym breadcrumbem (§24.10 ARCHITECTURE.md) — nie
-   zgłoszone jako potrzeba.
+4. Makrobloki (§24 ARCHITECTURE.md, §30/§31/§35/§36 dziennika) — cały
+   ustalony zakres gotowy, WŁĄCZNIE z edytowalnymi pinami granicznymi +
+   resync (§35) i eksportem/importem między projektami jako pliki
+   `.epwmacro` (§36). Jedyne pozostałe, świadomie pominięte: wizualne
+   oznaczenie "jesteś wewnątrz makrobloku" na kanwie poza samym
+   breadcrumbem (§24.12 ARCHITECTURE.md) — nie zgłoszone jako potrzeba.
 5. CI na Linuksie padał z `exit code 135` (crash, sygnał `SIGBUS`) na
    KAŻDYM uruchomieniu, niezależnie od kodu tego repozytorium — nawet na
    samym `main` (§34 dziennika). Naprawa (przypięcie `ubuntu-22.04` +
@@ -1500,6 +1502,42 @@ trwałego elementu (przycisk "Piny makrobloku...") bez poprawienia tej
 pętli usuwałoby przycisk na pierwszym samym wywołaniu `set_path()`.
 Naprawione zanim trafiło do jakiegokolwiek commita na `main` — złapane
 przez `tests/test_breadcrumb_bar.py::test_pins_button_survives_several_set_path_calls_in_a_row`.
+
+## 36. Makrobloki: współdzielenie między projektami jako pliki `.epwmacro` (branch `feat/macro-library-import-export`)
+
+Druga z czterech pozycji wybranych po §30/§31/§34/§35 (po edytowalnych
+pinach — diff wersji projektu i eksport do PDF zostają). Eksport/import
+pojedynczej definicji makrobloku jako osobny plik, żeby dało się
+zbudować gotowy blok raz i użyć go w innym projekcie albo przekazać
+koledze, zamiast odtwarzać ręcznie za każdym razem. Pełny opis
+mechanizmu w ARCHITECTURE.md §24.11 — tu tylko status.
+
+| # | Punkt | Status |
+|---|---|---|
+| 1 | Format pliku + eksport zależności (`core/macro_library.py`) | Zrobione — `.epwmacro` (JSON), `collect_dependencies()` paczkuje żądaną definicję PLUS każdą inną, od której transytywnie zależy (zagnieżdżona instancja makrobloku gdziekolwiek w `"blocks"`) — eksport tylko jednego elementu wielopoziomowej hierarchii zostawiłby w docelowym projekcie martwe odwołania od razu. Brakująca zależność (już martwa w źródle) po prostu pomijana przy zbieraniu. |
+| 2 | Import ze świeżymi `def_id` + przepisanie odwołań | Zrobione — `import_bundle()` mintuje NOWY `def_id` dla każdej definicji w paczce (nigdy nie koliduje z niczym istniejącym, nawet identyczna treść — ta aplikacja nigdzie indziej też nie deduplikuje cicho), przepisuje każde `"macro.<stary_def_id>"` wewnątrz `"blocks"` na nowy id. Odwołanie spoza paczki (już martwe w źródle) zostaje bez zmian — ten sam błąd kompilacji w projekcie docelowym co miałby w źródłowym. `validate_bundle()` odrzuca zły `"format"` albo `schema_version` nowszy niż obsługiwany, tym samym głośnym stylem co `Project.deserialize()`'s nieznany `type_id`. |
+| 3 | UI (`ui/panels/library.py`) | Zrobione — eksport: prawym przyciskiem na wpis w sekcji "Makrobloki" → "Eksportuj makroblok...". Import: zawsze widoczny przycisk "Importuj makroblok..." pod polem wyszukiwania (nie zależy od zaznaczenia). `project.push_state()` dopiero PO potwierdzeniu, że plik jest poprawny — odrzucony plik nie zostawia zmarnowanego wpisu cofania. |
+
+**Pułapka przy testowaniu (nie w produkcyjnym kodzie), znaleziona i naprawiona w trakcie budowy**:
+`QMenu.exec()` (metoda C++ opakowana przez Shiboken) nie daje się
+niezawodnie monkeypatchować jak zwykła metoda Pythona — próba i tak
+uruchamiała PRAWDZIWY modalny `exec()`, który w headless teście wisi w
+nieskończoność (pierwsze uruchomienie testów tej gałęzi rzeczywiście
+zawiesiło się na tym). Naprawione wydzieleniem `LibraryPanel._exec_context_menu()`
+— zwykłej metody Pythona, którą testy mogą bezpiecznie podmienić —
+zamiast wołania `menu.exec()` wprost z `_on_tree_context_menu()`.
+
+Testy: `tests/test_macro_library.py` (17 — zbieranie zależności
+łącznie z zagnieżdżeniem wielopoziomowym i odwołaniem martwym już w
+źródle, eksport/zapis/odczyt pliku, walidacja formatu/wersji, import ze
+świeżymi id i przepisanymi odwołaniami, pełny obieg eksport→import→
+kompilacja w INNYM projekcie), `tests/test_library_panel_macro_sharing.py`
+(12 — zapis/odczyt przez zamockowany `QFileDialog`, dopisanie
+rozszerzenia, anulowanie dialogu, błędny plik pokazuje komunikat bez
+częściowego importu, menu kontekstowe tylko dla wpisów makrobloku, pełny
+obieg import→umieszczenie instancji w innym oknie). Pełny zestaw: 1140
+passed (1111 + 29 nowych testów tej PR — patrz §8 dla rozbicia).
+Wszystkie 10 `examples/*.epwlogic` nadal się kompilują.
 
 ## Zasada utrzymania tego dokumentu
 

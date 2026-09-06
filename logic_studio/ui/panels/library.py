@@ -1,4 +1,7 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLineEdit, QTreeWidget, QTreeWidgetItem
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QLineEdit, QTreeWidget, QTreeWidgetItem,
+    QPushButton, QMenu, QFileDialog, QMessageBox,
+)
 from PySide6.QtGui import QDrag
 from PySide6.QtCore import Qt, QMimeData, QSettings, QPoint, Signal
 
@@ -107,7 +110,20 @@ class LibraryPanel(QWidget):
         self.tree.itemExpanded.connect(self._on_item_expanded_changed)
         self.tree.itemCollapsed.connect(self._on_item_expanded_changed)
         self.tree.currentItemChanged.connect(self._on_current_item_changed)
+        # feat/macro-library-import-export: right-click a "Makrobloki"
+        # entry to export it — see _on_tree_context_menu().
+        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._on_tree_context_menu)
         layout.addWidget(self.tree)
+
+        # feat/macro-library-import-export: always visible (unlike export,
+        # importing doesn't depend on anything currently selected) — the
+        # one entry point for pulling a `.epwmacro` file another project
+        # (or another engineer) produced into THIS project's own
+        # "Makrobloki" section.
+        self.import_macro_btn = QPushButton("Importuj makroblok...")
+        self.import_macro_btn.clicked.connect(self._import_macro)
+        layout.addWidget(self.import_macro_btn)
 
         self._recent_root = None
         self._macro_root = None
@@ -298,6 +314,91 @@ class LibraryPanel(QWidget):
             for def_id, definition in sorted(definitions.items(), key=lambda kv: kv[1].get("name", "")):
                 self._add_block_item(self._macro_root, f"{MACRO_TYPE_PREFIX}{def_id}")
         self._macro_root.setHidden(self._macro_root.childCount() == 0)
+
+    # ---- Sharing a macro between projects (feat/macro-library-import-export) --
+
+    def _on_tree_context_menu(self, pos):
+        """Right-click anywhere in the tree — only ever adds anything for
+        a "Makrobloki" entry (every other category is a fixed, built-in
+        block type with nothing project-specific to export)."""
+        item = self.tree.itemAt(pos)
+        if item is None:
+            return
+        from logic_studio.core.macros import macro_def_id
+        def_id = macro_def_id(item.data(0, TYPE_ID_ROLE))
+        if def_id is None:
+            return
+
+        menu = QMenu(self)
+        export_action = menu.addAction("Eksportuj makroblok...")
+        action = self._exec_context_menu(menu, self.tree.viewport().mapToGlobal(pos))
+        if action == export_action:
+            self._export_macro(def_id)
+
+    def _exec_context_menu(self, menu, global_pos):
+        """Split out from _on_tree_context_menu() purely so it's testable
+        without needing to override QMenu.exec() itself — a wrapped C++
+        method that (unlike an ordinary Python method) can't be reliably
+        monkeypatched; attempting to anyway leaves the REAL modal exec()
+        running, which just hangs forever in a headless test with nothing
+        to click. Tests patch this instead."""
+        return menu.exec(global_pos)
+
+    def _export_macro(self, def_id: str):
+        if self._project is None:
+            return
+        from logic_studio.core import macro_library
+
+        definition_name = self._macro_definition_name(f"macro.{def_id}") or "makroblok"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Eksportuj makroblok", f"{definition_name}.epwmacro",
+            "Pliki makrobloków EPW (*.epwmacro)"
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".epwmacro"):
+            path += ".epwmacro"
+
+        try:
+            macro_library.save_to_file(self._project, def_id, path)
+        except (ValueError, OSError) as e:
+            QMessageBox.critical(self, "Błąd eksportu", str(e))
+            return
+
+        window = self.window()
+        if hasattr(window, 'statusBar'):
+            window.statusBar().showMessage(f"Wyeksportowano makroblok do {path}", 5000)
+
+    def _import_macro(self):
+        if self._project is None:
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Importuj makroblok", "", "Pliki makrobloków EPW (*.epwmacro)"
+        )
+        if not path:
+            return
+
+        from logic_studio.core import macro_library
+        try:
+            bundle = macro_library.load_from_file(path)
+            macro_library.validate_bundle(bundle)
+        except (ValueError, OSError) as e:
+            QMessageBox.critical(self, "Błąd importu", str(e))
+            return
+
+        # push_state() only AFTER the file's own validity is confirmed —
+        # a rejected import leaves no wasted undo entry behind.
+        self._project.push_state()
+        macro_library.import_bundle(self._project, bundle)
+
+        window = self.window()
+        if hasattr(window, 'set_dirty'):
+            window.set_dirty()
+        self.set_project(self._project)
+
+        count = len(bundle.get("definitions", {}))
+        if hasattr(window, 'statusBar'):
+            window.statusBar().showMessage(f"Zaimportowano makroblok ({count} definicji).", 5000)
 
     def _on_current_item_changed(self, current, previous):
         type_id = current.data(0, TYPE_ID_ROLE) if current else None
