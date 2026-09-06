@@ -1,10 +1,11 @@
 # EPW Logic Studio — Pełny raport audytowy (dla Claude.ai)
 
 **Data:** 2026-09-06 (migawka §1-§10 odświeżona do stanu na branchu
-`feat/macro-library-import-export` (na `main` commit `f0b972d`, po
-scaleniu PR #27 `feat/macro-editable-pins`); wszystkie liczby poniżej
-wyliczone bezpośrednio z repozytorium, nie przepisane z poprzedniej
-wersji — polecenia użyte do ich wyliczenia podane w każdej sekcji).
+`feat/project-diff` (na `main` commit `c5d2f71`, po scaleniu PR #28
+`feat/macro-library-import-export`, przerebase'owana z jej wcześniejszej
+bazy `f0b972d`/PR #27 przy scalaniu); wszystkie liczby poniżej wyliczone
+bezpośrednio z repozytorium, nie przepisane z poprzedniej wersji —
+polecenia użyte do ich wyliczenia podane w każdej sekcji.
 **Zakres:** wyłącznie warstwa logiki — `EPW-Logic-Studio/` (moduł `logic_studio`, testy, przykłady `.epwlogic`). Pozostałe moduły platformy (`EPW-OS`, `EPW-Synoptic-Editor`) celowo pominięte.
 **Cel dokumentu:** dać modelowi bez dostępu do repo pełny, samodzielny obraz architektury, stanu i znanych problemów, żeby mógł doradzać / kontynuować pracę bez dodatkowych pytań.
 **Struktura dokumentu:** §1-§10 to opisowa migawka BIEŻĄCEGO stanu — ma być
@@ -27,21 +28,21 @@ Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) 
 
 ## 2. Status repozytorium
 
-- Gałąź: `feat/macro-library-import-export` (na `main` commit `f0b972d`, po scaleniu PR #27 `feat/macro-editable-pins`), jeszcze niescalona.
-- **Testy: 1140/1140 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~29-31s.
-- **56 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **14321 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
-- **Kod produkcyjny (`logic_studio/`): 15631 linii w 69 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
+- Gałąź: `feat/project-diff` (na `main` commit `c5d2f71`, po scaleniu PR #28 `feat/macro-library-import-export`), jeszcze niescalona.
+- **Testy: 1182/1182 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~34s.
+- **59 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **14902 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
+- **Kod produkcyjny (`logic_studio/`): 15954 linii w 71 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
   - `blocks/`: 2424
-  - `ui/`: 9261
-  - `core/`: 2461
+  - `ui/`: 9418
+  - `core/`: 2627
   - `compiler/`: 807
   - `engine/`: 458
   - `app.py`/`__init__.py` (top-level): 220
 - **69 zarejestrowanych typów bloków w 12 kategoriach** — patrz §5 (polecenie i pełna lista tam), bez zmian od ostatniej migawki. Makrobloki (§24 ARCHITECTURE.md) NIE dodają wpisów tutaj — `MacroInstanceBlock` jest celowo nigdy rejestrowany w `BlockRegistry` (jego układ pinów to dane projektu, nie stała klasy), rozwiązywany osobno przez prefiks `"macro."`.
 - **10 przykładowych projektów** w `examples/*.epwlogic` — wszystkie otwierają się, kompilują i eksportują z bieżącym kodem (zweryfikowane przy każdym PR, patrz dziennik).
-- **112 commitów** w historii (`git log --oneline | wc -l`) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
+- **125 commitów** w historii (`git log --oneline | wc -l`, przed commitem tej gałęzi) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
 
-Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §24), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
+Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §25 na tej gałęzi), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
 
 ## 3. Struktura katalogów
 
@@ -238,9 +239,9 @@ Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyśc
 ### 7.3 `RuntimeSnapshot` / `RuntimeBlockState` / `RuntimePinState`
 Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 
-## 8. Testy ([tests/](tests/)) — 1140/1140 PASS
+## 8. Testy ([tests/](tests/)) — 1182/1182 PASS
 
-56 plików `test_*.py`, 14321 linii. Kilka największych/najbardziej reprezentatywnych plików:
+59 plików `test_*.py`, 14902 linii. Kilka największych/najbardziej reprezentatywnych plików:
 
 | Plik | Zakres |
 |---|---|
@@ -248,6 +249,9 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_macros.py` | model danych makrobloków — definicje, `build_definition()`, `expand_project()` (zagnieżdżanie, cykle, brakujące definicje, błąd granicy zakotwiczonej na zagnieżdżonej instancji), `instantiate_definition_blocks()`/`update_definition_blocks()`, `add_boundary_pin()`/`remove_boundary_pin()`/`resync_all_instances()`, `core/macros.py` (§24/§31/§32/§35 dziennika) — 42 testy |
 | `test_macro_navigation.py` | nawigacja breadcrumb "wejdź w makroblok" — wejście/wyjście, commit przy wyjściu, zagnieżdżenie, normalizacja do głównego poziomu przy zapisie/kompilacji/undo/redo/nowym projekcie (§31 dziennika) — 15 testów |
 | `test_macro_pin_editing.py` | edytowalne piny makrobloku end-to-end — wystaw/usuń pin z menu kontekstowego/dialogu, resync na żywej instancji i zagnieżdżonej w innej definicji (§35 dziennika) — 14 testów |
+| `test_project_diff.py` | `compare_projects()` — każda kategoria zmiany (dodane/usunięte/zmienione bloki, pola/właściwości/połączenia/przesunięcie, zmiany ustawień), w izolacji od Project/Qt (§36 dziennika na tej gałęzi) — 24 testy |
+| `test_project_diff_dialog.py` | `ProjectDiffDialog` — renderowanie każdej sekcji drzewa (§36 dziennika na tej gałęzi) — 8 testów |
+| `test_project_diff_menu.py` | wywołanie porównania z menu File — normalizacja migracji schematu, normalizacja do głównego poziomu przed porównaniem, dwa dowolne pliki (§36 dziennika na tej gałęzi) — 10 testów |
 | `test_macro_pins_dialog.py` | `MacroPinsDialog` — listy wejść/wyjść, usuwanie przez callback, odświeżanie (§35 dziennika) — 7 testów |
 | `test_internal_bits.py` | rejestr sygnałów wewnętrznych, katalog sygnałów systemowych, synchronizacja typu pinu po wczytaniu (§28) + `SignalPickerDialog.selected_kind()` (§29 dziennika) — 57 testów |
 | `test_export_contract.py` | kontrakt eksportu, checksum, metadane — 33 testy |
@@ -262,11 +266,6 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_breadcrumb_bar.py` | `BreadcrumbBar` — widoczność, przyciski/etykieta, sygnał `navigate_to`, przycisk "Piny makrobloku..." (§31/§35 dziennika) — 11 testów |
 | `test_macro_block_rendering.py` | render `MacroInstanceBlock` na kanwie, ikona biblioteki (§24 dziennika) — 5 testów |
 | `test_grid_alignment.py` | siatka, snap, geometria — 176 testów |
-| `test_internal_bits.py` | rejestr sygnałów wewnętrznych, katalog sygnałów systemowych, synchronizacja typu pinu po wczytaniu (§28) + `SignalPickerDialog.selected_kind()` (§29 dziennika) — 57 testów |
-| `test_export_contract.py` | kontrakt eksportu, checksum, metadane — 33 testy |
-| `test_blocks.py` | logika pojedynczych bloków — 31 testów |
-| `test_watch.py` | lista obserwowanych sygnałów + nagrane, trwale zapisane przebiegi, `core/watch.py` (§29 dziennika) — 39 testów |
-| `test_signals_panel.py` | panel "Sygnały", drzewo grupowane kategorią — 25 testów |
 | `test_short_id.py` | krótkie identyfikatory bloków — 27 testów |
 | `test_property_panel.py` | panel właściwości — 27 testów |
 | `test_crossref.py` | cross-reference sygnałów + `classify_signal_id()` (§29 dziennika) — 27 testów |
@@ -285,7 +284,7 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_wire_routing.py` | kierunek wejścia/wyjścia przewodu z pinu — 6 testów |
 | `test_e2e.py`, `test_isolation.py`, `test_compiler.py`, `test_project.py`, `test_acceptance.py`, ... | pipeline end-to-end, izolacja `CompiledProgram`, kompilator, (de)serializacja projektu, scenariusze akceptacyjne |
 
-Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1140 passed w ~29-31s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
+Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1182 passed w ~34s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
 
 ## 9. Znane problemy i uwagi z audytu (wyłącznie OTWARTE)
 
@@ -1538,6 +1537,31 @@ częściowego importu, menu kontekstowe tylko dla wpisów makrobloku, pełny
 obieg import→umieszczenie instancji w innym oknie). Pełny zestaw: 1140
 passed (1111 + 29 nowych testów tej PR — patrz §8 dla rozbicia).
 Wszystkie 10 `examples/*.epwlogic` nadal się kompilują.
+
+## 37. Porównanie wersji projektu (branch `feat/project-diff`)
+
+Trzecia z czterech pozycji wybranych po §30/§31/§34/§35 (import/eksport
+bibliotek makrobloków — §36 powyżej — i eksport do PDF zostają). Czytelne
+dla człowieka podsumowanie różnic między dwoma zapisanymi stanami
+projektu. Pełny opis mechanizmu w ARCHITECTURE.md §25 — tu tylko status.
+
+| # | Punkt | Status |
+|---|---|---|
+| 1 | Silnik porównania (`core/project_diff.py`) | Zrobione — `compare_projects(base, target)`, bloki dopasowywane po `uuid` (nie pozycji na liście). Zwraca dodane/usunięte bloki wprost, zmienione bloki z rozbiciem pole-po-polu (`display_name`/`enabled`/`color`/`execution_priority`, każdy klucz `properties`, połączenia per pin jako dodane/usunięte, `moved` OSOBNO od zwykłych pól — zwykłe przeciągnięcie na kanwie to inny priorytet sygnału niż zmiana logiki), i zmiany ustawień całymi kluczami. Osobny moduł od `core/state_diff.py` (ten drugi zoptymalizowany pod tanie zapisywanie na KAŻDEJ edycji undo/redo, nie pod czytelność) — świadomie NIE reużyty. |
+| 2 | Normalizacja przez migrację przed porównaniem | Zrobione — `MainWindow._load_and_normalize()` przepuszcza wczytany plik przez `Project.deserialize().serialize()` przed diffem: bez tego, plik zapisany pod starszym `schema_version` pokazywałby każdy klucz ustawień wprowadzony migracją (np. `watch_history`) jako fałszywie "dodany". Uszkodzony plik pada dokładnie tak samo jak przy zwykłym otwieraniu. |
+| 3 | UI (`ui/project_diff_dialog.py`, menu File) | Zrobione — "Porównaj z zapisanym plikiem..." (normalizuje do głównego poziomu najpierw, jak Zapis/Kompilacja) i "Porównaj dwa projekty..." (dowolne dwa pliki). `QTreeWidget` z sekcjami Dodane/Usunięte/Zmienione/Zmiany ustawień. |
+
+**Ta gałąź była RÓWNOLEGŁA wobec `feat/macro-library-import-export` (§36)
+aż do scalenia obu — odgałęziona od tej samej bazy `main` (PR #27), przed
+scaleniem PR #28. Przerebase'owana na aktualny `main` (po PR #28) przy
+tym scaleniu**, stąd liczby testów poniżej JUŻ sumują się z §36, w
+przeciwieństwie do wcześniejszej wersji tego wpisu pisanej jeszcze na
+gałęzi równoległej.
+
+Testy: `tests/test_project_diff.py` (24), `tests/test_project_diff_dialog.py`
+(8), `tests/test_project_diff_menu.py` (10). Pełny zestaw: 1182
+passed (1140 po scaleniu PR #28 + 42 nowych testów tej gałęzi). Wszystkie
+10 `examples/*.epwlogic` nadal się kompilują.
 
 ## Zasada utrzymania tego dokumentu
 

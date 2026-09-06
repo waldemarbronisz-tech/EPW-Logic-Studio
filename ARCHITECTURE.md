@@ -1933,3 +1933,64 @@ Testy: `tests/test_macros.py` (42), `tests/test_macro_instance.py` (11),
 (15), `tests/test_macro_pins_dialog.py` (7), `tests/test_macro_pin_editing.py`
 (14), `tests/test_macro_library.py` (17), `tests/test_library_panel_macro_sharing.py`
 (12) — pełne rozbicie w AUDIT_REPORT.md §8/§30/§31/§32/§35/§36.
+
+## 25. Porównanie wersji projektu (`core/project_diff.py`, feat/project-diff)
+
+Trzecia z czterech pozycji wybranych po §30/§31/§34/§35 (po edytowalnych
+pinach makrobloku — import/eksport bibliotek makrobloków i eksport do
+PDF zostają). Czytelne dla człowieka podsumowanie różnic między dwoma
+zapisanymi stanami projektu — do code-review schematów i śledzenia
+zmian, na potrzeby zespołowej pracy.
+
+**Osobny moduł od `core/state_diff.py`, nie jego reużycie**: ten drugi
+istnieje wyłącznie dla wydajności zapisu undo/redo (ziarnistość całego
+bloku — "ten słownik bloku różni się jakoś" — bo to tanie do policzenia i
+tanie do zapisania przy KAŻDEJ edycji). `core/project_diff.py` zamienia tę
+wydajność na CZYTELNOŚĆ: która konkretnie właściwość/pin/ustawienie się
+zmieniło, ze starą i nową wartością — myślane do CZYTANIA przez inżyniera
+przeglądającego zmiany, nie do bajt-po-bajcie odtworzenia stanu, jak
+potrzebuje undo/redo.
+
+`compare_projects(base, target)` — oba argumenty to pełne słowniki w
+kształcie `Project.serialize()`. Bloki dopasowywane po `uuid`, nigdy po
+pozycji na liście (wstawienie/usunięcie w środku nie sprawia, że
+wszystko po nim wygląda na zmienione). Zwraca `blocks_added`/
+`blocks_removed` (całe słowniki), `blocks_changed` (lista zmian pole-po-
+polu: `display_name`/`enabled`/`color`/`execution_priority` i każdy klucz
+`properties`, POŁĄCZENIA pinów osobno per pin jako dodane/usunięte
+uuid, oraz `moved` — zmiana `x`/`y` raportowana OSOBNO od zwykłych zmian
+pola, bo samo przeciągnięcie na kanwie to dużo niższy priorytet sygnału
+dla przeglądu schematu niż realna zmiana logiki/okablowania), oraz
+`settings_changes` (całe klucze, ta sama ziarnistość co
+`core/state_diff.py`'s własne traktowanie ustawień — nie skaluje się z
+liczbą bloków, więc nie ma zysku z zagłębiania się w nie też tutaj).
+
+**Normalizacja przez migrację przed porównaniem** (`MainWindow._load_and_normalize()`):
+plik zapisany pod STARSZYM `schema_version` musi przejść przez
+`Project.deserialize().serialize()` PRZED porównaniem — bez tego,
+porównanie bieżącego stanu (zawsze na NAJNOWSZYM schemacie) z plikiem
+zapisanym dawno temu pokazywałoby każdy klucz ustawień wprowadzony przez
+migrację (np. `macro_definitions`, `watch_history`) jako fałszywie
+"dodany", mimo że inżynier nic nie zmienił od wczytania. Przy okazji: plik
+naprawdę uszkodzony (nieznany `type_id`, zły `"format"`) pada dokładnie
+tak samo jak przy zwykłym otwieraniu, zamiast cicho karmić diff śmieciami.
+
+**UI** (`ui/project_diff_dialog.py::ProjectDiffDialog`, menu File):
+"Porównaj z zapisanym plikiem..." (bieżący stan w pamięci kontra plik na
+dysku — normalizuje do głównego poziomu najpierw, `_exit_all_macro_levels()`,
+ta sama zasada co Zapis/Kompilacja) i "Porównaj dwa projekty..." (dowolne
+dwa pliki `.epwlogic`, np. dwa eksporty z historii gita). Widok to
+`QTreeWidget` z sekcjami Dodane/Usunięte/Zmienione/Zmiany ustawień, Qt-
+cienki — renderuje wyłącznie to, co `compare_projects()` już policzył.
+
+Testy: `tests/test_project_diff.py` (24 — każda kategoria zmiany w
+izolacji od Project/Qt, te same hand-crafted słowniki co
+`test_state_diff.py`'s własna konwencja), `tests/test_project_diff_dialog.py`
+(8 — renderowanie każdej sekcji), `tests/test_project_diff_menu.py`
+(10 — wywołanie z menu File, w tym normalizacja migracji i normalizacja
+do głównego poziomu przed porównaniem). Pełny zestaw: 1182 passed (1140
+po scaleniu PR #28 `feat/macro-library-import-export` + 42 nowych testów
+tej gałęzi — przerebase'owana na aktualny `main` przy scalaniu, więc te
+liczby JUŻ sumują się z §24.11/§24.12 powyżej, w przeciwieństwie do
+wcześniejszej wersji tej sekcji pisanej jeszcze na równoległej gałęzi).
+Wszystkie 10 `examples/*.epwlogic` nadal się kompilują.
