@@ -1,10 +1,15 @@
 # EPW Logic Studio — Pełny raport audytowy (dla Claude.ai)
 
 **Data:** 2026-09-07 (migawka §1-§10 odświeżona do stanu na branchu
-`fix/safety-block-semantics`, zbudowanym na `main` commit `618da85` —
-po scaleniu PR #30 `feat/pdf-export`; wszystkie liczby poniżej wyliczone
-bezpośrednio z repozytorium na tym branchu, nie przepisane z poprzedniej
-wersji — polecenia użyte do ich wyliczenia podane w każdej sekcji.
+`fix/safety-and-macro-params`, zbudowanym na `main` commit `693b224` —
+po scaleniu PR #31 `fix/safety-block-semantics`; wszystkie liczby poniżej
+wyliczone bezpośrednio z repozytorium na tym branchu, nie przepisane z
+poprzedniej wersji — polecenia użyte do ich wyliczenia podane w każdej
+sekcji. Ta gałąź obejmuje WYŁĄCZNIE Część C zadania, jaka ją zapoczątkowała
+("parametry makrobloków") — Części A/B (semantyka bloków bezpieczeństwa,
+kolizja tekstu na blokach analogowych) okazały się już w pełni zrobione
+przez scalony PR #31, zweryfikowane na czystym `origin/main` przed
+napisaniem jakiegokolwiek kodu tej gałęzi; nic z nich nie powtórzono.
 **Zakres:** wyłącznie warstwa logiki — `EPW-Logic-Studio/` (moduł `logic_studio`, testy, przykłady `.epwlogic`). Pozostałe moduły platformy (`EPW-OS`, `EPW-Synoptic-Editor`) celowo pominięte.
 **Cel dokumentu:** dać modelowi bez dostępu do repo pełny, samodzielny obraz architektury, stanu i znanych problemów, żeby mógł doradzać / kontynuować pracę bez dodatkowych pytań.
 **Struktura dokumentu:** §1-§10 to opisowa migawka BIEŻĄCEGO stanu — ma być
@@ -27,21 +32,21 @@ Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) 
 
 ## 2. Status repozytorium
 
-- Gałąź: `fix/safety-block-semantics` (na `main` commit `618da85`, po scaleniu PR #30 `feat/pdf-export`), jeszcze niescalona.
-- **Testy: 1332/1332 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~35s (w tym środowisku uruchamiane w dwóch grupach z powodu istniejącej, opisanej w §10 pkt 3 niestabilności Qt-timerów pod pełnym obciążeniem — nie regresja tej gałęzi, potwierdzone: te same pliki przechodzą czysto osobno za każdym razem).
-- **62 pliki testowe** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **16614 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
-- **Kod produkcyjny (`logic_studio/`): 16798 linii w 72 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
-  - `blocks/`: 2708
-  - `ui/`: 9675
-  - `core/`: 2750
-  - `compiler/`: 969
+- Gałąź: `fix/safety-and-macro-params` (na `main` commit `693b224`, po scaleniu PR #31 `fix/safety-block-semantics`), jeszcze niescalona.
+- **Testy: 1380/1380 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~38s.
+- **63 pliki testowe** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **17422 linie** testów — `find tests -name "test_*.py" | xargs wc -l`.
+- **Kod produkcyjny (`logic_studio/`): 17848 linii w 73 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
+  - `blocks/`: 2716
+  - `ui/`: 10256
+  - `core/`: 3137
+  - `compiler/`: 1043
   - `engine/`: 476
   - `app.py`/`__init__.py` (top-level): 220
-- **69 zarejestrowanych typów bloków w 12 kategoriach** — patrz §5 (polecenie i pełna lista tam), bez zmian od ostatniej migawki (ta gałąź dodaje właściwości/piny/wyjścia do bloków ISTNIEJĄCYCH — `input.ai`, `analog.quality`, `analog.deadband` — nie nowe typy). Makrobloki (§24 ARCHITECTURE.md) NIE dodają wpisów tutaj — `MacroInstanceBlock` jest celowo nigdy rejestrowany w `BlockRegistry` (jego układ pinów to dane projektu, nie stała klasy), rozwiązywany osobno przez prefiks `"macro."`.
+- **69 zarejestrowanych typów bloków w 12 kategoriach** — patrz §5 (polecenie i pełna lista tam), bez zmian od ostatniej migawki. Parametry makrobloków (§24.13 ARCHITECTURE.md) NIE dodają wpisów tutaj — `MacroInstanceBlock` jest, jak zawsze, celowo nigdy rejestrowany w `BlockRegistry`.
 - **10 przykładowych projektów** w `examples/*.epwlogic` — wszystkie otwierają się, kompilują i eksportują z bieżącym kodem (zweryfikowane przy każdym PR, patrz dziennik).
-- **126 commitów** w historii (`git log --oneline | wc -l`, przed commitem tej gałęzi) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
+- **140 commitów** w historii (`git log --oneline | wc -l`, przed commitem tej gałęzi) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
 
-Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §27 na tej gałęzi), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
+Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §27, +§24.13 na tej gałęzi), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
 
 ## 3. Struktura katalogów
 
@@ -244,12 +249,13 @@ Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyśc
 ### 7.3 `RuntimeSnapshot` / `RuntimeBlockState` / `RuntimePinState`
 Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 
-## 8. Testy ([tests/](tests/)) — 1332/1332 PASS
+## 8. Testy ([tests/](tests/)) — 1380/1380 PASS
 
-62 pliki `test_*.py`, 16614 linii. Kilka największych/najbardziej reprezentatywnych plików:
+63 pliki `test_*.py`, 17422 linie. Kilka największych/najbardziej reprezentatywnych plików:
 
 | Plik | Zakres |
 |---|---|
+| `test_macro_parameters.py` | parametry instancji makrobloku — model danych, `sync_instance_parameters()`, dwie niezależne instancje z różnymi nastawami kompilujące się i działające niezależnie w symulacji, zagnieżdżenie, resync przy dodaniu/usunięciu/zmianie typu parametru, round-trip zapisu, każda reguła walidacji z §C4 osobno, brak śladu w eksporcie runtime, cała ścieżka UI wiązania/odwiązywania (§40 dziennika na tej gałęzi) — 48 testów |
 | `test_pdf_export.py` | `signal_list_rows()`, paginacja `_draw_signal_list_pages()` w izolacji (fałszywy `writer` + `QPainter` nieaktywny), `export_schematic_to_pdf()` end-to-end z realnym `QPdfWriter`, wpięcie `MainWindow._export_pdf()` (§38 dziennika) — 15 testów |
 | `test_defined_outputs.py` | żaden zarejestrowany, wykonywalny typ bloku nie zostawia wyjścia jako `None` po `evaluate()` bez podłączonych wejść — parametryzowany nad wszystkimi 69 typami (fix/safety-block-semantics §8) — 66 testów |
 | `test_canvas_rendering.py` | rysowanie bloków/kanwy, w tym strefy tekstu identyfikatora vs etykiet pinów nienachodzące na siebie (§7 na tej gałęzi) — 143 testy |
@@ -292,7 +298,7 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_wire_routing.py` | kierunek wejścia/wyjścia przewodu z pinu — 6 testów |
 | `test_e2e.py`, `test_isolation.py`, `test_compiler.py`, `test_project.py`, `test_acceptance.py`, ... | pipeline end-to-end, izolacja `CompiledProgram`, kompilator, (de)serializacja projektu, scenariusze akceptacyjne |
 
-Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1332 passed w ~35s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
+Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1380 passed w ~38s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
 
 ## 9. Znane problemy i uwagi z audytu (wyłącznie OTWARTE)
 
@@ -1710,6 +1716,53 @@ pliki zawsze przechodziły czysto osobno). Wszystkie 10
 `analog.quality` (`LOGIC_ANALOG_CHAIN_TEST.epwlogic`) miał "Max Rate"=0,
 więc migracja v8→v9 nie miała czego przeliczać (0 bloków zmigrowanych z
 niezerową wartością).
+
+## 40. Nowa funkcja: parametry instancji makrobloków (branch `fix/safety-and-macro-params`)
+
+**Zadanie zlecało trzy części — A/B/C.** Zanim napisano JAKIKOLWIEK
+kod, Części A (semantyka bloków bezpieczeństwa: `Stuck Tolerance`, `Max
+Rate (/s)`, `Range Source`, `Max Hold (ms)`, walidacja `safety_relevant`,
+`dry_run` w `step()`) i B (kolizja tekstu identyfikatora z etykietami
+pinów na `input.ai`) zostały zweryfikowane bezpośrednio na czystym,
+odizolowanym `git worktree` wskazującym `origin/main` — WSZYSTKIE
+opisane w zadaniu "dowody na błąd" okazały się nieaktualne: dokładnie te
+same mechanizmy, tymi samymi nazwami właściwości i tą samą treścią
+komunikatów, już istniały, scalone wcześniej jako PR #31 `fix/safety-
+block-semantics` (§39 powyżej). Pełny diff PR #31, plik po pliku,
+przedstawiony użytkownikowi do wglądu przed napisaniem czegokolwiek —
+potwierdzone, że nic z Części A/B nie wymagało powtórzenia. Ta gałąź
+obejmuje WYŁĄCZNIE Część C.
+
+Pełny opis mechanizmu w ARCHITECTURE.md §24.13 — tu tylko status.
+
+| # | Punkt | Status |
+|---|---|---|
+| 1 | Model danych (`parameters`/`parameter_bindings`, `core/macros.py`) | Zrobione — `add_parameter()`/`remove_parameter()`/`update_parameter()`/`reorder_parameters()`, `add_parameter_binding()`/`remove_parameter_binding()`/`binding_for_property()`. `_copy_definition()` domyślnie do `[]` dla obu list — definicja sprzed tej gałęzi (nawet bez tych kluczy w ogóle) wczytuje się bez wyjątku. |
+| 2 | Wartości na instancji (`sync_instance_parameters()`) | Zrobione — jedna funkcja obsługuje wszystkie trzy reguły resynchronizacji naraz (nowy parametr/usunięty parametr/zmieniony typ), wołana zarówno przez `MacroInstanceBlock.configure()` (świeża instancja), jak i `resync_all_instances()` (istniejące instancje, żywe i osadzone jako dane w innej definicji). |
+| 3 | Podstawienie przy kompilacji (`expand_project()`) | Zrobione — po skopiowaniu bloków definicji, przed rekurencyjnym rozwinięciem (kolejność krytyczna dla zagnieżdżenia — na zewnątrz-do-środka). `EPW_RUNTIME_LOGIC` nie wymagał ŻADNEJ zmiany struktury — potwierdzone testem szukającym śladu słów "macro"/"parameter" w wyeksportowanym słowniku. |
+| 4 | Walidacja (`compiler/validator.py`) | Zrobione — powiązanie na nieistniejący blok/właściwość/parametr i niezgodność typu → BŁĄD; parametr bez powiązania i dwa parametry na tej samej właściwości → OSTRZEŻENIE. Reguła "wartość poza zakresem" nie wymagała ANI JEDNEJ linii kodu — substytucja już zaszła, więc każdy typ bloku egzekwuje swój WŁASNY, już istniejący zakres na podstawionej wartości. |
+| 5 | UI tworzenia powiązań (`ui/macro_parameter_dialog.py`, `property_grid.py`) | Zrobione — "Powiąż z parametrem..." przy każdej właściwości bloku wewnętrznego widzianego wewnątrz edycji makra, typ nowego parametru WYWIEDZIONY z bieżącej wartości (nigdy wybierany ręcznie). Powiązana właściwość zamienia edytor na "Odłącz od parametru" + samą nazwę parametru. |
+| 6 | Zakładka "Parametry" (`macro_pins_dialog.py`) | Zrobione — tabela Nazwa/Typ/Domyślna/Jednostka/Powiązań, dodawanie/usuwanie/zmiana kolejności; usunięcie parametru z powiązaniami żąda potwierdzenia i je wymienia. |
+| 7 | Panel właściwości instancji (§C2.5) | Zrobione — parametr pokazuje się jako zwykła, typowana właściwość w istniejącej sekcji "Parametry" (żadnej nowej sekcji nie trzeba było dodawać — właściwości `MacroInstanceBlock`'a trafiają tam tym samym, generycznym mechanizmem co każdy inny blok), jednostka/opis jako tooltip, ENUM jako lista rozwijana własnych `enum_values`. |
+
+**Decyzja projektowa warta odnotowania — komunikat o zresetowanym typie
+NIE jest odroczony do kompilacji**, w przeciwieństwie do `analog.quality`'s
+migracji Max Rate (§39/ARCHITECTURE.md §27.3, jednorazowa notatka w
+`simulation_state`): instancja makrobloku nigdy nie trafia do widoku,
+jaki widzi Walidator (`expand_project()` zastępuje ją całkowicie), więc
+taka notatka byłaby w praktyce cicho gubiona przy najbliższym
+`update_definition_blocks()` (który nigdy nie serializuje
+`simulation_state`, celowo). `resync_all_instances()` zwraca więc od razu
+gotowy tekst komunikatu, pokazywany na pasku stanu w chwili samej edycji
+— odkryte i rozwiązane PRZED napisaniem testu, nie po jego niepowodzeniu.
+
+Testy: `tests/test_macro_parameters.py` (48 nowych) + 2 zaktualizowane
+testy-strażnicy (`tests/test_macros.py`'s własny `_empty_definition()`,
+`tests/test_macro_pin_editing.py`'s zamockowany konstruktor
+`MacroPinsDialog` — oba musiały zauważyć rozszerzony kształt
+definicji/konstruktora, to dokładnie ich zadanie, nie regresja). Pełny
+zestaw: 1380 passed (1332 + 48 nowych — patrz §8 tej migawki). Wszystkie
+10 `examples/*.epwlogic` nadal się otwierają, kompilują i eksportują.
 
 ## Zasada utrzymania tego dokumentu
 
