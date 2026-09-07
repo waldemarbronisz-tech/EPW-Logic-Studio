@@ -502,6 +502,37 @@ def test_quality_block_non_numeric_input_is_not_good():
     q.evaluate()  # no input connected -> value is None
     assert q.outputs[0].value is False
 
+# ---- fix/safety-block-semantics §3: reset on a bad measurement ------------
+
+def test_quality_block_signal_dropout_resets_rate_and_stuck_history():
+    """§3 DOWÓD: a signal that vanished for a while and came back must not
+    be compared (rate or stuck) against whatever was seen BEFORE the gap."""
+    from logic_studio.blocks.analog_processing import QualityBlock
+
+    engine = MockEngine()
+    q = QualityBlock()
+    q.properties["Max Rate (/s)"] = 5.0
+    q.properties["Stuck Scans"] = 2
+
+    q.inputs[0].value = 10.0
+    q.evaluate(engine)
+
+    # Signal drops out for a while (None comes through, e.g. a comms fault).
+    for _ in range(5):
+        engine.time.advance(100)
+        q.inputs[0].value = None
+        q.evaluate(engine)
+        assert q.outputs[0].value is False  # not good while missing
+
+    # Comes back FAR from the pre-dropout value -- must NOT be flagged as a
+    # rate fault (nothing to legitimately compare against) or as stuck.
+    engine.time.advance(100)
+    q.inputs[0].value = 500.0
+    q.evaluate(engine)
+    assert q.outputs[2].value is False  # Rate Fault
+    assert q.outputs[3].value is False  # Stuck
+
+
 # ---- fix/safety-block-semantics §2.4: schema v8->v9 migration -------------
 
 def test_v8_project_migrates_max_rate_to_per_second():

@@ -296,6 +296,14 @@ class QualityBlock(BaseAnalogBlock):
                 stuck = self._unchanged_streak >= stuck_scans
 
             self._last_value = fval
+        else:
+            # §3.1: a bad/missing measurement invalidates any history — a
+            # signal that vanished for 200 scans and came back must not be
+            # compared (rate or stuck) against whatever was seen BEFORE the
+            # gap. Every check starts fresh, exactly like after a restart.
+            self._last_value = None
+            self._last_measurement_time_ms = None
+            self._unchanged_streak = 0
 
         self.outputs[0].value = is_number and not out_of_range and not rate_fault and not stuck
         self.outputs[1].value = out_of_range
