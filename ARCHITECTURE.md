@@ -1934,6 +1934,126 @@ Testy: `tests/test_macros.py` (42), `tests/test_macro_instance.py` (11),
 (14), `tests/test_macro_library.py` (17), `tests/test_library_panel_macro_sharing.py`
 (12) — pełne rozbicie w AUDIT_REPORT.md §8/§30/§31/§32/§35/§36.
 
+### 24.13 Parametry instancji (fix/safety-and-macro-params §C)
+
+**Problem, konkretnie**: nastawy bloków wewnętrznych makra były zapieczone
+w JEGO JEDNEJ, wspólnej definicji — pięć egzemplarzy makra "Blokada
+zwłoczna" (jeden TON w środku) miało pięć razy tę samą zwłokę,
+nie do zmiany bez pięciu osobnych definicji. To odbierało makrom ich
+główne zastosowanie: szablon powtarzalnego fragmentu logiki, który
+między egzemplarzami różni się WŁAŚNIE nastawami (czas, próg, adres...),
+nie topologią.
+
+**Model danych** (`definition["parameters"]`/`["parameter_bindings"]`,
+`core/macros.py`):
+
+    "parameters": [{"name", "display_name", "type", "default", "unit",
+                     "description", "enum_values"}, ...]
+    "parameter_bindings": [{"parameter", "block_uuid", "property_name"}, ...]
+
+`"name"` jest STAŁYM, wewnętrznie generowanym identyfikatorem
+("PARAM_1", ...) — nigdy niepokazywanym inżynierowi i nigdy niezmiennym
+przy edycji; `parameter_bindings` odwołuje się do parametru właśnie przez
+to pole, żeby zmiana `"display_name"` nigdy nie zerwała powiązania od
+strony DEFINICJI. `"display_name"` to nazwa, którą widzi i edytuje
+inżynier, i (świadomie) JEDNOCZEŚNIE klucz właściwości, jaką
+`MacroInstanceBlock` wystawia dla tego parametru na KAŻDEJ instancji —
+zmiana `display_name` zmienia więc też ten klucz na instancjach. To
+DOKŁADNIE ten sam kompromis "zmiana nazwy = usunięcie starej + dodanie
+nowej", jaki `_resync_pin_list()` już akceptuje dla pinów granicznych
+(§24.9) — przyjęty tu z tego samego powodu: osobna, trwała tożsamość
+niezależna od etykiety nie jest warta dodatkowej złożoności schematu przy
+tym, jak rzadko parametr jest przemianowywany, gdy instancje już z niego
+korzystają.
+
+**Odrzucona alternatywa — podmiana tekstowa**: symbol w rodzaju
+`"${T_ZWLOKA}"` wpisany w wartość właściwości i podmieniany tekstowo przy
+rozwijaniu. Odrzucone celowo: wymaga własnego parsera, psuje typowanie
+właściwości (liczba staje się napisem w chwili pojawienia się symbolu w
+jej tekście) i legalna wartość zawierająca nawiasy klamrowe staje się
+pułapką. Jawna tablica powiązań jest jednoznaczna, zachowuje typ każdej
+właściwości i jest trywialnie listowalna/edytowalna z interfejsu (§C2.4)
+bez dotykania samego tekstu właściwości.
+
+**Wartości żyją na INSTANCJI, nie na definicji** — `MacroInstanceBlock`
+dostaje jedną właściwość na parametr (`sync_instance_parameters()`,
+wołane zarówno przez świeżo tworzoną instancję —
+`MacroInstanceBlock.configure()` — jak i przez resync po zmianie
+definicji, więc obie ścieżki dają identycznie ukształtowane właściwości).
+Ta sama funkcja realizuje wszystkie trzy reguły resynchronizacji naraz:
+nowy parametr → instancja dostaje go z wartością domyślną; usunięty
+parametr → jego właściwość znika z instancji; zmieniony typ → wartość
+instancji resetowana do domyślnej, z listą zwracaną do wywołującego
+(patrz niżej — komunikat kompilacji, nie faktyczny błąd walidatora).
+
+**Podstawienie przy kompilacji** (`expand_project()`/`_expand_instance()`)
+— dla każdego powiązania, WARTOŚĆ TEJ KONKRETNEJ INSTANCJI (odczytana z
+jej właściwości pod bieżącym `display_name` parametru) nadpisuje
+właściwość świeżo skopiowanego bloku wewnętrznego. Kolejność: PO
+skopiowaniu bloków definicji, PRZED rekurencyjnym rozwinięciem
+zagnieżdżonych makr — to właśnie ta kolejność (na zewnątrz-do-środka)
+sprawia, że parametr makra ZEWNĘTRZNEGO powiązany z parametrem instancji
+makra WEWNĘTRZNEGO trafia do najgłębszego bloku poprawnie: zanim
+rekurencja rozwinie tę zagnieżdżoną instancję, jej WŁASNA właściwość
+parametru już niesie wartość podstawioną przez zewnętrzne makro.
+`EPW_RUNTIME_LOGIC` nie wymagał ŻADNEJ zmiany — po rozwinięciu nie ma już
+żadnego śladu, że wartość pochodziła z parametru makra, a nie z ręcznie
+wpisanej właściwości (potwierdzone testem
+`test_export_runtime_carries_no_trace_of_macros_or_parameters`).
+
+**Walidacja** (`compiler/validator.py`, na `self.project.settings
+["macro_definitions"]` — rejestrze SAMYM W SOBIE, niezależnie od tego,
+czy akurat istnieje żywa instancja): powiązanie na nieistniejący blok/
+właściwość/parametr → BŁĄD; typ parametru niezgodny z typem właściwości,
+do której jest powiązany → BŁĄD; parametr bez żadnego powiązania →
+OSTRZEŻENIE; dwa parametry powiązane z tą samą właściwością tego samego
+bloku → OSTRZEŻENIE (ostatnie podstawienie wygrywa — legalne, ale
+mylące). Reguła "wartość parametru poza dopuszczalnym zakresem
+właściwości" (np. ujemny czas) nie potrzebowała ANI JEDNEJ linii nowego
+kodu: podstawienie już zaszło, zanim Walidator zobaczy rozwinięty graf,
+więc dowolna kontrola zakresu, jaką dany typ bloku już ma dla tej
+właściwości (`const.time`'s własne "nie może być ujemny", np.), odpala
+się na podstawionej wartości dokładnie tak, jakby wpisano ją ręcznie.
+
+**Komunikat o zresetowanym typie — NATYCHMIASTOWY, nie odroczony do
+kompilacji**: w przeciwieństwie do `analog.quality`'s migracji Max Rate
+(§27.3, jednorazowa notatka w `simulation_state`, odczytywana przy
+pierwszej kompilacji po wczytaniu pliku), instancja makrobloku NIGDY nie
+trafia do widoku, jaki widzi Walidator (`expand_project()` zastępuje ją
+całkowicie jej rozwiniętą zawartością) — notatka w `simulation_state`
+instancji byłaby więc w praktyce cicho gubiona, gdy tylko którykolwiek
+poziom breadcrumbu, w którym instancja żyje, zostanie zatwierdzony
+(`update_definition_blocks()` → `serialize()`, który celowo nigdy nie
+zapisuje `simulation_state`). `resync_all_instances()` zwraca więc od
+razu gotowy do pokazania tekst komunikatu, wyświetlany na pasku stanu w
+momencie samej edycji — funkcjonalny odpowiednik "ostrzeżenia
+kompilacji", tylko niezawodny w tej konkretnej sytuacji zamiast
+opóźniony.
+
+**UI**: panel właściwości bloku WEWNĘTRZNEGO, widziany wewnątrz
+breadcrumbowego widoku edycji makra, dostaje przy każdej właściwości
+przycisk "Powiąż z parametrem..." (`ui/macro_parameter_dialog.py`'s
+`BindParameterDialog`, wzorowany na `SignalPickerDialog`'s własnym "Nowy
+sygnał wewnętrzny..." — wybór istniejącego parametru albo utworzenie
+nowego, z typem WYWIEDZIONYM z bieżącej wartości właściwości, nigdy
+wybieranym ręcznie) — powiązana właściwość zamienia przycisk na "Odłącz
+od parametru" i pokazuje samą nazwę parametru zamiast edytowalnej
+wartości. `MacroPinsDialog` (§24.9) zyskuje drugą zakładkę, "Parametry" —
+tabela Nazwa/Typ/Domyślna/Jednostka/Powiązań, z dodawaniem/usuwaniem/
+zmianą kolejności; usunięcie parametru z istniejącymi powiązaniami żąda
+potwierdzenia i wymienia je. Panel właściwości placowanej INSTANCJI makra
+(poza widokiem edycji, na zwykłym poziomie kanwy) pokazuje każdy
+parametr jako zwykłą, typowaną właściwość w sekcji "Parametry" — jednostka
+i opis z definicji trafiają na tooltip; typ ENUM renderuje się jako lista
+rozwijana jego własnych `enum_values` zamiast zwykłego pola tekstowego.
+
+Testy: `tests/test_macro_parameters.py` (48 — model danych, `sync_
+instance_parameters()`, dwie niezależne instancje z różnymi nastawami
+kompilujące się i działające niezależnie w symulacji, zagnieżdżenie,
+resync przy dodaniu/usunięciu/zmianie typu parametru, round-trip zapisu,
+każda reguła walidacji z osobna, brak śladu w eksporcie runtime, cała
+ścieżka UI wiązania/odwiązywania).
+
 ## 25. Porównanie wersji projektu (`core/project_diff.py`, feat/project-diff)
 
 Trzecia z czterech pozycji wybranych po §30/§31/§34/§35 (po edytowalnych

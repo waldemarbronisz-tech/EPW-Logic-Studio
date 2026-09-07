@@ -21,7 +21,7 @@ register_builtin_blocks()
 
 
 def _empty_definition(name="X"):
-    return {"name": name, "blocks": [], "input_pins": [], "output_pins": []}
+    return {"name": name, "blocks": [], "input_pins": [], "output_pins": [], "parameters": [], "parameter_bindings": []}
 
 
 def _and_macro_definition():

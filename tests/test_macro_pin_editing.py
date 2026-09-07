@@ -256,10 +256,10 @@ def test_open_macro_pins_dialog_constructs_with_the_current_definition(qsettings
     captured = {}
     original_init = MacroPinsDialog.__init__
 
-    def fake_init(self, definition, on_remove, parent=None):
+    def fake_init(self, definition, on_remove, parent=None, on_parameter_change=None):
         captured["definition"] = definition
         captured["on_remove"] = on_remove
-        original_init(self, definition, on_remove, parent=parent)
+        original_init(self, definition, on_remove, parent=parent, on_parameter_change=on_parameter_change)
 
     monkeypatch.setattr(MacroPinsDialog, "__init__", fake_init)
     monkeypatch.setattr(MacroPinsDialog, "exec", lambda self: None)
