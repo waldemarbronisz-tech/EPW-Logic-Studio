@@ -1,8 +1,8 @@
 # EPW Logic Studio — Pełny raport audytowy (dla Claude.ai)
 
 **Data:** 2026-09-07 (migawka §1-§10 odświeżona do stanu na branchu
-`fix/safety-block-semantics`, zbudowanym na `main` commit `618da85` —
-po scaleniu PR #30 `feat/pdf-export`; wszystkie liczby poniżej wyliczone
+`feat/sswin-signals`, zbudowanym na `main` commit `693b224` — po scaleniu
+PR #31 `fix/safety-block-semantics`; wszystkie liczby poniżej wyliczone
 bezpośrednio z repozytorium na tym branchu, nie przepisane z poprzedniej
 wersji — polecenia użyte do ich wyliczenia podane w każdej sekcji.
 **Zakres:** wyłącznie warstwa logiki — `EPW-Logic-Studio/` (moduł `logic_studio`, testy, przykłady `.epwlogic`). Pozostałe moduły platformy (`EPW-OS`, `EPW-Synoptic-Editor`) celowo pominięte.
@@ -27,21 +27,21 @@ Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) 
 
 ## 2. Status repozytorium
 
-- Gałąź: `fix/safety-block-semantics` (na `main` commit `618da85`, po scaleniu PR #30 `feat/pdf-export`), jeszcze niescalona.
-- **Testy: 1332/1332 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~35s (w tym środowisku uruchamiane w dwóch grupach z powodu istniejącej, opisanej w §10 pkt 3 niestabilności Qt-timerów pod pełnym obciążeniem — nie regresja tej gałęzi, potwierdzone: te same pliki przechodzą czysto osobno za każdym razem).
-- **62 pliki testowe** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **16614 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
-- **Kod produkcyjny (`logic_studio/`): 16798 linii w 72 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
-  - `blocks/`: 2708
-  - `ui/`: 9675
+- Gałąź: `feat/sswin-signals` (na `main` commit `693b224`, po scaleniu PR #31 `fix/safety-block-semantics`), jeszcze niescalona.
+- **Testy: 1368/1368 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~37s.
+- **63 pliki testowe** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **17021 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
+- **Kod produkcyjny (`logic_studio/`): 17053 linii w 72 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
+  - `blocks/`: 2805
+  - `ui/`: 9718
   - `core/`: 2750
-  - `compiler/`: 969
-  - `engine/`: 476
+  - `compiler/`: 1045
+  - `engine/`: 515
   - `app.py`/`__init__.py` (top-level): 220
-- **69 zarejestrowanych typów bloków w 12 kategoriach** — patrz §5 (polecenie i pełna lista tam), bez zmian od ostatniej migawki (ta gałąź dodaje właściwości/piny/wyjścia do bloków ISTNIEJĄCYCH — `input.ai`, `analog.quality`, `analog.deadband` — nie nowe typy). Makrobloki (§24 ARCHITECTURE.md) NIE dodają wpisów tutaj — `MacroInstanceBlock` jest celowo nigdy rejestrowany w `BlockRegistry` (jego układ pinów to dane projektu, nie stała klasy), rozwiązywany osobno przez prefiks `"macro."`.
+- **70 zarejestrowanych typów bloków w 12 kategoriach** — patrz §5 (polecenie i pełna lista tam), +1 od ostatniej migawki: `system.signal_out` (feat/sswin-signals §2, ARCHITECTURE.md §28.5), pierwszy blok WYPISUJĄCY do przestrzeni sygnałów systemowych — dotąd tylko do odczytu. Makrobloki (§24 ARCHITECTURE.md) NIE dodają wpisów tutaj — `MacroInstanceBlock` jest celowo nigdy rejestrowany w `BlockRegistry` (jego układ pinów to dane projektu, nie stała klasy), rozwiązywany osobno przez prefiks `"macro."`.
 - **10 przykładowych projektów** w `examples/*.epwlogic` — wszystkie otwierają się, kompilują i eksportują z bieżącym kodem (zweryfikowane przy każdym PR, patrz dziennik).
-- **126 commitów** w historii (`git log --oneline | wc -l`, przed commitem tej gałęzi) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
+- **140 commitów** w historii (`git log --oneline | wc -l`, przed commitem tej gałęzi) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
 
-Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §27 na tej gałęzi), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
+Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §28 na tej gałęzi), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
 
 ## 3. Struktura katalogów
 
@@ -165,7 +165,7 @@ Dodatkowo: `get_analog_input_addresses()`/`get_analog_output_addresses()`
 
 ## 5. Pełny inwentarz bloków logicznych
 
-**69 zarejestrowanych typów bloków w 12 kategoriach** — wyliczone z żywego rejestru:
+**70 zarejestrowanych typów bloków w 12 kategoriach** — wyliczone z żywego rejestru:
 `register_builtin_blocks(); BlockRegistry.get_categories()` +
 `BlockRegistry.get_blocks_in_category(cat)` dla każdej kategorii (patrz
 polecenie w §2). Bloki `Dokumentacja` (3) są pomijane przez kompilator
@@ -176,7 +176,7 @@ polecenie w §2). Bloki `Dokumentacja` (3) są pomijane przez kompilator
 | Wejścia / Wyjścia | 8 | `input.di`, `output.do`, `input.ai`, `output.ao`, `virtual.input`, `virtual.output`, `internal.reg_in`, `internal.reg_out` |
 | Bramki logiczne | 16 | `logic.and/and3/and4`, `logic.or/or3/or4`, `logic.not`, `logic.xor/xnor`, `logic.nand/nand3/nand4`, `logic.nor/nor3/nor4`, `logic.buffer` |
 | Elementy Analogowe | 20 | `math.add/sub/mul/div/abs/min/max`, `compare.gt/lt/gte/lte/eq/neq/between`, `analog.scale/limit/hysteresis/mov_avg/deadband/quality` |
-| Inne | 8 | `system.signal`, `system.generator`, `const.true/false/real/int/time/string` |
+| Inne | 9 | `system.signal`, `system.signal_out`, `system.generator`, `const.true/false/real/int/time/string` |
 | Timery | 3 | `timer.ton`, `timer.tof`, `timer.tp` |
 | Liczniki | 3 | `counter.ctu`, `counter.ctd`, `counter.ctud` |
 | Detekcja zboczy | 3 | `edge.rtrig`, `edge.ftrig`, `edge.change` |
@@ -185,12 +185,17 @@ polecenie w §2). Bloki `Dokumentacja` (3) są pomijane przez kompilator
 | Przyciski | 1 | `system.button` |
 | LED | 1 | `system.led` |
 | Telemechanika | 1 | `system.message` |
-| **Razem** | **69** | |
+| **Razem** | **70** | |
+
+`system.signal_out` (feat/sswin-signals §2, ARCHITECTURE.md §28.5) jest
+pierwszy typ w historii tego rejestru piszący do przestrzeni sygnałów
+systemowych — `system.signal` istniał od zawsze, ale wyłącznie do
+odczytu.
 
 **Bloki stanowe (`is_stateful = True`, biorą udział w łamaniu cykli — §6)**:
 `timer.ton/tof/tp`, `counter.ctu/ctd/ctud`, `memory.sr/rs`,
 `analog.hysteresis`, `analog.mov_avg`, `analog.deadband`, `analog.quality`,
-`system.generator`, `edge.rtrig/ftrig/change` — 14 z 69.
+`system.generator`, `edge.rtrig/ftrig/change` — 14 z 70.
 
 Kategorie zadeklarowane w UI (`ui/panels/library.py`) bez żadnego
 zarejestrowanego bloku: `Zabezpieczenia Analogowe`, `Zabezpieczenia
@@ -209,6 +214,8 @@ Dwustanowe`, `Zabezpieczenia Technologiczne`, `Łączniki`, `Banki Nastaw`,
    - Nierozpoznany sygnał systemowy (spoza katalogu) → ostrzeżenie, blok działa bezpiecznie (`False`/`0.0`), nie błąd.
    - Ostrzeżenie dla każde wyjście `safety_relevant=True` bez ŻADNEGO połączenia (fix/safety-block-semantics §6, ARCHITECTURE.md §27.2) — odrębna kategoria od "Input is unconnected" powyżej: większość niepodłączonych WYJŚĆ jest w porządku, ale ten konkretny pin niesie informację o wiarygodności danych, na których opiera się logika niżej.
    - `analog.quality`'s "Range Source" = "Z punktu analogowego" bez wejścia `In` podłączonego BEZPOŚREDNIO do `input.ai` → błąd (fix/safety-block-semantics §4.2, ARCHITECTURE.md §27.5) — nie ma z czego rozwiązać zakresu inaczej.
+   - `system.signal_out` zapisujący sygnał `source == "runtime"`, odwołujący się do identyfikatora spoza katalogu, lub sygnał `source == "logic"` zapisywany przez więcej niż jeden blok → błąd; taki sygnał nieużywany przez żaden blok → ostrzeżenie (feat/sswin-signals §2.3, ARCHITECTURE.md §28.5).
+   - Blok zapisujący sygnał katalogowy `safety_relevant` z "Minimalny poziom dostępu" = "Brak" → ostrzeżenie, nigdy błąd — Logic Studio samo tego nie egzekwuje (feat/sswin-signals §3, ARCHITECTURE.md §28.5).
    - **Nadal otwarte braki**: brak twardej walidacji duplikatów na `input.di` (tylko na wyjściach).
 
 2. **GraphBuilder** ([graph.py](logic_studio/compiler/graph.py)) — sortowanie topologiczne Kahna:
@@ -230,7 +237,7 @@ Dwustanowe`, `Zabezpieczenia Technologiczne`, `Łączniki`, `Banki Nastaw`,
 0. **Wyłączone bloki** (feat/clipboard-and-align §4.2): dla każdego `not block.enabled`, wyjścia wymuszane na bezpieczną, typowo-poprawną wartość (`Pin.safe_default_value()` — `False`/BOOL, `0.0`/REAL, `0`/INTEGER, `""`/STRING), co skan (nie tylko raz — `stop()` zeruje wszystkie piny do `None`, `start()` tego nie odtwarza).
 1. **Acquire**: bloki źródłowe (`is_source=True` — DI/AI, `virtual.input`, `const.*`, `system.signal`, ...) ewaluowane jako pierwsze, w kolejności `execution_order`, raz na skan.
 2. **Execute graph**: iteracja po `execution_order` (pomijając bloki już ewaluowane w kroku 1); dla każdego bloku — propagacja `pin.value = source_pin.value` z podłączonych wyjść przez `pin_map` (lookup O(1)), potem `block.evaluate(engine=self)`.
-3. **Push outputs**: bufor `_output_buffer` (digital/analog/internal) zapisywany do `IOProvider` atomowo, jednym przebiegiem, po zakończeniu ewaluacji WSZYSTKICH bloków — downstream odczyt (np. rejestrator zdarzeń) nigdy nie widzi skanu w połowie zastosowania. Pomijany całkowicie, gdy `dry_run=True` (fix/safety-block-semantics §9, ARCHITECTURE.md §27.6) — kroki 0-2 i 4 nadal się wykonują normalnie.
+3. **Push outputs**: bufor `_output_buffer` (digital/analog/internal/**system** — czwarty klucz od feat/sswin-signals §2.2, `queue_system_signal_write()`/`IOProvider.write_system_signal()`, ARCHITECTURE.md §28.5) zapisywany do `IOProvider` atomowo, jednym przebiegiem, po zakończeniu ewaluacji WSZYSTKICH bloków — downstream odczyt (np. rejestrator zdarzeń) nigdy nie widzi skanu w połowie zastosowania. Pomijany całkowicie, gdy `dry_run=True` (fix/safety-block-semantics §9, ARCHITECTURE.md §27.6) — kroki 0-2 i 4 nadal się wykonują normalnie.
 4. **Diagnostyka**: `last_scan_duration_ms`, `max_scan_duration_ms`, `cycle_counter` (`time.monotonic_ns()`).
 
 Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyści `simulation_state` i woła `reset_runtime_state()` na wszystkich blokach. `stop()`/przejście do `FAULT` dodatkowo: zeruje wartości wszystkich pinów do `None` i wymusza bezpieczny stan na KAŻDYM adresie wyjściowym kiedykolwiek zapisanym w tej sesji silnika (`_fail_safe_outputs()`) — wyjścia nigdy nie zostają zatrzaśnięte na ostatniej wartości. Ten fail-safe uruchamia się TYLKO przy przejściu W stan STOPPED/FAULT — `step(dry_run=False)` wywołane PÓŹNIEJ, z tego samego stanu STOPPED, zachowuje się jak `dry_run=True` niezależnie od argumentu (fix/safety-block-semantics §9), właśnie dlatego, że fail-safe przejścia nie chroni przed kolejnym krokiem wziętym już Z tego stanu.
@@ -238,21 +245,22 @@ Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyśc
 `load_program()` — hot-swap skompilowanego programu (implicit `stop()`).
 
 ### 7.2 Abstrakcje ([io_provider.py](logic_studio/engine/io_provider.py), [time_provider.py](logic_studio/engine/time_provider.py))
-- `IOProvider` (abstrakcyjny) / `SimulationIOProvider` (in-memory digital+analog+internal image, domyślne wartości sygnałów systemowych) — zero zależności sprzętowych.
+- `IOProvider` (abstrakcyjny) / `SimulationIOProvider` (in-memory digital+analog+internal image, domyślne wartości sygnałów systemowych) — zero zależności sprzętowych. `write_system_signal()` (feat/sswin-signals §2.1) to PIERWSZA metoda zapisu w tej trzeciej przestrzeni adresowej — do tej gałęzi `IOProvider` tylko czytał sygnały systemowe (`read_system_signal()`), nigdy nie pisał.
 - `TimeProvider` / `SystemTimeProvider` / `SimulationTimeProvider` (syntetyczny zegar, `advance(ms)`) — testy przelatują setki cykli timerów bez `time.sleep()`.
 
 ### 7.3 `RuntimeSnapshot` / `RuntimeBlockState` / `RuntimePinState`
 Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 
-## 8. Testy ([tests/](tests/)) — 1332/1332 PASS
+## 8. Testy ([tests/](tests/)) — 1368/1368 PASS
 
-62 pliki `test_*.py`, 16614 linii. Kilka największych/najbardziej reprezentatywnych plików:
+63 pliki `test_*.py`, 17021 linii. Kilka największych/najbardziej reprezentatywnych plików:
 
 | Plik | Zakres |
 |---|---|
 | `test_pdf_export.py` | `signal_list_rows()`, paginacja `_draw_signal_list_pages()` w izolacji (fałszywy `writer` + `QPainter` nieaktywny), `export_schematic_to_pdf()` end-to-end z realnym `QPdfWriter`, wpięcie `MainWindow._export_pdf()` (§38 dziennika) — 15 testów |
-| `test_defined_outputs.py` | żaden zarejestrowany, wykonywalny typ bloku nie zostawia wyjścia jako `None` po `evaluate()` bez podłączonych wejść — parametryzowany nad wszystkimi 69 typami (fix/safety-block-semantics §8) — 66 testów |
-| `test_canvas_rendering.py` | rysowanie bloków/kanwy, w tym strefy tekstu identyfikatora vs etykiet pinów nienachodzące na siebie (§7 na tej gałęzi) — 143 testy |
+| `test_defined_outputs.py` | żaden zarejestrowany, wykonywalny typ bloku nie zostawia wyjścia jako `None` po `evaluate()` bez podłączonych wejść — parametryzowany nad wszystkimi zarejestrowanymi typami (70 od feat/sswin-signals, było 69 — fix/safety-block-semantics §8) — 67 testów |
+| `test_sswin_signals.py` | katalog 1.1.0 (poprawność/unikalność/typy/źródła), `system.signal_out` — kierunek zapisu, dwóch piszących, poziom dostępu, eksport, zgodność wsteczna, filtrowanie `SignalPickerDialog`, kolumna "Zapisuje" w panelu Sygnały (§40 dziennika) — 32 testy |
+| `test_canvas_rendering.py` | rysowanie bloków/kanwy, w tym strefy tekstu identyfikatora vs etykiet pinów nienachodzące na siebie (§7 na tej gałęzi) — 144 testy |
 | `test_realistic_signals.py` | bloki analogowe na danych przypominających realny tor pomiarowy — szum ostatniego bitu, dryf, zanik sygnału, oscylacja na progu histerezy, symulowany czas skan-po-skanie (fix/safety-block-semantics §10) — 13 testów |
 | `test_macros.py` | model danych makrobloków — definicje, `build_definition()`, `expand_project()` (zagnieżdżanie, cykle, brakujące definicje, błąd granicy zakotwiczonej na zagnieżdżonej instancji), `instantiate_definition_blocks()`/`update_definition_blocks()`, `add_boundary_pin()`/`remove_boundary_pin()`/`resync_all_instances()`, `core/macros.py` (§24/§31/§32/§35 dziennika) — 42 testy |
 | `test_macro_navigation.py` | nawigacja breadcrumb "wejdź w makroblok" — wejście/wyjście, commit przy wyjściu, zagnieżdżenie, normalizacja do głównego poziomu przy zapisie/kompilacji/undo/redo/nowym projekcie (§31 dziennika) — 15 testów |
@@ -273,7 +281,7 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_macro_creation.py` | `LogicScene.create_macro_from_selection()`, przypadek makro w `add_block_from_library()`, wejście z menu kontekstowego, kopiuj/wklej/duplikuj instancji (§24/§33 dziennika) — 11 testów |
 | `test_breadcrumb_bar.py` | `BreadcrumbBar` — widoczność, przyciski/etykieta, sygnał `navigate_to`, przycisk "Piny makrobloku..." (§31/§35 dziennika) — 11 testów |
 | `test_macro_block_rendering.py` | render `MacroInstanceBlock` na kanwie, ikona biblioteki (§24 dziennika) — 5 testów |
-| `test_grid_alignment.py` | siatka, snap, geometria — 176 testów |
+| `test_grid_alignment.py` | siatka, snap, geometria — 178 testów |
 | `test_short_id.py` | krótkie identyfikatory bloków — 27 testów |
 | `test_property_panel.py` | panel właściwości — 27 testów |
 | `test_crossref.py` | cross-reference sygnałów + `classify_signal_id()` (§29 dziennika) — 27 testów |
@@ -292,7 +300,7 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_wire_routing.py` | kierunek wejścia/wyjścia przewodu z pinu — 6 testów |
 | `test_e2e.py`, `test_isolation.py`, `test_compiler.py`, `test_project.py`, `test_acceptance.py`, ... | pipeline end-to-end, izolacja `CompiledProgram`, kompilator, (de)serializacja projektu, scenariusze akceptacyjne |
 
-Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1332 passed w ~35s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
+Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1368 passed w ~37s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
 
 ## 9. Znane problemy i uwagi z audytu (wyłącznie OTWARTE)
 
@@ -1710,6 +1718,54 @@ pliki zawsze przechodziły czysto osobno). Wszystkie 10
 `analog.quality` (`LOGIC_ANALOG_CHAIN_TEST.epwlogic`) miał "Max Rate"=0,
 więc migracja v8→v9 nie miała czego przeliczać (0 bloków zmigrowanych z
 niezerową wartością).
+
+## 40. Nowa funkcja: sygnały podsystemu alarmowego SSWiN, katalog 1.1.0 (branch `feat/sswin-signals`)
+
+Udostępnia część STAŁĄ podsystemu alarmowego/dozorowego EPW-OS (dozór,
+sabotaż), której logika wcześniej nie widziała w ogóle — cztery nowe
+kategorie katalogu (`SSWIN.STATE/ALARM/OUT/CMD`, `catalog_version`
+`1.0.0` -> `1.1.0`) i, po raz pierwszy w historii tego katalogu, sygnały
+`source == "logic"` — zapisywane PRZEZ logikę, nie przez urządzenie.
+Pełny opis mechanizmu w ARCHITECTURE.md §28 — tu tylko status.
+
+| # | Punkt | Status |
+|---|---|---|
+| 1 | Katalog 1.1.0 (`core/system_signals_catalog.json`) | Zrobione — 4 nowe kategorie, 23 nowe sygnały (7+8+3+5). Świadomie BEZ części dynamicznej (`SSWIN.L<n>.*` — czeka na mechanizm importu z konfiguracji EPW-OS, osobny PR, ARCHITECTURE.md §28.1). |
+| 2 | Zapis sygnałów `source == "logic"` | Zrobione — `IOProvider.write_system_signal()` (PIERWSZA metoda zapisu w tej przestrzeni adresowej), `ExecutionEngine.queue_system_signal_write()` + czwarty klucz `"system"` w `_output_buffer` (ten sam atomowy flush co digital/analog/internal), nowy blok `system.signal_out`. |
+| 3 | Walidacja kierunku zapisu | Zrobione — zapis `source == "runtime"` / identyfikator spoza katalogu / drugi blok piszący ten sam sygnał `logic` to BŁĄD (z wymienieniem wszystkich piszących bloków po `short_id`); sygnał `logic` nieużywany przez żaden blok to OSTRZEŻENIE. |
+| 4 | Poziom dostępu dla komend krytycznych | Zrobione — właściwość "Minimalny poziom dostępu" na `system.signal_out`, domyślnie "Engineer" dla sygnału `safety_relevant` (dziś: `SSWIN.CMD_DISARM`), "Brak" dla pozostałych, przeliczane na nowo przy każdej zmianie "Sygnał". OSTRZEŻENIE walidatora (nie błąd) dla "Brak" na sygnale `safety_relevant`. Jedzie do eksportu runtime jako zwykłe pole `properties` (generyczne kopiowanie w `Exporter.export()` już to załatwia, bez specjalnej obsługi). |
+| 5 | Panel Sygnały — kolumna "Zapisuje" | Naprawione (przy okazji, nie osobno zgłoszone) — `_writers_text()` zakładała, że KAŻDY sygnał `KIND_SYSTEM` ma strukturalnie pustego writera i pokazywała "urządzenie" bezwarunkowo; poprawne dla `source == "runtime"`, fałszywe dla `source == "logic"` z realnym blokiem piszącym. |
+
+**§2.1 diagnoza PRZED napisaniem czegokolwiek** (jak żądano): `IOProvider`
+miało wyłącznie `read_system_signal()` — zero mechanizmu zapisu. Żaden
+zarejestrowany blok nie mógł wskazać sygnału systemowego do ZAPISU
+(`system.signal` jest czysto źródłowy). `compiler/validator.py` nigdzie
+nie zaglądało do pola `"source"` katalogu. Wszystkie trzy elementy
+zbudowane od zera w tej gałęzi — nic częściowego, na czym dałoby się
+oprzeć.
+
+**§3.4**: sprawdzone PRZED napisaniem właściwości "Minimalny poziom
+dostępu" — w repozytorium istniał wcześniej WYŁĄCZNIE katalogowy sygnał
+diagnostyczny `SYS.ACCESS_LEVEL`/`SYS.ACCESS_USER/_OPERATOR/_ENGINEER`
+(bieżący poziom dostępu operatora, do odczytu, `engine/io_provider.py`)
+— żaden mechanizm "minimalny wymagany poziom" NA BLOKU nie istniał
+nigdzie w kodzie. Ta gałąź buduje pierwszy taki mechanizm, celowo
+nazwany tymi samymi trzema poziomami (User/Operator/Engineer), żeby nie
+tworzyć drugiej, niezależnej skali obok już istniejącej.
+
+Testy: `tests/test_sswin_signals.py` (32 nowych — §4.1-§4.6 wymagań
+tej gałęzi, każda sekcja osobno) + 3 zaktualizowane testy-strażnicy w
+`tests/test_internal_bits.py` (kategorie/identyfikatory/`safety_relevant`
+katalogu, musiały zauważyć rozszerzenie — to dokładnie ich zadanie, nie
+regresja). Dodatkowo, BEZ ŻADNEJ zmiany treści w tych plikach: +1 w
+`tests/test_canvas_rendering.py`, +1 w `tests/test_defined_outputs.py`,
++2 w `tests/test_grid_alignment.py` — wszystkie trzy sparametryzowane
+nad KAŻDYM zarejestrowanym typem bloku (§5 tej migawki), więc 70. typ
+(`system.signal_out`) podniósł ich liczbę instancji automatycznie.
+Pełny zestaw: 1368 passed (1332 + 36 — 32+1+1+2, potwierdzone
+`pytest --collect-only` porównaniem z czystym stanem `main` sprzed tej
+gałęzi; patrz §8 tej migawki dla pełnego rozbicia per plik). Wszystkie
+10 `examples/*.epwlogic` nadal się otwierają, kompilują i eksportują.
 
 ## Zasada utrzymania tego dokumentu
 
