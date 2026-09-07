@@ -209,6 +209,101 @@ def test_expand_project_replaces_instance_with_definition_blocks():
     assert inner_gate.outputs[0].uuid in do_in.connections
     assert do_in.uuid in inner_gate.outputs[0].connections
 
+# ---- test/clone-field-coverage §2: compile-level safety_relevant survival -
+# The exact scenario fix/safety-block-semantics §6 found broken: a pin's
+# safety_relevant flag silently disappearing somewhere in expand_project(),
+# so the compiler-level "unused safety-relevant output" warning could never
+# fire for ANY project, macro or not. Two variants, exercising the two
+# DIFFERENT code paths expand_project() uses: an ordinary top-level block
+# (block.clone(), the path that was actually broken) and a block living
+# INSIDE a macro's own definition (block_class.deserialize(), which was
+# never broken — Pin.restore_fields() already round-trips safety_relevant —
+# but worth its own explicit test rather than an inference from "clone()
+# is fixed".
+
+def test_expand_project_preserves_safety_relevant_on_an_ordinary_block():
+    p = Project()
+    ai_di = DigitalInputBlock()
+    gate = AndGate()
+    gate.outputs[0].safety_relevant = True
+    ai_di.outputs[0].connect(gate.inputs[0])
+    p.add_block(ai_di)
+    p.add_block(gate)
+
+    expanded, errors = expand_project(p)
+    assert errors == []
+
+    expanded_gate = next(b for b in expanded if b.uuid == gate.uuid)
+    assert expanded_gate.outputs[0].safety_relevant is True
+
+def test_expand_project_preserves_safety_relevant_on_a_macro_internal_block():
+    """The block carrying safety_relevant is one of the MACRO's own
+    internal blocks (definition data, not a live top-level block) — after
+    expand_project() flattens the instance away, the block it expands TO
+    must still carry the flag."""
+    gate = AndGate()
+    gate.outputs[0].safety_relevant = True
+    dummy_di1, dummy_di2, dummy_do = DigitalInputBlock(), DigitalInputBlock(), DigitalOutputBlock()
+    dummy_di1.outputs[0].connect(gate.inputs[0])
+    dummy_di2.outputs[0].connect(gate.inputs[1])
+    gate.outputs[0].connect(dummy_do.inputs[0])
+    definition, _ = build_definition("SafetyMacro", [gate])
+
+    p = Project()
+    def_id = new_def_id()
+    set_definition(p, def_id, definition)
+
+    di1, di2 = DigitalInputBlock(), DigitalInputBlock()
+    do = DigitalOutputBlock()
+    inst = MacroInstanceBlock(def_id=def_id)
+    inst.configure(get_definition(p, def_id))
+    di1.outputs[0].connect(inst.inputs[0])
+    di2.outputs[0].connect(inst.inputs[1])
+    inst.outputs[0].connect(do.inputs[0])
+    for b in (di1, di2, do, inst):
+        p.add_block(b)
+
+    expanded, errors = expand_project(p)
+    assert errors == []
+
+    inner_gate = next(b for b in expanded if b.type_id == "logic.and")
+    assert inner_gate.outputs[0].safety_relevant is True
+
+def test_expand_project_preserves_disabled_on_a_macro_internal_input_pin():
+    """Same newly-found gap, different field: _expand_instance()'s own
+    pin-restoration loop only ever restored uuid/connections, silently
+    dropping every OTHER Pin.SERIALIZED_FIELDS entry for a macro-internal
+    block — `disabled` (feat/editor-modes-and-geometry §2) is exactly as
+    affected as safety_relevant, just with no compiler warning to make it
+    visibly inert the way §6's did."""
+    gate = AndGate()
+    gate.inputs[1].disabled = True
+    dummy_di = DigitalInputBlock()
+    dummy_do = DigitalOutputBlock()
+    dummy_di.outputs[0].connect(gate.inputs[0])
+    gate.outputs[0].connect(dummy_do.inputs[0])
+    definition, _ = build_definition("DisabledInputMacro", [gate])
+
+    p = Project()
+    def_id = new_def_id()
+    set_definition(p, def_id, definition)
+
+    di = DigitalInputBlock()
+    do = DigitalOutputBlock()
+    inst = MacroInstanceBlock(def_id=def_id)
+    inst.configure(get_definition(p, def_id))
+    di.outputs[0].connect(inst.inputs[0])
+    inst.outputs[0].connect(do.inputs[0])
+    for b in (di, do, inst):
+        p.add_block(b)
+
+    expanded, errors = expand_project(p)
+    assert errors == []
+
+    inner_gate = next(b for b in expanded if b.type_id == "logic.and")
+    assert inner_gate.inputs[1].disabled is True
+    assert inner_gate.inputs[0].disabled is False
+
 def test_expand_project_does_not_mutate_the_live_project():
     p = Project()
     def_id = new_def_id()
@@ -636,6 +731,28 @@ def test_resync_preserves_wiring_of_surviving_pins():
     assert di.outputs[0].uuid in inst.inputs[0].connections
     assert inst.inputs[0].uuid in di.outputs[0].connections
     assert inst.outputs[0].uuid in do.inputs[0].connections
+
+def test_resync_preserves_other_fields_of_surviving_pins_too():
+    """test/clone-field-coverage §3: resync's own pin-matching
+    (_resync_pin_list()) REUSES a matched pin BY REFERENCE rather than
+    copying it into a new Pin object — so unlike clone()/deserialize()/
+    clipboard-copy, there is no separate field-by-field copy step here at
+    all for a surviving pin, and therefore no way for THIS path to drop
+    one. Confirmed directly rather than left as an inference: adding an
+    unrelated new pin (which triggers a resync) must not disturb
+    disabled/safety_relevant already set on a SURVIVING one."""
+    p = Project()
+    def_id = new_def_id()
+    set_definition(p, def_id, _and_macro_definition())
+    inst = _placed_instance(p, def_id)
+    inst.inputs[0].disabled = True
+    inst.outputs[0].safety_relevant = True
+    p.add_block(inst)
+
+    resync_all_instances(p, def_id, [p.blocks])
+
+    assert inst.inputs[0].disabled is True
+    assert inst.outputs[0].safety_relevant is True
 
 def test_resync_disconnects_the_external_side_of_a_removed_pin():
     p = Project()
