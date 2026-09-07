@@ -112,8 +112,9 @@ def test_single_pin_io_block_ports_have_no_pin_label(type_id):
     assert pin_labels_suppressed(item)
 
 def test_multi_pin_io_block_ports_keep_their_pin_label():
-    """§0.1 audit follow-up: input.ai has TWO outputs (Value, Quality) — the
-    old blanket "every IO block suppresses pin labels" rule made them
+    """§0.1 audit follow-up: input.ai has multiple outputs (Value, Quality,
+    and — since fix/safety-block-semantics §5 — Hold Expired) — the old
+    blanket "every IO block suppresses pin labels" rule made them
     indistinguishable on the canvas (both are bare identical squares with
     no text), on top of the positioning bug that put them at the same spot
     in the first place. A multi-pin IO block needs its labels."""
@@ -122,7 +123,7 @@ def test_multi_pin_io_block_ports_keep_their_pin_label():
     block = BlockRegistry.create_block("input.ai")
     item = BlockItem(block)
     assert item.shape_style == "IO"
-    assert len(block.inputs) + len(block.outputs) == 2
+    assert len(block.inputs) + len(block.outputs) > 1
     assert not pin_labels_suppressed(item)
 
 def test_gate_body_has_no_separate_shorter_height():

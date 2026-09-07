@@ -117,6 +117,8 @@ _COMBO_OPTIONS = {
     ("system.button", "Mode"): ["Monostabilny", "Bistabilny"],
     # fix/safety-block-semantics §4.1
     ("analog.quality", "Range Source"): ["Z punktu analogowego", "Własny"],
+    # fix/safety-block-semantics §5.2
+    ("input.ai", "Hold Timeout Value"): ["Zero", "Ostatnia dobra", "Dolna granica zakresu"],
 }
 
 _NUMERIC_RANGE = 1_000_000  # generic wide bound when no domain floor/ceiling applies

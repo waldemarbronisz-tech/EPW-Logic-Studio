@@ -23,10 +23,16 @@ class AnalogInputBlock(BaseLogicBlock):
         self.outputs = [
             Pin("Value", Pin.DIR_OUTPUT, Pin.TYPE_FLOAT),
             Pin("Quality", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN),
+            # fix/safety-block-semantics §5.4: True once a good reading has
+            # been missing longer than "Max Hold (ms)" — a plain BOOL,
+            # separate from Quality, so logic can react specifically to
+            # "held past its limit" rather than every momentary bad scan.
+            Pin("Hold Expired", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN),
         ]
         # A stale/bad reading masquerading as good data is exactly the kind
         # of failure a safety interlock needs to see — mark it accordingly.
         self.outputs[1].safety_relevant = True
+        self.outputs[2].safety_relevant = True
 
         # Last value judged trustworthy — held across bad-quality scans
         # (fail-safe: downstream logic runs on stale-but-good data, never on
@@ -38,6 +44,26 @@ class AnalogInputBlock(BaseLogicBlock):
         self._range_min = None
         self._range_max = None
 
+        # fix/safety-block-semantics §5: holding the last good value FOREVER
+        # while quality stays bad is a correct fail-safe decision on its
+        # own, but with no time limit it lets logic downstream keep running
+        # on a measurement that could be hours or days stale, as long as
+        # nothing happens to be watching Quality. "Max Hold (ms)" bounds
+        # that — 0 (default) means unlimited, IDENTICAL to this block's
+        # behavior before this property existed.
+        self.properties["Max Hold (ms)"] = 0
+        # §5.2: what Value becomes once the hold limit is exceeded. Quality
+        # stays False regardless of this choice — this property only picks
+        # a defined fallback NUMBER for the (likely already actively
+        # unsafe) case where downstream logic isn't wired to Quality at all.
+        self.properties["Hold Timeout Value"] = "Zero"  # "Zero" | "Ostatnia dobra" | "Dolna granica zakresu"
+
+        # Engine time (ms) at the last GOOD reading — only tracked while
+        # Max Hold (ms) > 0 (see evaluate()), same "don't require a
+        # TimeProvider for a disabled check" reasoning as QualityBlock's
+        # Max Rate (/s) (analog_processing.py).
+        self._last_good_time_ms = None
+
     def set_range(self, range_min, range_max):
         """Called by the Compiler at compile time with this block's analog
         point [min, max], used for the out-of-range quality check below."""
@@ -46,8 +72,10 @@ class AnalogInputBlock(BaseLogicBlock):
 
     def reset_runtime_state(self):
         self._last_good = None
+        self._last_good_time_ms = None
         self.outputs[0].value = 0.0
         self.outputs[1].value = False
+        self.outputs[2].value = False
 
     def _is_good(self, raw) -> bool:
         if raw is None:
@@ -67,6 +95,15 @@ class AnalogInputBlock(BaseLogicBlock):
 
         return True
 
+    def _get_time_ms(self, engine):
+        """§5.5: mirrors analog_processing.py's QualityBlock._get_time_ms()
+        / blocks/timers.py's TimerBase._get_time() — silently degrading to
+        "hold forever" for lack of a TimeProvider would reintroduce the
+        exact risk Max Hold exists to bound, just invisibly."""
+        if engine and hasattr(engine, 'time') and engine.time:
+            return engine.time.current_time_ms()
+        raise RuntimeError("TimeProvider missing. ExecutionEngine must inject deterministic time.")
+
     def evaluate(self, engine=None):
         addr = self.properties.get("Address", "")
         raw = None
@@ -74,12 +111,38 @@ class AnalogInputBlock(BaseLogicBlock):
             raw = engine.io.read_analog_input(addr)
 
         quality = self._is_good(raw)
+        max_hold_ms = int(self.properties.get("Max Hold (ms)", 0) or 0)
+        now_ms = self._get_time_ms(engine) if max_hold_ms > 0 else None
+
         if quality:
             self._last_good = float(raw)
+            if max_hold_ms > 0:
+                self._last_good_time_ms = now_ms
 
-        self.outputs[0].value = self._last_good if self._last_good is not None else 0.0
+        # §5.3: expired only once Max Hold (ms) is actually exceeded, not
+        # merely "quality is bad right now" — a single missed scan is
+        # exactly what holding the last good value is FOR.
+        hold_expired = (
+            max_hold_ms > 0
+            and self._last_good_time_ms is not None
+            and (now_ms - self._last_good_time_ms) >= max_hold_ms
+        )
+
+        if hold_expired:
+            timeout_mode = self.properties.get("Hold Timeout Value", "Zero")
+            if timeout_mode == "Ostatnia dobra":
+                value = self._last_good if self._last_good is not None else 0.0
+            elif timeout_mode == "Dolna granica zakresu":
+                value = self._range_min if self._range_min is not None else 0.0
+            else:  # "Zero"
+                value = 0.0
+        else:
+            value = self._last_good if self._last_good is not None else 0.0
+
+        self.outputs[0].value = value
         self.outputs[1].value = quality
-        self.simulation_state["sim_value"] = self.outputs[0].value
+        self.outputs[2].value = hold_expired
+        self.simulation_state["sim_value"] = value
         self.simulation_state["quality"] = quality
 
 

@@ -20,7 +20,7 @@ class _HistoryEntry:
 # Bump when the on-disk .epwlogic schema changes in a way that requires migration.
 # Every bump needs a matching _migrate_vN_to_v(N+1)(data) function registered in
 # _MIGRATIONS below — see AUDIT_REPORT.md §2 "Wersjonowanie schematów".
-EPWLOGIC_SCHEMA_VERSION = 10
+EPWLOGIC_SCHEMA_VERSION = 11
 
 
 def _migrate_v1_to_v2(data: dict) -> dict:
@@ -270,9 +270,35 @@ def _migrate_v9_to_v10(data: dict) -> dict:
     return data
 
 
+def _migrate_v10_to_v11(data: dict) -> dict:
+    """v10 -> v11 (fix/safety-block-semantics §5): same "backfill a
+    property __init__ added after this project was last saved" reasoning
+    as _migrate_v9_to_v10 above, for input.ai's two new properties. Both
+    defaults (0 = unlimited hold, "Zero" for the timeout value) are
+    IDENTICAL to this block's behavior before they existed — this
+    migration only makes them visible/editable in the property grid for
+    an existing project, same as v9->v10 did for analog.quality. The new
+    third output pin ("Hold Expired") needs no migration of its own:
+    Project.deserialize()'s pin-restore loop already only restores as
+    many output pins as the FILE has data for
+    (`if i < len(block.outputs)`), so a v10 file's 2-entry "outputs" list
+    simply leaves the freshly-constructed 3rd pin at its __init__
+    defaults untouched — exactly what's wanted."""
+    for b_data in data.get("blocks", []):
+        if b_data.get("type_id") != "input.ai":
+            continue
+        properties = b_data.get("properties")
+        if not isinstance(properties, dict):
+            continue
+        properties.setdefault("Max Hold (ms)", 0)
+        properties.setdefault("Hold Timeout Value", "Zero")
+    data["schema_version"] = 11
+    return data
+
+
 # Keyed by the version a migration upgrades FROM. Project.deserialize() walks
 # this sequentially — apply the migration for the file's current version,
-# re-check, repeat — so a v1 file goes through v1->v2->...->v9->v10 in one load.
+# re-check, repeat — so a v1 file goes through v1->v2->...->v10->v11 in one load.
 _MIGRATIONS = {
     1: _migrate_v1_to_v2,
     2: _migrate_v2_to_v3,
@@ -283,6 +309,7 @@ _MIGRATIONS = {
     7: _migrate_v7_to_v8,
     8: _migrate_v8_to_v9,
     9: _migrate_v9_to_v10,
+    10: _migrate_v10_to_v11,
 }
 
 

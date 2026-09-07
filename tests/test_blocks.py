@@ -290,6 +290,143 @@ def test_analog_input_nan_and_range_margin():
     assert ai.outputs[1].value is False
     assert ai.outputs[0].value == -5.0
 
+# ---- fix/safety-block-semantics §5: AI Max Hold (ms) -----------------------
+
+class _FakeAnalogIO:
+    def __init__(self, value=25.0):
+        self.value = value
+    def read_analog_input(self, address):
+        return self.value
+
+def test_analog_input_default_max_hold_is_unlimited_like_before():
+    """§5.6: default 0 = no limit, IDENTICAL to this block's behavior
+    before Max Hold existed -- needs no engine.time at all."""
+    from logic_studio.blocks.analog_io import AnalogInputBlock
+
+    class FakeEngine:
+        def __init__(self, io):
+            self.io = io
+
+    ai = AnalogInputBlock()
+    ai.set_range(0.0, 100.0)
+    engine = FakeEngine(_FakeAnalogIO(50.0))
+    ai.evaluate(engine)
+
+    engine.io.value = None  # quality drops
+    for _ in range(100000):
+        ai.evaluate(engine)  # §5 DOWÓD's own reproduction: unlimited hold
+    assert ai.outputs[0].value == 50.0
+    assert ai.outputs[1].value is False
+    assert ai.outputs[2].value is False  # Hold Expired never trips
+
+def test_analog_input_hold_expires_and_falls_back_to_zero():
+    from logic_studio.blocks.analog_io import AnalogInputBlock
+
+    ai = AnalogInputBlock()
+    ai.set_range(0.0, 100.0)
+    ai.properties["Max Hold (ms)"] = 5000
+    engine = MockEngine()
+    engine.io = _FakeAnalogIO(50.0)
+
+    ai.evaluate(engine)
+    assert ai.outputs[0].value == 50.0
+    assert ai.outputs[2].value is False
+
+    engine.io.value = None  # measurement disappears
+    engine.time.advance(4999)
+    ai.evaluate(engine)
+    assert ai.outputs[2].value is False  # not yet expired
+    assert ai.outputs[0].value == 50.0  # still holding
+
+    engine.time.advance(2)  # now 5001ms since the last good reading
+    ai.evaluate(engine)
+    assert ai.outputs[2].value is True  # Hold Expired
+    assert ai.outputs[0].value == 0.0   # "Zero" (default)
+    assert ai.outputs[1].value is False  # Quality still False regardless
+
+def test_analog_input_hold_timeout_value_last_good():
+    from logic_studio.blocks.analog_io import AnalogInputBlock
+
+    ai = AnalogInputBlock()
+    ai.set_range(0.0, 100.0)
+    ai.properties["Max Hold (ms)"] = 1000
+    ai.properties["Hold Timeout Value"] = "Ostatnia dobra"
+    engine = MockEngine()
+    engine.io = _FakeAnalogIO(42.0)
+
+    ai.evaluate(engine)
+    engine.io.value = None
+    engine.time.advance(1500)
+    ai.evaluate(engine)
+    assert ai.outputs[2].value is True
+    assert ai.outputs[0].value == 42.0  # holds at the last good value, not 0
+
+def test_analog_input_hold_timeout_value_range_floor():
+    from logic_studio.blocks.analog_io import AnalogInputBlock
+
+    ai = AnalogInputBlock()
+    ai.set_range(-40.0, 150.0)
+    ai.properties["Max Hold (ms)"] = 1000
+    ai.properties["Hold Timeout Value"] = "Dolna granica zakresu"
+    engine = MockEngine()
+    engine.io = _FakeAnalogIO(50.0)
+
+    ai.evaluate(engine)
+    engine.io.value = None
+    engine.time.advance(1500)
+    ai.evaluate(engine)
+    assert ai.outputs[2].value is True
+    assert ai.outputs[0].value == -40.0
+
+def test_analog_input_good_reading_before_expiry_resets_the_hold_clock():
+    from logic_studio.blocks.analog_io import AnalogInputBlock
+
+    ai = AnalogInputBlock()
+    ai.set_range(0.0, 100.0)
+    ai.properties["Max Hold (ms)"] = 1000
+    engine = MockEngine()
+    engine.io = _FakeAnalogIO(10.0)
+
+    ai.evaluate(engine)
+    engine.io.value = None
+    engine.time.advance(900)
+    ai.evaluate(engine)
+    assert ai.outputs[2].value is False
+
+    engine.io.value = 20.0  # a good reading arrives just before expiry
+    ai.evaluate(engine)
+    assert ai.outputs[2].value is False
+    assert ai.outputs[0].value == 20.0
+
+    engine.io.value = None
+    engine.time.advance(900)  # < 1000ms since the FRESH good reading above
+    ai.evaluate(engine)
+    assert ai.outputs[2].value is False  # clock restarted, not expired yet
+
+def test_analog_input_hold_check_requires_a_time_provider():
+    from logic_studio.blocks.analog_io import AnalogInputBlock
+
+    class FakeEngine:
+        def __init__(self, io):
+            self.io = io
+
+    ai = AnalogInputBlock()
+    ai.properties["Max Hold (ms)"] = 1000
+    engine = FakeEngine(_FakeAnalogIO(10.0))
+    with pytest.raises(RuntimeError):
+        ai.evaluate(engine)
+
+def test_analog_input_new_outputs_are_defined_from_the_start():
+    """Hold Expired must never be None -- see also §8's "every output
+    defined" audit."""
+    from logic_studio.blocks.analog_io import AnalogInputBlock
+
+    ai = AnalogInputBlock()
+    ai.reset_runtime_state()
+    ai.evaluate(engine=None)
+    assert ai.outputs[2].value is False
+
+
 def test_analog_output_buffers_and_flushes():
     from logic_studio.blocks.analog_io import AnalogOutputBlock
 
@@ -646,6 +783,34 @@ def test_new_project_default_is_z_punktu_analogowego():
 
     q = QualityBlock()
     assert q.properties["Range Source"] == "Z punktu analogowego"
+
+
+# ---- fix/safety-block-semantics §5: v10->v11 property backfill -----------
+
+def test_v10_project_input_ai_gets_max_hold_properties_backfilled():
+    from logic_studio.core.project import Project
+
+    data = {
+        "format": "EPW_LOGIC", "schema_version": 10,
+        "settings": {"ela_devices": ["ELA01"], "ada_devices": ["ADA01"], "cycle_time_ms": 100},
+        "blocks": [{
+            "type_id": "input.ai", "uuid": "ai1",
+            "properties": {"Address": ""},
+            "inputs": [], "outputs": [
+                {"uuid": "p1", "name": "Value", "direction": "output", "data_type": "REAL", "connections": [], "disabled": False, "safety_relevant": False},
+                {"uuid": "p2", "name": "Quality", "direction": "output", "data_type": "BOOL", "connections": [], "disabled": False, "safety_relevant": True},
+            ],
+        }],
+    }
+    p = Project.deserialize(data)
+    ai = p.blocks[0]
+    assert ai.properties["Max Hold (ms)"] == 0
+    assert ai.properties["Hold Timeout Value"] == "Zero"
+    # The new 3rd pin simply keeps its __init__ defaults -- nothing in the
+    # 2-entry file "outputs" list to restore it FROM.
+    assert len(ai.outputs) == 3
+    assert ai.outputs[2].name == "Hold Expired"
+    assert ai.outputs[2].safety_relevant is True
 
 # ---- fix/safety-block-semantics §1: Stuck Tolerance ------------------------
 
