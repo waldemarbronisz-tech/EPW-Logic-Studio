@@ -240,12 +240,18 @@ def test_io_single_pin_block_port_is_at_center_of_a_40_tall_block():
     assert port.pos().y() == 20
 
 def test_io_multi_pin_block_ports_are_symmetric_around_center():
+    """§1.4's own formula (max(GATE_BODY, n_pins * PORT_PITCH), never a
+    hardcoded value) — input.ai has 3 outputs since
+    fix/safety-block-semantics §5 added "Hold Expired", so 60 (not the
+    2-pin 40 this test asserted before that block gained a third pin) is
+    the CORRECT height for the same reason the original comment gave: the
+    formula, not a special case."""
     _app()
     block = BlockRegistry.create_block("input.ai")
     item = BlockItem(block)
-    assert item.height == 40  # §1.4: always 40, not the old special-cased 60
+    assert item.height == 60
     ports = sorted((c.pos().y() for c in item.childItems() if isinstance(c, PortItem)))
-    assert ports == [10, 30]
+    assert ports == [10, 30, 50]
 
 def test_complex_block_ports_symmetric_around_center_both_sides():
     _app()

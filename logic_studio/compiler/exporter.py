@@ -30,6 +30,23 @@ CHECKSUM_FIELDS = (
 )
 
 
+def _direct_source_block(block, input_index, blocks):
+    """fix/safety-block-semantics §4: see compiler/core.py's identical
+    helper for the full rationale — duplicated here rather than imported
+    across the module boundary."""
+    if input_index >= len(block.inputs):
+        return None
+    connections = block.inputs[input_index].connections
+    if not connections:
+        return None
+    source_pin_uuid = connections[0]
+    for candidate in blocks:
+        for pin in candidate.outputs:
+            if pin.uuid == source_pin_uuid:
+                return candidate
+    return None
+
+
 class Exporter:
     def __init__(self, project, execution_order):
         self.project = project
@@ -84,6 +101,23 @@ class Exporter:
                     properties["_resolved_range_min"] = point.get("min")
                     properties["_resolved_range_max"] = point.get("max")
                     properties["_resolved_unit"] = point.get("unit", "")
+            elif block.type_id == "analog.quality" and properties.get("Range Source", "Własny") == "Z punktu analogowego":
+                # fix/safety-block-semantics §4.5: same reasoning as
+                # input.ai just above — a consumer reading this block's
+                # entry in isolation must be able to reconstruct the range
+                # this block's own Out Of Range check actually uses.
+                # Resolved independently here, NOT read off
+                # block._range_min/_max — Compiler.compile() only calls
+                # QualityBlock.set_range() in its OWN later step (building
+                # the isolated CompiledProgram, AFTER this export already
+                # ran), same reasoning system.signal's branch below
+                # documents in more depth for output pin type.
+                source = _direct_source_block(block, 0, self.project.blocks)
+                if source is not None and source.type_id == "input.ai":
+                    point = DeviceModel.get_analog_point(self.project, source.properties.get("Address", ""))
+                    if point:
+                        properties["_resolved_range_min"] = point.get("min")
+                        properties["_resolved_range_max"] = point.get("max")
             elif block.type_id == "system.signal" and outputs:
                 # AUDIT_REPORT.md §28: SystemBooleanSignalBlock's output pin
                 # type is derived from its "Sygnał" property via

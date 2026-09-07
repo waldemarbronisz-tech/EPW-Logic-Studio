@@ -253,6 +253,87 @@ def test_pause_does_not_touch_outputs():
     engine.pause()
     assert io.output_image["digital"].get("ADA01.DO01") is True
 
+
+# ---- fix/safety-block-semantics §9: step() in STOPPED is a dry run -------
+
+def _stopped_step_project():
+    from logic_studio.core.project import Project
+    from logic_studio.compiler.core import Compiler
+    from logic_studio.engine.execution import ExecutionEngine
+    from logic_studio.engine.io_provider import SimulationIOProvider
+    from logic_studio.engine.time_provider import SimulationTimeProvider
+    from logic_studio.blocks.io_blocks import DigitalInputBlock, DigitalOutputBlock
+    from logic_studio.blocks import register_builtin_blocks
+
+    register_builtin_blocks()
+    project = Project()
+    di = DigitalInputBlock()
+    di.properties["Address"] = "ELA01.DI01"
+    do = DigitalOutputBlock()
+    do.properties["Address"] = "ADA01.DO01"
+    di.outputs[0].connect(do.inputs[0])
+    project.add_block(di)
+    project.add_block(do)
+
+    compiler = Compiler(project)
+    res = compiler.compile()
+    io = SimulationIOProvider()
+    engine = ExecutionEngine(res.get("program"), io, SimulationTimeProvider())
+    return engine, io
+
+def test_step_in_stopped_never_writes_outputs():
+    """§9's own required test: step() taken while STOPPED must not change
+    the IOProvider's state. This is the DOWÓD scenario itself -- before
+    this fix, ADA01.DO01 went True."""
+    engine, io = _stopped_step_project()
+    from logic_studio.engine.execution import ExecutionState
+    assert engine.state == ExecutionState.STOPPED
+
+    io.set_digital_input("ELA01.DI01", True)
+    engine.step()
+    assert io.output_image["digital"].get("ADA01.DO01") in (False, None)
+
+def test_step_in_paused_still_writes_outputs():
+    """§9's own required test, the other half: PAUSED steps normally."""
+    engine, io = _stopped_step_project()
+    engine.start()
+    engine.pause()
+
+    io.set_digital_input("ELA01.DI01", True)
+    engine.step()
+    assert io.output_image["digital"].get("ADA01.DO01") is True
+
+def test_step_runs_the_full_scan_under_dry_run_just_skips_the_write():
+    """§9.2: dry_run doesn't mean "do nothing" -- blocks still evaluate
+    and pin values still propagate, only the IOProvider write is skipped.
+    Checked directly on the compiled blocks (not the IOProvider)."""
+    engine, io = _stopped_step_project()
+    do_block = next(b for b in engine.program.blocks if b.type_id == "output.do")
+
+    io.set_digital_input("ELA01.DI01", True)
+    engine.step()  # STOPPED -> auto dry-run
+    assert do_block.inputs[0].value is True  # the scan DID run
+    assert io.output_image["digital"].get("ADA01.DO01") in (False, None)  # just not written
+
+def test_explicit_dry_run_true_skips_writes_even_while_paused():
+    """§9.1/§9.2: the dry_run PARAMETER works independently of state, not
+    just as STOPPED's automatic behavior."""
+    engine, io = _stopped_step_project()
+    engine.start()
+    engine.pause()
+
+    io.set_digital_input("ELA01.DI01", True)
+    engine.step(dry_run=True)
+    assert io.output_image["digital"].get("ADA01.DO01") in (False, None)
+
+def test_step_in_stopped_still_advances_diagnostics():
+    """A dry run is still a real scan for diagnostic purposes (scan
+    duration, cycle counter) -- only the IOProvider write is special-cased."""
+    engine, io = _stopped_step_project()
+    before = engine.cycle_counter
+    engine.step()
+    assert engine.cycle_counter == before + 1
+
 def test_same_scan_input_fat():
     from logic_studio.core.project import Project
     from logic_studio.compiler.core import Compiler

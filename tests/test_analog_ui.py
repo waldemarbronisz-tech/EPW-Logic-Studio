@@ -318,6 +318,13 @@ def test_analog_chain_full_scan_through_main_window(qsettings):
     assert m.engine.program is not None
     assert len(m.engine.program.execution_order) == 2
 
+    # fix/safety-block-semantics §9: a step taken while STOPPED is now a
+    # dry run (never writes to the IOProvider) -- this test wants a REAL
+    # scan, so it actually starts the engine first, exactly like pressing
+    # Play would (compile_project() alone only loads the program; it
+    # doesn't run it).
+    m.engine.start()
+
     m.simulation_panel.ai_spinboxes["AI.TEMP"].setValue(23.5)
     m._run_scan()
 
@@ -371,6 +378,45 @@ def test_step_requested_ignored_while_running(qsettings):
     cycles_before = m.engine.cycle_counter
     m._on_step_requested(5)  # must be a no-op while RUNNING
     assert m.engine.cycle_counter == cycles_before
+
+    m.is_dirty = False
+    m.close()
+
+def test_step_in_stopped_shows_dry_run_status_message(qsettings):
+    """fix/safety-block-semantics §9.4: STOPPED's step is a dry run —
+    surfaced on the status bar, not just inferred from the engine state."""
+    _app()
+    from logic_studio.ui.main_window import MainWindow
+    from logic_studio.engine.execution import ExecutionState
+
+    register_builtin_blocks()
+    m = MainWindow(settings=qsettings)
+    m.scene.clear()
+    m.scene.add_block_from_library('const.true', 0, 0)
+    m.compile_project()
+    assert m.engine.state == ExecutionState.STOPPED
+
+    m._on_step_requested(1)
+    assert m.statusBar().currentMessage() == "Krok (bez zapisu wyjść)"
+
+    m.is_dirty = False
+    m.close()
+
+def test_step_in_paused_does_not_show_dry_run_status_message(qsettings):
+    _app()
+    from logic_studio.ui.main_window import MainWindow
+
+    register_builtin_blocks()
+    m = MainWindow(settings=qsettings)
+    m.scene.clear()
+    m.scene.add_block_from_library('const.true', 0, 0)
+    m.compile_project()
+    m.start_simulation()
+    m._pause_simulation()
+
+    m.statusBar().clearMessage()
+    m._on_step_requested(1)
+    assert m.statusBar().currentMessage() != "Krok (bez zapisu wyjść)"
 
     m.is_dirty = False
     m.close()

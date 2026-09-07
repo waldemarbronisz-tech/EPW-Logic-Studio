@@ -1,3 +1,20 @@
+def _direct_source_block(block, input_index, blocks):
+    """fix/safety-block-semantics §4: see compiler/core.py's identical
+    helper for the full rationale — duplicated here rather than imported
+    across the module boundary."""
+    if input_index >= len(block.inputs):
+        return None
+    connections = block.inputs[input_index].connections
+    if not connections:
+        return None
+    source_pin_uuid = connections[0]
+    for candidate in blocks:
+        for pin in candidate.outputs:
+            if pin.uuid == source_pin_uuid:
+                return candidate
+    return None
+
+
 class Validator:
     def __init__(self, project):
         self.project = project
@@ -80,6 +97,21 @@ class Validator:
                         "działa jak przekaźnik powtarzający."
                     )
 
+            # fix/safety-block-semantics §6: a new category of rule, not the
+            # same as "Input is unconnected" above — not every unconnected
+            # OUTPUT is a problem (most are genuinely optional), but a pin
+            # marked safety_relevant carries information about whether the
+            # logic built on it can be trusted at all, so leaving it
+            # unconnected means nothing downstream is even looking. Never
+            # an error: an engineer may deliberately decide the quality
+            # check isn't needed for a given signal.
+            for pin in block.outputs:
+                if pin.safety_relevant and not pin.connections:
+                    warnings.append(
+                        f"[{self._block_ref(block)}] Wyjście '{pin.name}' informujące o wiarygodności pomiaru "
+                        "nie jest nigdzie użyte. Logika będzie działać bez kontroli jakości sygnału."
+                    )
+
             # 3. Explicit IO Address Validation
             if block.type_id == "input.di":
                 addr = block.properties.get("Address", "")
@@ -136,6 +168,49 @@ class Validator:
                     int(raw)
                 except (TypeError, ValueError):
                     errors.append(f"[{self._block_ref(block)}] Wartość stałej INT nie jest poprawną liczbą całkowitą: {raw!r}.")
+            elif block.type_id == "analog.quality":
+                # §4.2: "Z punktu analogowego" only makes sense wired
+                # directly to an input.ai block — that's the only place a
+                # min/max range for this block to inherit even exists.
+                if block.properties.get("Range Source", "Własny") == "Z punktu analogowego":
+                    source = _direct_source_block(block, 0, blocks)
+                    if source is None or source.type_id != "input.ai":
+                        errors.append(
+                            f"[{self._block_ref(block)}] Range Source = Z punktu analogowego wymaga, "
+                            "by wejście In pochodziło bezpośrednio z bloku AI."
+                        )
+                # fix/safety-block-semantics §1.4: Stuck Tolerance=0 means
+                # bit-exact equality, which a real measurement chain's own
+                # ADC noise essentially never produces — the check would
+                # compile clean and pass every unit test, then silently
+                # never fire in the field. Warn, don't error: a purely
+                # digital/simulated signal source genuinely IS bit-exact.
+                stuck_scans = int(block.properties.get("Stuck Scans", 0) or 0)
+                tolerance = float(block.properties.get("Stuck Tolerance", 0.0) or 0.0)
+                if stuck_scans > 0 and tolerance == 0.0:
+                    warnings.append(
+                        f"[{self._block_ref(block)}] Detekcja zamrożenia sygnału z tolerancją 0 nie zadziała "
+                        "na realnym torze pomiarowym (szum ostatniego bitu przetwornika). "
+                        "Ustaw Stuck Tolerance."
+                    )
+                # §2.4: one-shot notice right after a v8->v9 schema
+                # migration converted this block's old per-scan "Max Rate"
+                # into the new per-second property. Lives in
+                # simulation_state, same mechanism as _legacy_force_state
+                # (core/project.py). NOTE: `block` here is an ISOLATED
+                # CLONE (core/macros.py's expand_project() clones every
+                # top-level block for compile-time isolation — see
+                # base.py's clone()), so deleting the key HERE only clears
+                # the clone's own copy; Compiler.compile() clears the same
+                # key on the live project's own blocks right after this
+                # runs, which is what actually makes it fire once.
+                migration = block.simulation_state.get("_max_rate_migration_notice")
+                if migration:
+                    old_rate, new_rate = migration["old"], migration["new"]
+                    warnings.append(
+                        f"[{self._block_ref(block)}] Max Rate przeliczono przy migracji projektu: "
+                        f"{old_rate:g}/skan -> {new_rate:g}/s (ta sama fizyczna szybkość zmiany, nowa jednostka)."
+                    )
             elif block.type_id == "const.time":
                 raw = block.properties.get("Time (ms)", 1000)
                 try:

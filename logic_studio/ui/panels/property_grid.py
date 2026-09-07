@@ -115,6 +115,10 @@ def _pair_partner(key: str):
 _COMBO_OPTIONS = {
     ("analog.deadband", "Mode"): ["Bezwzględny", "Procentowy"],
     ("system.button", "Mode"): ["Monostabilny", "Bistabilny"],
+    # fix/safety-block-semantics §4.1
+    ("analog.quality", "Range Source"): ["Z punktu analogowego", "Własny"],
+    # fix/safety-block-semantics §5.2
+    ("input.ai", "Hold Timeout Value"): ["Zero", "Ostatnia dobra", "Dolna granica zakresu"],
 }
 
 _NUMERIC_RANGE = 1_000_000  # generic wide bound when no domain floor/ceiling applies
@@ -272,6 +276,9 @@ class PropertyGridPanel(QWidget):
             if key in skip:
                 continue
             editor = self._make_property_editor(block, key, value)
+            tooltip = block.PROPERTY_TOOLTIPS.get(key, "")
+            if tooltip:
+                editor.setToolTip(tooltip)  # fix/safety-block-semantics §1.3
             base_name, _unit = _split_unit(key)
             form.addRow(base_name, editor)  # §5.3: unit lives on the editor, not the label
 

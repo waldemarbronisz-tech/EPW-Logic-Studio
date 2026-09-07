@@ -1,5 +1,28 @@
 import logging
 
+
+def _direct_source_block(block, input_index, blocks):
+    """fix/safety-block-semantics §4: the block whose OUTPUT pin directly
+    drives `block.inputs[input_index]`, or None if that input is
+    unconnected or its source can't be found in `blocks`. Inputs are
+    single-driver (blocks/pin.py's Pin.connect()), so there is at most one
+    connection to resolve. Shared verbatim (same logic, same signature) by
+    compiler/validator.py — duplicated rather than imported across that
+    module boundary, since it's a handful of lines and neither module
+    otherwise depends on the other."""
+    if input_index >= len(block.inputs):
+        return None
+    connections = block.inputs[input_index].connections
+    if not connections:
+        return None
+    source_pin_uuid = connections[0]
+    for candidate in blocks:
+        for pin in candidate.outputs:
+            if pin.uuid == source_pin_uuid:
+                return candidate
+    return None
+
+
 class _ExpandedProjectView:
     """feat/macro-blocks — the object Validator/GraphBuilder/Exporter
     actually run against inside Compiler.compile(): same `.settings` as the
@@ -60,6 +83,18 @@ class Compiler:
         validator = Validator(compile_view)
         validator.run(self.errors, self.warnings)
 
+        # fix/safety-block-semantics §2.4: Validator just read (and, if
+        # present, warned about) each analog.quality block's one-shot
+        # "_max_rate_migration_notice" — but it saw an ISOLATED CLONE
+        # (expand_project() clones every top-level block; see base.py's
+        # clone()), so clearing the key there never reaches the live
+        # project block. Cleared here, on self.project.blocks itself,
+        # right after Validator's one chance to see it — this is what
+        # actually makes the notice fire on the first compile only, not
+        # every compile for the rest of the session.
+        for block in self.project.blocks:
+            block.simulation_state.pop("_max_rate_migration_notice", None)
+
         if self.errors:
             self.status = "COMPILE_FAILED"
             return None # Abort on validation errors
@@ -107,6 +142,24 @@ class Compiler:
         for block in isolated_blocks:
             if block.type_id == "input.ai" and hasattr(block, 'set_range'):
                 point = DeviceModel.get_analog_point(self.project, block.properties.get("Address", ""))
+                if point:
+                    block.set_range(point.get("min"), point.get("max"))
+
+        # fix/safety-block-semantics §4.2: same reasoning as the AI range
+        # resolution just above — a QualityBlock with Range Source == "Z
+        # punktu analogowego" resolves ITS [min, max] from the analog
+        # point of the input.ai block feeding its In pin, not from its own
+        # (independently editable) Min/Max properties. Validator has
+        # already confirmed In is wired directly to an input.ai block for
+        # every such block that reaches here (§4.2's own error).
+        for block in isolated_blocks:
+            if block.type_id != "analog.quality" or not hasattr(block, 'set_range'):
+                continue
+            if block.properties.get("Range Source", "Własny") != "Z punktu analogowego":
+                continue
+            source = _direct_source_block(block, 0, isolated_blocks)
+            if source is not None and source.type_id == "input.ai":
+                point = DeviceModel.get_analog_point(self.project, source.properties.get("Address", ""))
                 if point:
                     block.set_range(point.get("min"), point.get("max"))
 

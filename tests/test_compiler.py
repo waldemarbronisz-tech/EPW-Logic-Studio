@@ -123,6 +123,235 @@ def test_analog_point_validation_and_range_resolution():
     assert compiled_ai._range_min == -40.0
     assert compiled_ai._range_max == 150.0
 
+def test_quality_stuck_zero_tolerance_warns():
+    """fix/safety-block-semantics §1.4: Stuck Scans configured with the
+    tolerance left at its bit-exact default is a compile WARNING, not an
+    error -- it's a real hazard on live hardware but a legitimate setup
+    for a purely digital/simulated signal source."""
+    from logic_studio.blocks.analog_processing import QualityBlock
+
+    p = Project()
+    q = QualityBlock()
+    q.properties["Stuck Scans"] = 3
+    q.properties["Range Source"] = "Własny"  # §4: unrelated to this test, avoid its own unconnected-AI error
+    p.add_block(q)
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is not None
+    assert any("Stuck Tolerance" in w for w in c.warnings)
+
+def test_quality_stuck_nonzero_tolerance_does_not_warn():
+    from logic_studio.blocks.analog_processing import QualityBlock
+
+    p = Project()
+    q = QualityBlock()
+    q.properties["Stuck Scans"] = 3
+    q.properties["Stuck Tolerance"] = 0.05
+    q.properties["Range Source"] = "Własny"  # §4: unrelated to this test, avoid its own unconnected-AI error
+    p.add_block(q)
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is not None
+    assert not any("Stuck Tolerance" in w for w in c.warnings)
+
+# ---- fix/safety-block-semantics §4: QUALITY range from the analog point --
+
+def test_quality_range_source_from_analog_point_resolves_and_exports():
+    from logic_studio.blocks.analog_io import AnalogInputBlock
+    from logic_studio.blocks.analog_processing import QualityBlock
+
+    p = Project()
+    p.settings["analog_points"] = [
+        {"address": "AI.TEMP", "name": "Temp", "unit": "°C", "min": -40.0, "max": 150.0, "direction": "input"},
+    ]
+    ai = AnalogInputBlock()
+    ai.properties["Address"] = "AI.TEMP"
+    q = QualityBlock()
+    assert q.properties["Range Source"] == "Z punktu analogowego"  # default for a NEW block
+    ai.outputs[0].connect(q.inputs[0])
+    p.add_block(ai)
+    p.add_block(q)
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is not None, f"Compile failed: {c.errors}"
+
+    compiled_q = res["program"].block_map[q.uuid]
+    assert compiled_q._range_min == -40.0
+    assert compiled_q._range_max == 150.0
+
+    assert res["blocks"][q.uuid]["properties"]["_resolved_range_min"] == -40.0
+    assert res["blocks"][q.uuid]["properties"]["_resolved_range_max"] == 150.0
+
+def test_quality_range_source_from_analog_point_ignores_own_min_max():
+    """The resolved AI range must WIN over this block's own (stale/
+    disagreeing) Min/Max properties -- the exact schematic §4's DOWÓD
+    describes: AI(-40..150) -> QUALITY(Min=0, Max=100)."""
+    from logic_studio.blocks.analog_io import AnalogInputBlock
+    from logic_studio.blocks.analog_processing import QualityBlock
+
+    p = Project()
+    p.settings["analog_points"] = [
+        {"address": "AI.TEMP", "name": "Temp", "unit": "°C", "min": -40.0, "max": 150.0, "direction": "input"},
+    ]
+    ai = AnalogInputBlock()
+    ai.properties["Address"] = "AI.TEMP"
+    q = QualityBlock()
+    q.properties["Min"] = 0.0
+    q.properties["Max"] = 100.0
+    ai.outputs[0].connect(q.inputs[0])
+    p.add_block(ai)
+    p.add_block(q)
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is not None
+
+    compiled_q = res["program"].block_map[q.uuid]
+    compiled_q.inputs[0].value = 120.0  # inside Min/Max=0..100 -- would be Out Of Range there
+    compiled_q.evaluate()
+    assert compiled_q.outputs[1].value is False  # Out Of Range -- inside the AI's -40..150
+
+def test_quality_range_source_requires_direct_ai_input():
+    """§4.2: In not wired directly to an input.ai block (unconnected, or
+    wired through something else) is a compile ERROR while Range Source ==
+    "Z punktu analogowego"."""
+    from logic_studio.blocks.analog_processing import QualityBlock
+
+    p = Project()
+    q = QualityBlock()  # default Range Source, In left unconnected
+    p.add_block(q)
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is None
+    assert any("Range Source" in e for e in c.errors)
+
+def test_quality_range_source_wlasny_uses_own_min_max_unaffected():
+    from logic_studio.blocks.analog_processing import QualityBlock
+
+    p = Project()
+    q = QualityBlock()
+    q.properties["Range Source"] = "Własny"
+    q.properties["Min"] = 0.0
+    q.properties["Max"] = 100.0
+    p.add_block(q)
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is not None, f"Compile failed: {c.errors}"
+
+    compiled_q = res["program"].block_map[q.uuid]
+    compiled_q.inputs[0].value = 150.0
+    compiled_q.evaluate()
+    assert compiled_q.outputs[1].value is True  # Out Of Range against its OWN 0..100
+
+# ---- fix/safety-block-semantics §6: unused safety-relevant outputs ------
+
+def test_ai_comparator_do_with_quality_unconnected_warns():
+    """§6 DOWÓD, reproduced exactly: AI -> comparator -> DO with Quality
+    never wired up must warn -- before this fix, only the (irrelevant)
+    "Input 'In2' is unconnected" warning appeared, nothing about Quality
+    at all."""
+    from logic_studio.blocks.analog_io import AnalogInputBlock
+    from logic_studio.blocks.comparators import GreaterBlock
+    from logic_studio.blocks.io_blocks import DigitalOutputBlock
+
+    p = Project()
+    p.settings["analog_points"] = [
+        {"address": "AI.LEVEL", "name": "Level", "unit": "m", "min": 0.0, "max": 10.0, "direction": "input"},
+    ]
+    ai = AnalogInputBlock()
+    ai.properties["Address"] = "AI.LEVEL"
+    cmp = GreaterBlock()
+    do = DigitalOutputBlock()
+    do.properties["Address"] = "ADA01.DO01"
+    ai.outputs[0].connect(cmp.inputs[0])  # Value -> comparator In1 (Quality left unconnected)
+    cmp.outputs[0].connect(do.inputs[0])
+    for b in (ai, cmp, do):
+        p.add_block(b)
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is not None
+    assert any("Quality" in w and "wiarygodności pomiaru" in w for w in c.warnings), c.warnings
+
+def test_ai_quality_connected_does_not_warn():
+    from logic_studio.blocks.analog_io import AnalogInputBlock
+    from logic_studio.blocks.comparators import GreaterBlock
+    from logic_studio.blocks.logic_gates import AndGate
+
+    p = Project()
+    p.settings["analog_points"] = [
+        {"address": "AI.LEVEL", "name": "Level", "unit": "m", "min": 0.0, "max": 10.0, "direction": "input"},
+    ]
+    ai = AnalogInputBlock()
+    ai.properties["Address"] = "AI.LEVEL"
+    cmp = GreaterBlock()
+    and_gate = AndGate()  # a plain BOOL sink for Quality/Hold Expired
+    ai.outputs[0].connect(cmp.inputs[0])   # Value (Float) -> comparator
+    ai.outputs[1].connect(and_gate.inputs[0])  # Quality (Bool) wired up
+    ai.outputs[2].connect(and_gate.inputs[1])  # Hold Expired (Bool) wired up too
+    for b in (ai, cmp, and_gate):
+        p.add_block(b)
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is not None
+    assert not any("wiarygodności pomiaru" in w for w in c.warnings), c.warnings
+
+def test_quality_block_good_unconnected_warns():
+    from logic_studio.blocks.analog_processing import QualityBlock
+
+    p = Project()
+    q = QualityBlock()
+    q.properties["Range Source"] = "Własny"  # unrelated to this test
+    p.add_block(q)
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is not None
+    assert any("Good" in w and "wiarygodności pomiaru" in w for w in c.warnings), c.warnings
+
+def test_ai_hold_expired_unconnected_warns_independently_of_quality():
+    from logic_studio.blocks.analog_io import AnalogInputBlock
+    from logic_studio.blocks.comparators import GreaterBlock
+    from logic_studio.blocks.logic_gates import AndGate
+
+    p = Project()
+    p.settings["analog_points"] = [
+        {"address": "AI.LEVEL", "name": "Level", "unit": "m", "min": 0.0, "max": 10.0, "direction": "input"},
+    ]
+    ai = AnalogInputBlock()
+    ai.properties["Address"] = "AI.LEVEL"
+    cmp = GreaterBlock()
+    and_gate = AndGate()
+    ai.outputs[0].connect(cmp.inputs[0])
+    ai.outputs[1].connect(and_gate.inputs[0])  # Quality wired -- Hold Expired still isn't
+    for b in (ai, cmp, and_gate):
+        p.add_block(b)
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is not None
+    assert any("Hold Expired" in w for w in c.warnings), c.warnings
+
+def test_unconnected_non_safety_output_never_warns():
+    """Sanity check: this is a NEW category, not "every unconnected
+    output" -- a gate's plain Out pin left unconnected must not trigger
+    it."""
+    from logic_studio.blocks.logic_gates import AndGate
+
+    p = Project()
+    p.add_block(AndGate())
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is not None
+    assert not any("wiarygodności pomiaru" in w for w in c.warnings)
+
 def test_invalid_analog_input_address_fails_compilation():
     from logic_studio.blocks.analog_io import AnalogInputBlock
 

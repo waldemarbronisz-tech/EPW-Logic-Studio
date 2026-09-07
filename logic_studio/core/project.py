@@ -20,7 +20,7 @@ class _HistoryEntry:
 # Bump when the on-disk .epwlogic schema changes in a way that requires migration.
 # Every bump needs a matching _migrate_vN_to_v(N+1)(data) function registered in
 # _MIGRATIONS below — see AUDIT_REPORT.md §2 "Wersjonowanie schematów".
-EPWLOGIC_SCHEMA_VERSION = 8
+EPWLOGIC_SCHEMA_VERSION = 11
 
 
 def _migrate_v1_to_v2(data: dict) -> dict:
@@ -200,9 +200,105 @@ def _migrate_v7_to_v8(data: dict) -> dict:
     return data
 
 
+def _migrate_v8_to_v9(data: dict) -> dict:
+    """v8 -> v9 (fix/safety-block-semantics §2.4): analog.quality's "Max
+    Rate" property (max change PER SCAN) is renamed "Max Rate (/s)" (max
+    change per SECOND) — the old property silently changed physical
+    meaning whenever `cycle_time_ms` (a project-wide setting unrelated to
+    any individual safety threshold) was edited: "5 units per scan" means
+    a completely different real-world rate at a 100ms cycle than at a
+    50ms one. Every analog.quality block with a non-zero old "Max Rate"
+    is converted: new = old * 1000 / cycle_time_ms — the SAME physical
+    (per-second) threshold the project already had, so compiled/exported
+    behavior is unchanged by this migration. Each conversion is flagged
+    via a transient "_legacy_max_rate_migration" marker (same one-shot
+    pattern as "_legacy_force_state" in _migrate_v1_to_v2 above),
+    consumed once by Project.deserialize() below and surfaced by
+    Validator as a compiler warning on the first compile after loading —
+    the raw number on screen changed even though what it MEANS didn't,
+    and an engineer should see that, not just trust the migration
+    silently got it right."""
+    settings = data.setdefault("settings", {})
+    cycle_time_ms = settings.get("cycle_time_ms", 100) or 100
+    for b_data in data.get("blocks", []):
+        if b_data.get("type_id") != "analog.quality":
+            continue
+        properties = b_data.get("properties")
+        if not isinstance(properties, dict):
+            continue
+        old_rate = properties.pop("Max Rate", None)
+        if old_rate:
+            new_rate = float(old_rate) * 1000.0 / float(cycle_time_ms)
+            properties["Max Rate (/s)"] = new_rate
+            b_data["_legacy_max_rate_migration"] = {"old": float(old_rate), "new": new_rate}
+        else:
+            properties.setdefault("Max Rate (/s)", 0.0)
+    data["schema_version"] = 9
+    return data
+
+
+def _migrate_v9_to_v10(data: dict) -> dict:
+    """v9 -> v10 (fix/safety-block-semantics §4, plus retroactively closing
+    a gap §1 left open): BaseLogicBlock.deserialize() replaces a block's
+    ENTIRE properties dict wholesale with whatever the file has (base.py:
+    `block.properties = data.get("properties", {}).copy()`) — a property
+    added to a block type's __init__ AFTER a project was last saved is
+    silently ABSENT from that project's own copy of the block forever
+    (evaluate()'s own properties.get(key, default) calls still behave
+    correctly, but the property grid — which iterates
+    block.properties.items() — never shows a row for it, so the engineer
+    can't even see, let alone change, the new setting on an existing
+    schematic). Backfills BOTH:
+    - "Range Source" (§4.1) — existing blocks get "Własny" explicitly,
+      NEVER the new default "Z punktu analogowego", which only makes
+      sense for a freshly-placed block reasoned about at placement time,
+      not an existing wired-up schematic Validator hasn't checked yet.
+    - "Stuck Tolerance" (§1.1) — shipped in an earlier commit on this same
+      branch WITHOUT this backfill; found while writing this exact
+      migration for Range Source. 0.0 is the correct default either way
+      (bit-exact, unchanged behavior), this migration only makes sure the
+      property grid actually shows the row on an existing project."""
+    for b_data in data.get("blocks", []):
+        if b_data.get("type_id") != "analog.quality":
+            continue
+        properties = b_data.get("properties")
+        if not isinstance(properties, dict):
+            continue
+        properties.setdefault("Range Source", "Własny")
+        properties.setdefault("Stuck Tolerance", 0.0)
+    data["schema_version"] = 10
+    return data
+
+
+def _migrate_v10_to_v11(data: dict) -> dict:
+    """v10 -> v11 (fix/safety-block-semantics §5): same "backfill a
+    property __init__ added after this project was last saved" reasoning
+    as _migrate_v9_to_v10 above, for input.ai's two new properties. Both
+    defaults (0 = unlimited hold, "Zero" for the timeout value) are
+    IDENTICAL to this block's behavior before they existed — this
+    migration only makes them visible/editable in the property grid for
+    an existing project, same as v9->v10 did for analog.quality. The new
+    third output pin ("Hold Expired") needs no migration of its own:
+    Project.deserialize()'s pin-restore loop already only restores as
+    many output pins as the FILE has data for
+    (`if i < len(block.outputs)`), so a v10 file's 2-entry "outputs" list
+    simply leaves the freshly-constructed 3rd pin at its __init__
+    defaults untouched — exactly what's wanted."""
+    for b_data in data.get("blocks", []):
+        if b_data.get("type_id") != "input.ai":
+            continue
+        properties = b_data.get("properties")
+        if not isinstance(properties, dict):
+            continue
+        properties.setdefault("Max Hold (ms)", 0)
+        properties.setdefault("Hold Timeout Value", "Zero")
+    data["schema_version"] = 11
+    return data
+
+
 # Keyed by the version a migration upgrades FROM. Project.deserialize() walks
 # this sequentially — apply the migration for the file's current version,
-# re-check, repeat — so a v1 file goes through v1->v2->...->v7->v8 in one load.
+# re-check, repeat — so a v1 file goes through v1->v2->...->v10->v11 in one load.
 _MIGRATIONS = {
     1: _migrate_v1_to_v2,
     2: _migrate_v2_to_v3,
@@ -211,6 +307,9 @@ _MIGRATIONS = {
     5: _migrate_v5_to_v6,
     6: _migrate_v6_to_v7,
     7: _migrate_v7_to_v8,
+    8: _migrate_v8_to_v9,
+    9: _migrate_v9_to_v10,
+    10: _migrate_v10_to_v11,
 }
 
 
@@ -498,6 +597,21 @@ class Project:
             if legacy_force:
                 block.simulation_state["force_state"] = legacy_force
 
+            # fix/safety-block-semantics §2.4: same one-shot marker pattern
+            # as _legacy_force_state above, via simulation_state — safe
+            # here because ExecutionEngine.start()/stop() only ever clear
+            # simulation_state on the COMPILED PROGRAM's own isolated block
+            # clones (self.program.blocks), never on the live project's
+            # blocks this loop is building. clone() (base.py) already
+            # copies simulation_state onto the isolated instance
+            # Compiler.compile() hands to Validator, so no separate
+            # carry-over mechanism is needed for this to survive
+            # compilation the same way _legacy_force_state's own entry
+            # already does.
+            legacy_max_rate = b_data.pop("_legacy_max_rate_migration", None)
+            if legacy_max_rate:
+                block.simulation_state["_max_rate_migration_notice"] = legacy_max_rate
+
             # feat/wire-modes-and-labels §0.1: restore every SERIALIZED_
             # FIELDS value (uuid, connections, disabled, safety_relevant,
             # ...) via the one shared Pin.restore_fields() implementation,
@@ -515,6 +629,15 @@ class Project:
             for i, pin_data in enumerate(b_data.get("outputs", [])):
                 if i < len(block.outputs):
                     Pin.restore_fields(block.outputs[i], pin_data)
+
+            # fix/safety-block-semantics §6: give a block one last chance
+            # to reassert any pin metadata it considers INTRINSIC to a
+            # specific pin (not user/file data) now that restore_fields()
+            # above may have just overwritten it with a stale saved value
+            # — see BaseLogicBlock.resync_derived_pin_metadata()'s own
+            # docstring for the full reasoning. A no-op for every block
+            # that doesn't override it.
+            block.resync_derived_pin_metadata()
 
             proj.add_block(block)
 

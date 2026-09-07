@@ -1160,17 +1160,27 @@ class MainWindow(QMainWindow):
     def _on_step_requested(self, count: int):
         """Manual "Krok"/"Krok ×10" from SimulationPanel (§6.3). Only legal
         while the engine is not free-running: PAUSED, or STOPPED with a
-        program loaded (the compile step already establishes that)."""
+        program loaded (the compile step already establishes that).
+
+        fix/safety-block-semantics §9.4: STOPPED is a DRY RUN —
+        ExecutionEngine.step() itself now refuses to write real outputs in
+        that state (§9.3) — surfaced here so the engineer sees it too,
+        not just infers it. PAUSED steps normally, with real writes."""
         from logic_studio.engine.execution import ExecutionState
         if self.engine.state not in (ExecutionState.PAUSED, ExecutionState.STOPPED):
             return
         if not self.engine.program or not self.engine.program.execution_order:
             return
 
+        is_dry_run = self.engine.state == ExecutionState.STOPPED
         for _ in range(count):
             self._run_scan()
 
-        self.output_panel.log_runtime(f"Manual step x{count} executed.")
+        if is_dry_run:
+            self.statusBar().showMessage("Krok (bez zapisu wyjść)", 5000)
+            self.output_panel.log_runtime(f"Manual step x{count} executed (dry-run, STOPPED — no outputs written).")
+        else:
+            self.output_panel.log_runtime(f"Manual step x{count} executed.")
 
     def _update_simulation_panel(self):
         # Sync ELA/ADA block states to the UI

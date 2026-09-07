@@ -45,6 +45,13 @@ def _project_with_one_of_every_block():
                 block.properties["Address"] = "AI.CONTRACT"
             elif type_id == "output.ao":
                 block.properties["Address"] = "AO.CONTRACT"
+            elif type_id == "analog.quality":
+                # fix/safety-block-semantics §4.2: "Z punktu analogowego"
+                # (the default for a freshly-placed block) is a compile
+                # ERROR without a directly-wired input.ai source — this
+                # fixture's whole point is "zero connections", so use its
+                # own Min/Max instead, same as any pre-existing project.
+                block.properties["Range Source"] = "Własny"
 
             blocks_by_type[type_id] = block
             p.add_block(block)

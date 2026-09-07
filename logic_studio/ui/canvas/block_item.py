@@ -59,6 +59,44 @@ def io_text_margin_x(width, direction):
     return 6 + (shapes.io_notch_width(width) if direction == "output" else 0)
 
 
+# fix/safety-block-semantics §7: PortItem.paint() reserves a pin-name-label
+# zone PIN_LABEL_SIDE_FRACTION wide, on whichever side this block's pins
+# actually sit (input.ai's outputs sit at x=width — see _create_ports()
+# below — so their labels grow LEFTWARD from there; a hypothetical future
+# output-direction multi-pin block's inputs at x=0 would grow RIGHTWARD).
+# _draw_io_text_lines() used to size its own text box against the block's
+# raw width alone, with no idea that zone existed — input.ai WITH an
+# address drew "AI.TEMP_TR1" and "Value"/"Quality" in the same pixels. The
+# margin between the two extra to PIN_LABEL_GAP/PORT_RADIUS already baked
+# into PortItem's own rect keeps "Quality" clear of input.ai's chevron tip
+# too (§7.3) — the chevron notch is capped at shapes.IO_NOTCH_MAX (10px),
+# comfortably inside that margin for every real block width.
+_IO_TEXT_TRAILING_MARGIN = style.PORT_RADIUS + style.PIN_LABEL_GAP + 6
+
+
+def io_identifier_text_box(width: float, direction: str, labels_suppressed: bool):
+    """(start_x, available_width) for the identifier/type text on an IO
+    block — carving out the pin-label zone above when this block's own
+    pins draw one at all (block_item.pin_labels_suppressed()). Shared
+    between _draw_io_text_lines() (drawing) and _determine_shape_style()
+    (sizing), so the two can never disagree about where each zone starts,
+    the same reasoning io_text_margin_x() above is shared for."""
+    margin_x = io_text_margin_x(width, direction)
+    if labels_suppressed:
+        return margin_x, max(1.0, width - margin_x - 6)
+    pin_label_zone = width * style.PIN_LABEL_SIDE_FRACTION
+    if direction == "input":
+        # Pins (and their labels) sit on the RIGHT — identifier starts
+        # where it always did, but stops short of that zone now.
+        return margin_x, max(1.0, width - margin_x - pin_label_zone - _IO_TEXT_TRAILING_MARGIN)
+    # Pins (and their labels) sit on the LEFT — identifier starts AFTER
+    # that zone instead (no real block hits this today — every existing
+    # output-direction IO block has exactly one pin, see
+    # pin_labels_suppressed() — but the formula holds either way).
+    start_x = max(margin_x, pin_label_zone + _IO_TEXT_TRAILING_MARGIN)
+    return start_x, max(1.0, width - start_x - 6)
+
+
 class BlockItem(QGraphicsItem):
     def __init__(self, logic_block, parent=None):
         super().__init__(parent)
@@ -179,7 +217,21 @@ class BlockItem(QGraphicsItem):
                 # base_width floor here always gives the same answer the
                 # final width will too.
                 left_margin = io_text_margin_x(base_width, direction)
-                needed = QFontMetricsF(font).horizontalAdvance(identifier) + left_margin + 6
+                text_width = QFontMetricsF(font).horizontalAdvance(identifier)
+                if pin_labels_suppressed(self):
+                    needed = text_width + left_margin + 6
+                else:
+                    # §7.2: this block's pins ALSO draw a name label
+                    # (io_identifier_text_box() above) — grow wide enough
+                    # that BOTH zones fit, not just the identifier alone.
+                    # Solving io_identifier_text_box()'s own formula for
+                    # the minimum W with available_width >= text_width:
+                    # W*(1 - PIN_LABEL_SIDE_FRACTION) >= text_width +
+                    # left_margin + _IO_TEXT_TRAILING_MARGIN (the two
+                    # directions converge to the same bound here — the
+                    # pin-label zone dominates the small margin
+                    # difference between them).
+                    needed = (text_width + left_margin + _IO_TEXT_TRAILING_MARGIN) / (1.0 - style.PIN_LABEL_SIDE_FRACTION)
                 base_width = max(base_width, _round_up_to_grid(needed))
             self.width = base_width
 
@@ -570,9 +622,13 @@ class BlockItem(QGraphicsItem):
         not a bare constant — an output-direction chevron has a notch cut
         into its left edge (shapes.draw_io_shape()), and a fixed 6px margin
         used to sit right on top of its diagonal edge (e.g. "ADA01.DO01"'s
-        first letter landing on the notch line)."""
-        margin_x = io_text_margin_x(self.width, direction)
-        available_width = max(1.0, self.width - margin_x - 6)
+        first letter landing on the notch line).
+
+        fix/safety-block-semantics §7.1: for a block whose OWN pins ALSO
+        draw a name label (io_identifier_text_box() above), this text's
+        own box stops short of that zone instead of the bare right/left
+        edge — the two are now separate, non-overlapping rectangles."""
+        start_x, available_width = io_identifier_text_box(self.width, direction, pin_labels_suppressed(self))
         y = 3.0
 
         for text, bold in lines:
@@ -591,7 +647,7 @@ class BlockItem(QGraphicsItem):
             painter.setFont(font)
             painter.setPen(QPen(style.COLOR_OUTLINE if bold else style.COLOR_TYPE_LABEL_TEXT))
             elided = fm.elidedText(text, Qt.ElideRight, available_width)
-            painter.drawText(QRectF(margin_x, y, available_width, line_height), Qt.AlignLeft | Qt.AlignTop, elided)
+            painter.drawText(QRectF(start_x, y, available_width, line_height), Qt.AlignLeft | Qt.AlignTop, elided)
             y += line_height
 
     def _io_label_for_display(self, address: str) -> str:

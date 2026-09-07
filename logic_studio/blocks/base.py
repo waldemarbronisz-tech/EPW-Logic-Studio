@@ -61,6 +61,15 @@ class BaseLogicBlock:
     )
     _TRANSIENT_FIELDS = ("simulation_state", "is_source", "aliases", "allows_disabled_inputs")
 
+    # fix/safety-block-semantics §1.3: a class-level (not per-instance —
+    # deliberately not in any of the three tuples above, exactly like
+    # SERIALIZED_FIELDS/_STRUCTURED_FIELDS/_TRANSIENT_FIELDS themselves)
+    # {property_key: tooltip_text} map a block subclass can override to
+    # put a warning or unit hint directly on that property's editor in the
+    # property grid (ui/panels/property_grid.py's _populate_parameters()).
+    # Empty by default; most blocks need none.
+    PROPERTY_TOOLTIPS: dict = {}
+
     def __init__(self, type_id: str, default_name: str, category: str, description: str = ""):
         self.uuid: str = str(uuid.uuid4())
         # feat/io-labels-and-ids §4: human-readable id ("g12", "i3", ...),
@@ -235,14 +244,21 @@ class BaseLogicBlock:
         # (isolating a CompiledProgram from the UI project), pin UUIDs and their
         # `connections` lists — which reference OTHER pins' UUIDs — are copied
         # verbatim, because GraphBuilder's execution_order is keyed by those UUIDs.
-        # disabled/negated (feat/editor-modes-and-geometry §2/§8) are
-        # configuration of the PIN ITSELF, not tied to a specific wire —
-        # copied unconditionally, unlike uuid/connections which only make
-        # sense to preserve for the isolated-CompiledProgram case.
+        # disabled/negated (feat/editor-modes-and-geometry §2/§8) and
+        # safety_relevant (fix/safety-block-semantics §6 — found here while
+        # wiring compiler/validator.py to actually read it: without this,
+        # EVERY compile silently lost the flag on EVERY output pin, since
+        # core/macros.py's expand_project() clones every top-level block
+        # before Validator ever sees it, making the whole warning
+        # inoperative) are configuration of the PIN ITSELF, not tied to a
+        # specific wire — copied unconditionally, unlike uuid/connections
+        # which only make sense to preserve for the isolated-CompiledProgram
+        # case.
         new_block.inputs = []
         for p in self.inputs:
             new_p = Pin(p.name, p.direction, p.data_type)
             new_p.disabled = p.disabled
+            new_p.safety_relevant = p.safety_relevant
             if preserve_uuid:
                 new_p.uuid = p.uuid
                 new_p.connections = list(p.connections)
@@ -251,6 +267,7 @@ class BaseLogicBlock:
         new_block.outputs = []
         for p in self.outputs:
             new_p = Pin(p.name, p.direction, p.data_type)
+            new_p.safety_relevant = p.safety_relevant
             if preserve_uuid:
                 new_p.uuid = p.uuid
                 new_p.connections = list(p.connections)
@@ -275,6 +292,27 @@ class BaseLogicBlock:
 
     def reset_runtime_state(self):
         """Reset block to cold deterministic state. Overridden by subclasses."""
+        pass
+
+    def resync_derived_pin_metadata(self):
+        """fix/safety-block-semantics §6: called by Project.deserialize()
+        right after a block's pins have been FULLY restored from a save
+        file (Pin.restore_fields() — which restores safety_relevant like
+        any other Pin.SERIALIZED_FIELDS entry). A no-op by default;
+        overridden by a block whose safety_relevant on a given output is
+        an INTRINSIC fact about that specific pin on that specific block
+        type (e.g. QualityBlock's Good, analog_processing.py) rather than
+        something a save file should be trusted to have gotten right —
+        an OLD file saved before that output was marked safety-relevant
+        at all would otherwise silently restore `False` forever, exactly
+        undoing what __init__ just set and permanently hiding the new
+        compiler warning (§6.2) on every EXISTING project. This is the
+        general form of the exact gap ARCHITECTURE.md §22 left open for
+        system.signal's own safety_relevant sync ("§19.2... POZOSTAJE
+        OTWARTE") — closed here because §6 is what makes safety_relevant
+        functionally load-bearing for the first time (previously pure
+        ElementPreviewPanel UI decoration, per that section's own
+        reasoning for leaving it be)."""
         pass
 
     def validate(self) -> list:

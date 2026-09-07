@@ -243,6 +243,33 @@ def test_known_enum_property_gets_a_combobox_with_its_options(qsettings):
     assert isinstance(field, QComboBox)
     assert [field.itemText(i) for i in range(field.count())] == ["Bezwzględny", "Procentowy"]
 
+def test_quality_range_source_gets_a_combobox_with_its_options(qsettings):
+    """fix/safety-block-semantics §4.1."""
+    _app()
+    p = Project()
+    b = BlockRegistry.create_block("analog.quality")
+    p.add_block(b)
+    panel = PropertyGridPanel(settings=qsettings)
+    panel.load_block_properties(b, p)
+
+    field = panel.field_widget("Range Source")
+    assert isinstance(field, QComboBox)
+    assert [field.itemText(i) for i in range(field.count())] == ["Z punktu analogowego", "Własny"]
+
+def test_quality_stuck_tolerance_has_a_tooltip(qsettings):
+    """fix/safety-block-semantics §1.3: the property grid must warn, right
+    on the field, that a real transducer needs Stuck Tolerance > 0."""
+    _app()
+    p = Project()
+    b = BlockRegistry.create_block("analog.quality")
+    p.add_block(b)
+    panel = PropertyGridPanel(settings=qsettings)
+    panel.load_block_properties(b, p)
+
+    field = panel.field_widget("Stuck Tolerance")
+    assert field.toolTip() != ""
+    assert "0" in field.toolTip()
+
 def test_plain_string_property_gets_a_line_edit(qsettings):
     _app()
     p = Project()
