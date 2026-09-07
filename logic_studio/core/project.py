@@ -20,7 +20,7 @@ class _HistoryEntry:
 # Bump when the on-disk .epwlogic schema changes in a way that requires migration.
 # Every bump needs a matching _migrate_vN_to_v(N+1)(data) function registered in
 # _MIGRATIONS below — see AUDIT_REPORT.md §2 "Wersjonowanie schematów".
-EPWLOGIC_SCHEMA_VERSION = 9
+EPWLOGIC_SCHEMA_VERSION = 10
 
 
 def _migrate_v1_to_v2(data: dict) -> dict:
@@ -237,9 +237,42 @@ def _migrate_v8_to_v9(data: dict) -> dict:
     return data
 
 
+def _migrate_v9_to_v10(data: dict) -> dict:
+    """v9 -> v10 (fix/safety-block-semantics §4, plus retroactively closing
+    a gap §1 left open): BaseLogicBlock.deserialize() replaces a block's
+    ENTIRE properties dict wholesale with whatever the file has (base.py:
+    `block.properties = data.get("properties", {}).copy()`) — a property
+    added to a block type's __init__ AFTER a project was last saved is
+    silently ABSENT from that project's own copy of the block forever
+    (evaluate()'s own properties.get(key, default) calls still behave
+    correctly, but the property grid — which iterates
+    block.properties.items() — never shows a row for it, so the engineer
+    can't even see, let alone change, the new setting on an existing
+    schematic). Backfills BOTH:
+    - "Range Source" (§4.1) — existing blocks get "Własny" explicitly,
+      NEVER the new default "Z punktu analogowego", which only makes
+      sense for a freshly-placed block reasoned about at placement time,
+      not an existing wired-up schematic Validator hasn't checked yet.
+    - "Stuck Tolerance" (§1.1) — shipped in an earlier commit on this same
+      branch WITHOUT this backfill; found while writing this exact
+      migration for Range Source. 0.0 is the correct default either way
+      (bit-exact, unchanged behavior), this migration only makes sure the
+      property grid actually shows the row on an existing project."""
+    for b_data in data.get("blocks", []):
+        if b_data.get("type_id") != "analog.quality":
+            continue
+        properties = b_data.get("properties")
+        if not isinstance(properties, dict):
+            continue
+        properties.setdefault("Range Source", "Własny")
+        properties.setdefault("Stuck Tolerance", 0.0)
+    data["schema_version"] = 10
+    return data
+
+
 # Keyed by the version a migration upgrades FROM. Project.deserialize() walks
 # this sequentially — apply the migration for the file's current version,
-# re-check, repeat — so a v1 file goes through v1->v2->...->v8->v9 in one load.
+# re-check, repeat — so a v1 file goes through v1->v2->...->v9->v10 in one load.
 _MIGRATIONS = {
     1: _migrate_v1_to_v2,
     2: _migrate_v2_to_v3,
@@ -249,6 +282,7 @@ _MIGRATIONS = {
     6: _migrate_v6_to_v7,
     7: _migrate_v7_to_v8,
     8: _migrate_v8_to_v9,
+    9: _migrate_v9_to_v10,
 }
 
 

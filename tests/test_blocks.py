@@ -594,6 +594,59 @@ def test_v8_migration_flags_a_compile_warning_with_old_and_new_values():
     c2.compile()
     assert not any("Max Rate przeliczono" in w for w in c2.warnings)
 
+
+# ---- fix/safety-block-semantics §4.4/§4.1: v9->v10 property backfill -----
+
+def test_v9_project_analog_quality_defaults_to_wlasny_range_source():
+    """§4.1/§4.4: an EXISTING project's analog.quality block must default
+    to "Własny" (its own Min/Max, the pre-existing behavior) -- NEVER the
+    new "Z punktu analogowego" default, which only makes sense for a
+    freshly-placed block."""
+    from logic_studio.core.project import Project
+
+    data = {
+        "format": "EPW_LOGIC", "schema_version": 9,
+        "settings": {"ela_devices": ["ELA01"], "ada_devices": ["ADA01"], "cycle_time_ms": 100},
+        "blocks": [{
+            "type_id": "analog.quality", "uuid": "q1",
+            "properties": {"Min": 0.0, "Max": 100.0},
+            "inputs": [], "outputs": [],
+        }],
+    }
+    p = Project.deserialize(data)
+    q = p.blocks[0]
+    assert q.properties["Range Source"] == "Własny"
+    assert q.properties["Stuck Tolerance"] == 0.0
+
+def test_v9_project_property_grid_row_actually_shows_up_after_migration():
+    """The bug this migration exists to fix, made concrete: without the
+    backfill, "Range Source"/"Stuck Tolerance" would be ABSENT from
+    q.properties entirely (not just defaulted) for a project saved before
+    those properties existed -- invisible in the property grid, which
+    iterates block.properties.items()."""
+    from logic_studio.core.project import Project
+
+    data = {
+        "format": "EPW_LOGIC", "schema_version": 9,
+        "settings": {"ela_devices": ["ELA01"], "ada_devices": ["ADA01"], "cycle_time_ms": 100},
+        "blocks": [{
+            "type_id": "analog.quality", "uuid": "q1",
+            "properties": {"Min": 0.0, "Max": 100.0},
+            "inputs": [], "outputs": [],
+        }],
+    }
+    p = Project.deserialize(data)
+    assert "Range Source" in p.blocks[0].properties
+    assert "Stuck Tolerance" in p.blocks[0].properties
+
+def test_new_project_default_is_z_punktu_analogowego():
+    """Contrast case for the migration tests above: a block placed FRESH
+    (never round-tripped through a save file) keeps the new default."""
+    from logic_studio.blocks.analog_processing import QualityBlock
+
+    q = QualityBlock()
+    assert q.properties["Range Source"] == "Z punktu analogowego"
+
 # ---- fix/safety-block-semantics §1: Stuck Tolerance ------------------------
 
 def test_quality_block_stuck_tolerance_zero_never_fires_on_realistic_noise():

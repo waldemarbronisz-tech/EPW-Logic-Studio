@@ -213,6 +213,18 @@ class QualityBlock(BaseAnalogBlock):
 
         self.properties["Min"] = 0.0
         self.properties["Max"] = 100.0
+        # §4.1: "Z punktu analogowego" resolves Min/Max from the analog
+        # point of the input.ai block feeding In (Compiler.compile(), like
+        # AnalogInputBlock's own range already does) instead of trusting
+        # this block's OWN, independently-editable Min/Max — a schematic
+        # wiring AI(-40..150) into QUALITY(Min=0, Max=100) previously ran
+        # two silently-disagreeing range checks with nothing flagging it.
+        # "Własny" is the pre-existing behavior (this block's own Min/Max)
+        # — the default for blocks loaded from a project that predates
+        # this property (core/project.py's _migrate_v9_to_v10), since only
+        # a NEWLY PLACED block is guaranteed to have its In pin wired up
+        # (or not yet at all) in a way Range Source can safely assume.
+        self.properties["Range Source"] = "Z punktu analogowego"
         # §2.1: physical units PER SECOND, not per scan — see the class
         # docstring/migration note (core/project.py's _migrate_v8_to_v9)
         # for why "per scan" silently changed meaning with cycle_time_ms.
@@ -233,11 +245,37 @@ class QualityBlock(BaseAnalogBlock):
         # Count of consecutive scans where the value did NOT change relative
         # to the scan before it. Reaching "Stuck Scans" trips Stuck.
         self._unchanged_streak = 0
+        # §4.2: [min, max] resolved by the Compiler when Range Source ==
+        # "Z punktu analogowego" — mirrors AnalogInputBlock._range_min/max
+        # (analog_io.py) exactly, including WHY: the runtime engine is
+        # deliberately decoupled from the UI Project, so this can't be
+        # looked up live at evaluate() time.
+        self._range_min = None
+        self._range_max = None
 
     def reset_runtime_state(self):
         self._last_value = None
         self._last_measurement_time_ms = None
         self._unchanged_streak = 0
+
+    def set_range(self, range_min, range_max):
+        """§4.2: called by the Compiler at compile time, exactly like
+        AnalogInputBlock.set_range() — only meaningful while Range Source
+        == "Z punktu analogowego" (see _effective_range())."""
+        self._range_min = range_min
+        self._range_max = range_max
+
+    def _effective_range(self):
+        """§4.3: the [min, max] this block's own Out Of Range check
+        actually uses — the compiler-resolved analog-point range when
+        Range Source == "Z punktu analogowego" AND the Compiler actually
+        resolved one (Validator's own check, §4.2, guarantees this for
+        anything that reaches evaluate() — but a block never run through
+        Compiler.compile() at all, e.g. a bare unit test, falls back to
+        its own Min/Max rather than silently using None/None)."""
+        if self.properties.get("Range Source", "Własny") == "Z punktu analogowego" and self._range_min is not None and self._range_max is not None:
+            return self._range_min, self._range_max
+        return float(self.properties.get("Min", 0.0)), float(self.properties.get("Max", 100.0))
 
     def _get_time_ms(self, engine):
         """§2.3: mirrors blocks/timers.py's TimerBase._get_time() exactly —
@@ -265,8 +303,7 @@ class QualityBlock(BaseAnalogBlock):
         stuck = False
 
         if is_number:
-            min_v = float(self.properties.get("Min", 0.0))
-            max_v = float(self.properties.get("Max", 100.0))
+            min_v, max_v = self._effective_range()
             out_of_range = fval < min_v or fval > max_v
 
             max_rate = float(self.properties.get("Max Rate (/s)", 0.0))

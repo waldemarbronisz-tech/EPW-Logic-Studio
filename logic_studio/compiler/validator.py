@@ -1,3 +1,20 @@
+def _direct_source_block(block, input_index, blocks):
+    """fix/safety-block-semantics §4: see compiler/core.py's identical
+    helper for the full rationale — duplicated here rather than imported
+    across the module boundary."""
+    if input_index >= len(block.inputs):
+        return None
+    connections = block.inputs[input_index].connections
+    if not connections:
+        return None
+    source_pin_uuid = connections[0]
+    for candidate in blocks:
+        for pin in candidate.outputs:
+            if pin.uuid == source_pin_uuid:
+                return candidate
+    return None
+
+
 class Validator:
     def __init__(self, project):
         self.project = project
@@ -137,6 +154,16 @@ class Validator:
                 except (TypeError, ValueError):
                     errors.append(f"[{self._block_ref(block)}] Wartość stałej INT nie jest poprawną liczbą całkowitą: {raw!r}.")
             elif block.type_id == "analog.quality":
+                # §4.2: "Z punktu analogowego" only makes sense wired
+                # directly to an input.ai block — that's the only place a
+                # min/max range for this block to inherit even exists.
+                if block.properties.get("Range Source", "Własny") == "Z punktu analogowego":
+                    source = _direct_source_block(block, 0, blocks)
+                    if source is None or source.type_id != "input.ai":
+                        errors.append(
+                            f"[{self._block_ref(block)}] Range Source = Z punktu analogowego wymaga, "
+                            "by wejście In pochodziło bezpośrednio z bloku AI."
+                        )
                 # fix/safety-block-semantics §1.4: Stuck Tolerance=0 means
                 # bit-exact equality, which a real measurement chain's own
                 # ADC noise essentially never produces — the check would

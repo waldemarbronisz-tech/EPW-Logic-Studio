@@ -133,6 +133,7 @@ def test_quality_stuck_zero_tolerance_warns():
     p = Project()
     q = QualityBlock()
     q.properties["Stuck Scans"] = 3
+    q.properties["Range Source"] = "Własny"  # §4: unrelated to this test, avoid its own unconnected-AI error
     p.add_block(q)
 
     c = Compiler(p)
@@ -147,12 +148,105 @@ def test_quality_stuck_nonzero_tolerance_does_not_warn():
     q = QualityBlock()
     q.properties["Stuck Scans"] = 3
     q.properties["Stuck Tolerance"] = 0.05
+    q.properties["Range Source"] = "Własny"  # §4: unrelated to this test, avoid its own unconnected-AI error
     p.add_block(q)
 
     c = Compiler(p)
     res = c.compile()
     assert res is not None
     assert not any("Stuck Tolerance" in w for w in c.warnings)
+
+# ---- fix/safety-block-semantics §4: QUALITY range from the analog point --
+
+def test_quality_range_source_from_analog_point_resolves_and_exports():
+    from logic_studio.blocks.analog_io import AnalogInputBlock
+    from logic_studio.blocks.analog_processing import QualityBlock
+
+    p = Project()
+    p.settings["analog_points"] = [
+        {"address": "AI.TEMP", "name": "Temp", "unit": "°C", "min": -40.0, "max": 150.0, "direction": "input"},
+    ]
+    ai = AnalogInputBlock()
+    ai.properties["Address"] = "AI.TEMP"
+    q = QualityBlock()
+    assert q.properties["Range Source"] == "Z punktu analogowego"  # default for a NEW block
+    ai.outputs[0].connect(q.inputs[0])
+    p.add_block(ai)
+    p.add_block(q)
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is not None, f"Compile failed: {c.errors}"
+
+    compiled_q = res["program"].block_map[q.uuid]
+    assert compiled_q._range_min == -40.0
+    assert compiled_q._range_max == 150.0
+
+    assert res["blocks"][q.uuid]["properties"]["_resolved_range_min"] == -40.0
+    assert res["blocks"][q.uuid]["properties"]["_resolved_range_max"] == 150.0
+
+def test_quality_range_source_from_analog_point_ignores_own_min_max():
+    """The resolved AI range must WIN over this block's own (stale/
+    disagreeing) Min/Max properties -- the exact schematic §4's DOWÓD
+    describes: AI(-40..150) -> QUALITY(Min=0, Max=100)."""
+    from logic_studio.blocks.analog_io import AnalogInputBlock
+    from logic_studio.blocks.analog_processing import QualityBlock
+
+    p = Project()
+    p.settings["analog_points"] = [
+        {"address": "AI.TEMP", "name": "Temp", "unit": "°C", "min": -40.0, "max": 150.0, "direction": "input"},
+    ]
+    ai = AnalogInputBlock()
+    ai.properties["Address"] = "AI.TEMP"
+    q = QualityBlock()
+    q.properties["Min"] = 0.0
+    q.properties["Max"] = 100.0
+    ai.outputs[0].connect(q.inputs[0])
+    p.add_block(ai)
+    p.add_block(q)
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is not None
+
+    compiled_q = res["program"].block_map[q.uuid]
+    compiled_q.inputs[0].value = 120.0  # inside Min/Max=0..100 -- would be Out Of Range there
+    compiled_q.evaluate()
+    assert compiled_q.outputs[1].value is False  # Out Of Range -- inside the AI's -40..150
+
+def test_quality_range_source_requires_direct_ai_input():
+    """§4.2: In not wired directly to an input.ai block (unconnected, or
+    wired through something else) is a compile ERROR while Range Source ==
+    "Z punktu analogowego"."""
+    from logic_studio.blocks.analog_processing import QualityBlock
+
+    p = Project()
+    q = QualityBlock()  # default Range Source, In left unconnected
+    p.add_block(q)
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is None
+    assert any("Range Source" in e for e in c.errors)
+
+def test_quality_range_source_wlasny_uses_own_min_max_unaffected():
+    from logic_studio.blocks.analog_processing import QualityBlock
+
+    p = Project()
+    q = QualityBlock()
+    q.properties["Range Source"] = "Własny"
+    q.properties["Min"] = 0.0
+    q.properties["Max"] = 100.0
+    p.add_block(q)
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is not None, f"Compile failed: {c.errors}"
+
+    compiled_q = res["program"].block_map[q.uuid]
+    compiled_q.inputs[0].value = 150.0
+    compiled_q.evaluate()
+    assert compiled_q.outputs[1].value is True  # Out Of Range against its OWN 0..100
 
 def test_invalid_analog_input_address_fails_compilation():
     from logic_studio.blocks.analog_io import AnalogInputBlock
