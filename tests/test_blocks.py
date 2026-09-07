@@ -448,6 +448,79 @@ def test_analog_output_buffers_and_flushes():
     ao.evaluate(engine)
     assert engine.buffered["AI.TEST"] == 0.0
 
+# ---- fix/safety-block-semantics §8.2: audit found and fixed these too ---
+
+def test_scale_no_signal_defines_output():
+    from logic_studio.blocks.analog_processing import ScaleBlock
+
+    s = ScaleBlock()
+    s.evaluate()
+    assert s.outputs[0].value == 0.0
+
+def test_limit_no_signal_defines_output():
+    from logic_studio.blocks.analog_processing import LimitBlock
+
+    l = LimitBlock()
+    l.evaluate()
+    assert l.outputs[0].value == 0.0
+
+def test_hysteresis_no_signal_holds_last_latched_state():
+    from logic_studio.blocks.analog_processing import HysteresisBlock
+
+    h = HysteresisBlock()
+    h.evaluate()
+    assert h.outputs[0].value is False  # __init__'s default _last_state
+
+    h.inputs[0].value = 90.0  # above High Threshold (80) -> latches True
+    h.evaluate()
+    assert h.outputs[0].value is True
+
+    h.inputs[0].value = None  # signal disappears
+    h.evaluate()
+    assert h.outputs[0].value is True  # holds the latch, doesn't reset
+
+def test_moving_average_no_signal_ever_defines_output():
+    from logic_studio.blocks.analog_processing import MovingAverageBlock
+
+    m = MovingAverageBlock()
+    m.evaluate()
+    assert m.outputs[0].value == 0.0
+
+def test_moving_average_holds_last_value_if_signal_drops_after_data():
+    from logic_studio.blocks.analog_processing import MovingAverageBlock
+
+    m = MovingAverageBlock()
+    m.inputs[0].value = 10.0
+    m.evaluate()
+    assert m.outputs[0].value == 10.0
+
+    m.inputs[0].value = None
+    m.evaluate()
+    assert m.outputs[0].value == 10.0  # holds, doesn't reset to 0.0
+
+def test_tof_et_never_none_before_first_trigger():
+    """fix/safety-block-semantics §8.2: ET (outputs[1]) was previously
+    only ever set inside branches that require having been triggered
+    (in_state True) at least once."""
+    from logic_studio.blocks.timers import TOF
+
+    engine = MockEngine()
+    t = TOF()
+    t.evaluate(engine)  # in_state False, never triggered
+    assert t.outputs[1].value == 0
+    assert t.outputs[0].value is False
+
+
+def test_deadband_no_signal_defines_both_outputs():
+    """fix/safety-block-semantics §8.1: previously left Out/Changed as
+    None when In was never connected."""
+    from logic_studio.blocks.analog_processing import DeadbandBlock
+
+    d = DeadbandBlock()
+    d.evaluate()
+    assert d.outputs[0].value == 0.0
+    assert d.outputs[1].value is False
+
 def test_deadband_first_scan_always_passes():
     from logic_studio.blocks.analog_processing import DeadbandBlock
 

@@ -72,10 +72,19 @@ class TOF(TimerBase):
         self.aliases = ["opóźnienie wyłączenia"]
         self._q_state = False
         self.outputs[0].value = False
+        self.outputs[1].value = 0
 
     def reset_runtime_state(self):
         super().reset_runtime_state()
         self._q_state = False
+        # fix/safety-block-semantics §8.2: ET (outputs[1]) was previously
+        # only ever set inside the branches below, both of which require
+        # having been triggered (in_state True) at least once -- a fresh/
+        # never-triggered block's ET stayed None. Q (outputs[0]) already
+        # got this treatment in __init__, just not here (TimerBase.
+        # reset_runtime_state() doesn't touch pins at all).
+        self.outputs[0].value = False
+        self.outputs[1].value = 0
 
     def evaluate(self, engine=None):
         in_state = bool(self.inputs[0].value)
@@ -91,6 +100,7 @@ class TOF(TimerBase):
                 if not self.running:
                     self.running = True
                     self.start_time = self._get_time(engine)
+                    self.outputs[1].value = 0
                 else:
                     elapsed = (self._get_time(engine)) - self.start_time
                     self.outputs[1].value = int(min(elapsed, pt))
@@ -98,6 +108,11 @@ class TOF(TimerBase):
                         self.outputs[0].value = False
                         self._q_state = False
                         self.running = False
+            else:
+                # fix/safety-block-semantics §8.2: never triggered (or
+                # already timed all the way out) -- ET must stay a
+                # DEFINED number, not None/left stale from __init__.
+                self.outputs[1].value = 0
 
 @BlockRegistry.register
 class TP(TimerBase):

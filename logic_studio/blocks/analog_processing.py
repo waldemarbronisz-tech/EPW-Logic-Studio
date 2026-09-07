@@ -44,6 +44,10 @@ class ScaleBlock(BaseAnalogBlock):
 
             scaled = out_min + norm * (out_max - out_min)
             self.outputs[0].value = scaled
+        else:
+            # fix/safety-block-semantics §8.2: no signal in -> Out must
+            # still be a DEFINED number, never None.
+            self.outputs[0].value = 0.0
 
 @BlockRegistry.register
 class LimitBlock(BaseAnalogBlock):
@@ -61,6 +65,9 @@ class LimitBlock(BaseAnalogBlock):
         if val is not None:
             self.outputs[0].value = max(float(self.properties["Min"]),
                                         min(float(self.properties["Max"]), float(val)))
+        else:
+            # fix/safety-block-semantics §8.2
+            self.outputs[0].value = 0.0
 
 @BlockRegistry.register
 class HysteresisBlock(BaseAnalogBlock):
@@ -92,6 +99,13 @@ class HysteresisBlock(BaseAnalogBlock):
                 self._last_state = False
 
             self.outputs[0].value = self._last_state
+        else:
+            # fix/safety-block-semantics §8.2: holds the latched state
+            # (already a defined False from __init__/reset_runtime_state()
+            # if never tripped) rather than snapping to a fresh value --
+            # this IS a latch, the same reasoning as AI holding its last
+            # good value across a bad-quality scan.
+            self.outputs[0].value = self._last_state
 
 @BlockRegistry.register
 class MovingAverageBlock(BaseAnalogBlock):
@@ -118,6 +132,13 @@ class MovingAverageBlock(BaseAnalogBlock):
 
             if len(self._buffer) > 0:
                 self.outputs[0].value = sum(self._buffer) / len(self._buffer)
+        elif not self._buffer:
+            # fix/safety-block-semantics §8.2: never evaluated with a real
+            # value yet -- Out must still be DEFINED, not None. If the
+            # buffer already has samples (input dropped out AFTER having
+            # real data), Out simply holds its last computed average
+            # unchanged, same as every other "hold last good" block here.
+            self.outputs[0].value = 0.0
 
 
 @BlockRegistry.register
@@ -154,6 +175,14 @@ class DeadbandBlock(BaseAnalogBlock):
     def evaluate(self, engine=None):
         val = self.inputs[0].value
         if val is None:
+            # fix/safety-block-semantics §8.1: no signal is not "do
+            # nothing" -- AnalogInputBlock defines Value=0.0/Quality=False
+            # for the equivalent case, and every OTHER output in this
+            # codebase must too (§8.2's audit). Out=0.0/Changed=False
+            # rather than holding _last_reported, which could itself
+            # still be None on the very first scan.
+            self.outputs[0].value = 0.0
+            self.outputs[1].value = False
             return
         val = float(val)
 
