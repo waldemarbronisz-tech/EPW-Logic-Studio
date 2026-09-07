@@ -625,17 +625,21 @@ class MainWindow(QMainWindow):
         self.set_dirty()
         return macros_module.get_definition(self.project, def_id)
 
-    def _resync_macro_instances(self, def_id: str) -> None:
-        """Rebuilds the pins of every placed instance of `def_id` —
-        anywhere in the project, live or nested inside another macro's own
-        stored definition — to match its (just-changed) boundary shape.
-        `live_block_lists` is assembled here from what MainWindow alone
-        knows about (the current view plus every stashed ancestor level);
-        core/macros.py's resync_all_instances() itself has no notion of a
-        "nav stack" at all, by design (ARCHITECTURE.md §24.10)."""
+    def _resync_macro_instances(self, def_id: str) -> list:
+        """Rebuilds the pins AND parameter-backed properties of every
+        placed instance of `def_id` — anywhere in the project, live or
+        nested inside another macro's own stored definition — to match
+        its (just-changed) shape. `live_block_lists` is assembled here
+        from what MainWindow alone knows about (the current view plus
+        every stashed ancestor level); core/macros.py's
+        resync_all_instances() itself has no notion of a "nav stack" at
+        all, by design (ARCHITECTURE.md §24.10). Returns whatever
+        ready-to-show parameter-type-reset warnings that resync produced
+        (fix/safety-and-macro-params §C1.4) — [] for a plain pin resync,
+        which never produces any."""
         from logic_studio.core import macros as macros_module
         live_block_lists = [self.project.blocks] + [entry["blocks"] for entry in self._macro_nav_stack]
-        macros_module.resync_all_instances(self.project, def_id, live_block_lists)
+        return macros_module.resync_all_instances(self.project, def_id, live_block_lists)
 
     def _open_macro_pins_dialog(self) -> None:
         """"Piny makrobloku..." (BreadcrumbBar) — a no-op if somehow
@@ -650,8 +654,54 @@ class MainWindow(QMainWindow):
         definition = get_definition(self.project, def_id)
         if definition is None:
             return
-        dialog = MacroPinsDialog(definition, self._remove_macro_pin, parent=self)
+        dialog = MacroPinsDialog(definition, self._remove_macro_pin, parent=self, on_parameter_change=self._on_macro_parameter_change)
         dialog.exec()
+
+    # ---- fix/safety-and-macro-params §C2.4: MacroPinsDialog's "Parametry" tab
+
+    def _on_macro_parameter_change(self, action: str, **kwargs):
+        """Single dispatcher for every parameter-tab mutation
+        (MacroPinsDialog's own `on_parameter_change`) — mirrors
+        _remove_macro_pin()'s shape: push_state()/set_dirty()/resync,
+        then return the fresh definition (or None on failure) for the
+        dialog to redraw itself from. A parameter type change
+        specifically doesn't reach here at all today — §C2.4 offers no
+        "edit an existing parameter's type" action, only add/remove/
+        reorder (a type mismatch instead arises from re-BINDING a
+        property of a different type, handled entirely in
+        property_grid.py's own flow) — kept as its own branch anyway so
+        adding that action later is a one-line dispatch, not a new
+        method."""
+        def_id = self.current_macro_def_id
+        if def_id is None:
+            return None
+        from logic_studio.core import macros as macros_module
+
+        self.project.push_state()
+
+        if action == "add":
+            ok = macros_module.add_parameter(
+                self.project, def_id, kwargs["display_name"], kwargs["type"], kwargs["default"],
+                unit=kwargs.get("unit", ""), description=kwargs.get("description", ""),
+                enum_values=kwargs.get("enum_values"),
+            ) is not None
+        elif action == "remove":
+            ok = macros_module.remove_parameter(self.project, def_id, kwargs["param_name"])
+        elif action == "reorder":
+            ok = macros_module.reorder_parameters(self.project, def_id, kwargs["new_order"])
+        elif action == "update":
+            ok = macros_module.update_parameter(self.project, def_id, kwargs["param_name"], **kwargs.get("fields", {}))
+        else:
+            ok = False
+
+        if not ok:
+            return None
+
+        self.set_dirty()
+        notices = self._resync_macro_instances(def_id)
+        if notices:
+            self.statusBar().showMessage(" | ".join(notices), 8000)
+        return macros_module.get_definition(self.project, def_id)
 
     def _update_disabled_blocks_status(self):
         """feat/clipboard-and-align §4.3: "Wyłączone bloki: N" in the
@@ -1206,7 +1256,11 @@ class MainWindow(QMainWindow):
         selected = self.scene.selectedItems()
         from logic_studio.ui.canvas.block_item import BlockItem
         if selected and isinstance(selected[0], BlockItem):
-            self.property_panel.load_block_properties(selected[0].logic_block, self.project)
+            # fix/safety-and-macro-params §C2.1: threads through which
+            # macro (if any) is currently open in breadcrumb edit view —
+            # None at the top level, which is every existing call site's
+            # unchanged behavior (a default parameter, not a new one).
+            self.property_panel.load_block_properties(selected[0].logic_block, self.project, self.current_macro_def_id)
             self.lbl_selected.setText(f"Selected: {selected[0].logic_block.display_name}")
             self.element_preview.show_block_instance(selected[0].logic_block)
         else:

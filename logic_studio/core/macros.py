@@ -45,6 +45,47 @@ same reasoning that keeps ExecutionEngine/IOProvider hardware-agnostic
 (ARCHITECTURE.md §1) applies here: macros are an authoring-time
 convenience, never a runtime concept. EPW_RUNTIME_LOGIC accordingly never
 contains a macro reference, only the blocks it expanded to.
+
+**Instance parameters (fix/safety-and-macro-params §C)**: a definition
+also carries `"parameters"` and `"parameter_bindings"` —
+
+    "parameters": [{"name", "display_name", "type", "default", "unit",
+                     "description", "enum_values"}, ...],
+    "parameter_bindings": [{"parameter", "block_uuid", "property_name"}, ...]
+
+`"name"` is a STABLE, internally-generated identifier ("PARAM_1", ...),
+never shown to the engineer and never renamed — `parameter_bindings`
+reference a parameter by this field so a rename never breaks a binding.
+`"display_name"` is what the engineer sees and edits, and (§C1.3) is ALSO
+the property key `MacroInstanceBlock` exposes for that parameter — so
+renaming a parameter's display_name changes an INSTANCE's own property
+key too. This is deliberately the SAME "a rename is indistinguishable
+from remove-then-add" trade-off `_resync_pin_list()` above already makes
+for boundary pins (see its own docstring) — accepted here for the same
+reason: a dedicated, persistent identity kept separate from the
+user-facing label isn't worth the schema complexity for how rarely a
+parameter is renamed after instances already depend on it.
+
+A tuple `(new_definition, new_bundle)` value — a symbol like
+`"${T_ZWLOKA}"` substituted textually into a property's raw string — was
+considered and REJECTED in favor of the explicit `parameter_bindings`
+table above: text substitution needs its own parser, turns a typed
+numeric property into a string the moment a placeholder appears in it
+(breaking every existing type-inference/range-validation path a property
+already has), and a value that happens to legitimately contain `{`/`}`
+becomes a landmine. An explicit binding table is unambiguous, keeps every
+property's own type, and is trivially listable/editable from a UI
+(§C2.4) without ever touching a property's stored text.
+
+Values live on the INSTANCE, not the definition: `MacroInstanceBlock`
+gets one property per parameter (§C1.3, `sync_instance_parameters()`
+below) — `expand_project()`'s substitution step (§C3) copies each
+instance's OWN value onto its expanded internal blocks' properties,
+AFTER those blocks are copied and BEFORE the graph is built, so the rest
+of the compiler pipeline sees nothing but ordinary, already-resolved
+property values — EPW_RUNTIME_LOGIC needs no changes at all (§C3.3):
+after expansion there is no way to tell a property's value came from a
+macro parameter rather than being typed in directly.
 """
 import uuid as uuid_module
 
@@ -53,6 +94,20 @@ from logic_studio.blocks.pin import Pin
 MACRO_TYPE_PREFIX = "macro."
 
 SETTINGS_KEY = "macro_definitions"
+
+# fix/safety-and-macro-params §C1.1: the closed set of value types a
+# parameter can declare — independent of blocks/pin.py's own Pin.TYPE_*
+# (those classify a WIRE's data type; a parameter classifies a PROPERTY
+# VALUE's Python type, the same vocabulary blocks/constants.py's own
+# const.int/const.real/const.time/const.string blocks already use for
+# their own typed "Value" property).
+PARAM_TYPES = ("INT", "REAL", "BOOL", "STRING", "ENUM")
+
+# Every key a MacroInstanceBlock's own `properties` dict carries that is
+# NOT a parameter — used by sync_instance_parameters() below to tell "a
+# stale parameter's leftover property" apart from an ordinary base
+# property every block has.
+_INSTANCE_BASE_PROPERTY_KEYS = frozenset({"Address", "Tag", "Comment"})
 
 
 def macro_def_id(type_id: str):
@@ -86,7 +141,19 @@ def _copy_definition(definition: dict) -> dict:
         "blocks": [dict(b) for b in definition.get("blocks", [])],
         "input_pins": [dict(p) for p in definition.get("input_pins", [])],
         "output_pins": [dict(p) for p in definition.get("output_pins", [])],
+        # fix/safety-and-macro-params §C1: absent entirely on a definition
+        # built before this feature existed — defaults to [] rather than
+        # raising, which is what makes an old macro with no parameters at
+        # all (§C5.6) load/compile/behave identically to before.
+        "parameters": [_copy_parameter(p) for p in definition.get("parameters", [])],
+        "parameter_bindings": [dict(b) for b in definition.get("parameter_bindings", [])],
     }
+
+
+def _copy_parameter(param: dict) -> dict:
+    copy = dict(param)
+    copy["enum_values"] = list(param.get("enum_values", []))
+    return copy
 
 
 def set_definition(project, def_id: str, definition: dict):
@@ -290,11 +357,15 @@ def _resync_pin_list(current_pins, new_boundary_entries, direction):
 
 
 def _resync_instance_live(instance, new_definition):
-    """Rebuilds a LIVE MacroInstanceBlock's own inputs/outputs in place to
-    match `new_definition`'s current boundary shape, preserving every
-    surviving pin's own wiring. Returns the list of removed Pin objects
-    (both sides) — the caller must scrub any OTHER pin in the same block
-    list that still references one of them by uuid."""
+    """Rebuilds a LIVE MacroInstanceBlock's own inputs/outputs AND
+    parameter-backed properties in place to match `new_definition`'s
+    current shape, preserving every surviving pin's own wiring and every
+    still-valid parameter's own value. Returns `(removed_pins,
+    param_resets)` — `removed_pins` (both sides) is for the caller to
+    scrub any OTHER pin in the same block list that still references one
+    of them by uuid; `param_resets` is `sync_instance_parameters()`'s own
+    return (see there) for the caller to turn into a compile-warning-
+    shaped message naming this instance."""
     from logic_studio.blocks.pin import Pin
 
     new_inputs, removed_inputs = _resync_pin_list(instance.inputs, new_definition.get("input_pins", []), Pin.DIR_INPUT)
@@ -302,7 +373,8 @@ def _resync_instance_live(instance, new_definition):
     instance.inputs = new_inputs
     instance.outputs = new_outputs
     instance.display_name = new_definition.get("name", instance.display_name)
-    return removed_inputs + removed_outputs
+    param_resets = sync_instance_parameters(instance.properties, new_definition)
+    return removed_inputs + removed_outputs, param_resets
 
 
 def _disconnect_removed_pins_live(block_list, removed_pins):
@@ -319,10 +391,14 @@ def _resync_instance_dict(b_data, new_definition, sibling_blocks_data):
     that ISN'T currently live Python objects — one embedded in some OTHER
     definition's own stored `"blocks"` list (project.settings, plain
     dicts, not touched by this edit session's live nav stack at all).
-    Rewrites `b_data["inputs"]`/`["outputs"]` and `b_data["display_name"]`
-    in place, and scrubs `sibling_blocks_data` (every OTHER block dict in
-    that SAME definition) of any dangling reference to a removed pin's
-    uuid — the dict-data equivalent of _disconnect_removed_pins_live()."""
+    Rewrites `b_data["inputs"]`/`["outputs"]`/`["display_name"]`/
+    `["properties"]` in place, and scrubs `sibling_blocks_data` (every
+    OTHER block dict in that SAME definition) of any dangling reference
+    to a removed pin's uuid — the dict-data equivalent of
+    _disconnect_removed_pins_live(). Returns `sync_instance_parameters()`'s
+    own `param_resets` — this instance has no `short_id` to report by
+    (it's not live anywhere right now), so the caller identifies it some
+    other way (e.g. the enclosing definition's own name)."""
     from logic_studio.blocks.pin import Pin
 
     def resync_side(data_key, boundary_key, direction):
@@ -347,23 +423,45 @@ def _resync_instance_dict(b_data, new_definition, sibling_blocks_data):
     removed_inputs = resync_side("inputs", "input_pins", Pin.DIR_INPUT)
     removed_outputs = resync_side("outputs", "output_pins", Pin.DIR_OUTPUT)
     b_data["display_name"] = new_definition.get("name", b_data.get("display_name"))
+    properties = b_data.setdefault("properties", {})
+    param_resets = sync_instance_parameters(properties, new_definition)
 
     removed_uuids = {p["uuid"] for p in removed_inputs + removed_outputs}
-    if not removed_uuids:
-        return
-    for sibling in sibling_blocks_data:
-        for key in ("inputs", "outputs"):
-            for pin_data in sibling.get(key, []):
-                pin_data["connections"] = [c for c in pin_data.get("connections", []) if c not in removed_uuids]
+    if removed_uuids:
+        for sibling in sibling_blocks_data:
+            for key in ("inputs", "outputs"):
+                for pin_data in sibling.get(key, []):
+                    pin_data["connections"] = [c for c in pin_data.get("connections", []) if c not in removed_uuids]
+    return param_resets
 
 
-def resync_all_instances(project, def_id: str, live_block_lists: list) -> None:
-    """Call immediately after add_boundary_pin()/remove_boundary_pin()
-    changes `def_id`'s own boundary shape — walks EVERY instance of this
-    definition reachable anywhere in the project and rebuilds its pins to
-    match, preserving each surviving pin's own wiring (see
-    _resync_pin_list()'s docstring for the matching rule). A no-op if the
-    definition itself was deleted in the meantime.
+def resync_all_instances(project, def_id: str, live_block_lists: list) -> list:
+    """Call immediately after add_boundary_pin()/remove_boundary_pin()/a
+    parameter add/remove/type-change changes `def_id`'s own shape — walks
+    EVERY instance of this definition reachable anywhere in the project
+    and rebuilds its pins AND parameter-backed properties to match,
+    preserving each surviving pin's own wiring and each still-valid
+    parameter's own value (see _resync_pin_list()'s and
+    sync_instance_parameters()'s own docstrings for the matching rules).
+    A no-op (returns `[]`) if the definition itself was deleted in the
+    meantime.
+
+    Returns a list of ready-to-show warning strings, one per parameter
+    value an instance had reset to its default because a parameter's type
+    changed underneath it (fix/safety-and-macro-params §C1.4) — shown by
+    the caller RIGHT AWAY rather than deferred to the next compile like
+    analog.quality's own migration notice (core/project.py): a macro
+    instance is never itself a block Validator's compile-time view sees
+    (expand_project() replaces it with its definition's own internal
+    blocks before Validator ever runs, §C3.3), and a `simulation_state`
+    notice living on it would in general be silently dropped the moment
+    ANY breadcrumb level involved is next committed by
+    update_definition_blocks() (serialize() never persists
+    `simulation_state` — by design, see base.py's own field tuples) long
+    before a compile ever happens. Surfacing the message here instead —
+    at the one moment this function already knows exactly which
+    instances were actually affected — is the reliable equivalent, not a
+    lesser one.
 
     Two kinds of instance, handled differently:
 
@@ -389,15 +487,18 @@ def resync_all_instances(project, def_id: str, live_block_lists: list) -> None:
     against on its own."""
     new_definition = get_definition(project, def_id)
     if new_definition is None:
-        return
+        return []
     type_id = MACRO_TYPE_PREFIX + def_id
+    notices = []
 
     for block_list in live_block_lists:
         for block in block_list:
             if getattr(block, "type_id", None) != type_id:
                 continue
-            removed = _resync_instance_live(block, new_definition)
+            removed, param_resets = _resync_instance_live(block, new_definition)
             _disconnect_removed_pins_live(block_list, removed)
+            ref = block.short_id or block.display_name
+            notices.extend(_format_param_reset_notice(ref, name, ptype) for name, ptype in param_resets)
 
     definitions = project.settings.get(SETTINGS_KEY, {})
     for other_def_id, other_definition in definitions.items():
@@ -408,10 +509,255 @@ def resync_all_instances(project, def_id: str, live_block_lists: list) -> None:
         for b_data in blocks_data:
             if b_data.get("type_id") != type_id:
                 continue
-            _resync_instance_dict(b_data, new_definition, blocks_data)
+            param_resets = _resync_instance_dict(b_data, new_definition, blocks_data)
             changed = True
+            ref = f"{b_data.get('short_id') or b_data.get('display_name', '?')} (w '{other_definition.get('name', other_def_id)}')"
+            notices.extend(_format_param_reset_notice(ref, name, ptype) for name, ptype in param_resets)
         if changed:
             set_definition(project, other_def_id, other_definition)
+
+    return notices
+
+
+def _format_param_reset_notice(ref: str, display_name: str, new_type: str) -> str:
+    return (
+        f"[{ref}] Parametr '{display_name}' zmienił typ na {new_type} — "
+        "wartość tej instancji zresetowana do domyślnej."
+    )
+
+
+# ---- Instance parameters (fix/safety-and-macro-params §C) ------------------
+# A definition's own "parameters"/"parameter_bindings" (module docstring
+# above) — CRUD here mirrors add_boundary_pin()/remove_boundary_pin()'s
+# own shape (mutate the STORED definition, return bool/id, never resync
+# by itself — the caller resyncs once after a batch of changes, exactly
+# the same reasoning). sync_instance_parameters() below is the one
+# function BOTH a fresh instance's own configure() AND a resync need, so
+# "new parameter/removed parameter/type changed" behave identically
+# whichever path reaches an instance.
+
+def new_parameter_name(definition: dict) -> str:
+    """A stable, never-shown-to-the-engineer identifier — "PARAM_1",
+    "PARAM_2", ... — unique within `definition`. See the module docstring
+    for why this is kept separate from `display_name`."""
+    existing = {p.get("name") for p in definition.get("parameters", [])}
+    n = 1
+    while f"PARAM_{n}" in existing:
+        n += 1
+    return f"PARAM_{n}"
+
+
+def get_parameters(project, def_id: str) -> list:
+    definition = get_definition(project, def_id)
+    return definition.get("parameters", []) if definition is not None else []
+
+
+def get_parameter(project, def_id: str, param_name: str):
+    return next((p for p in get_parameters(project, def_id) if p.get("name") == param_name), None)
+
+
+def add_parameter(project, def_id: str, display_name: str, param_type: str, default, unit: str = "",
+                   description: str = "", enum_values=None):
+    """Appends a new parameter to `def_id`'s own definition. Returns the
+    new parameter's internal `name` (see new_parameter_name()), or None
+    if the definition doesn't exist. Does NOT resync instances — every
+    existing instance simply picks up the new parameter (at its default)
+    the next time resync_all_instances() runs, same as a newly exposed
+    boundary pin."""
+    definition = get_definition(project, def_id)
+    if definition is None:
+        return None
+    name = new_parameter_name(definition)
+    definition.setdefault("parameters", []).append({
+        "name": name,
+        "display_name": display_name,
+        "type": param_type,
+        "default": default,
+        "unit": unit,
+        "description": description,
+        "enum_values": list(enum_values) if enum_values else [],
+    })
+    set_definition(project, def_id, definition)
+    return name
+
+
+def remove_parameter(project, def_id: str, param_name: str) -> bool:
+    """Removes `param_name` from `def_id`'s own definition, AND every
+    binding that referenced it (§C1.2 — a binding pointing at a deleted
+    parameter is meaningless, never left dangling). Returns False (no-op)
+    if the definition or parameter doesn't exist."""
+    definition = get_definition(project, def_id)
+    if definition is None:
+        return False
+    params = definition.get("parameters", [])
+    remaining = [p for p in params if p.get("name") != param_name]
+    if len(remaining) == len(params):
+        return False
+    definition["parameters"] = remaining
+    definition["parameter_bindings"] = [
+        b for b in definition.get("parameter_bindings", []) if b.get("parameter") != param_name
+    ]
+    set_definition(project, def_id, definition)
+    return True
+
+
+def update_parameter(project, def_id: str, param_name: str, **fields) -> bool:
+    """In-place edit of one parameter's own fields (display_name/type/
+    default/unit/description/enum_values) — `fields` are merged onto the
+    existing entry, unset keys left untouched. Returns False (no-op) if
+    the definition or parameter doesn't exist. A `type` change is
+    detected and acted on by sync_instance_parameters() at the next
+    resync (§C1.4), not here — this function only ever changes the
+    DEFINITION; instances are a separate, explicit resync step."""
+    definition = get_definition(project, def_id)
+    if definition is None:
+        return False
+    param = next((p for p in definition.get("parameters", []) if p.get("name") == param_name), None)
+    if param is None:
+        return False
+    param.update(fields)
+    if "enum_values" in fields:
+        param["enum_values"] = list(fields["enum_values"])
+    set_definition(project, def_id, definition)
+    return True
+
+
+def reorder_parameters(project, def_id: str, new_order: list) -> bool:
+    """Reorders `def_id`'s own parameters to match `new_order` (a list of
+    parameter `name`s — every existing name must appear exactly once).
+    Purely a display-order convenience (§C2.4's "zmiana kolejności") —
+    parameter identity/bindings are entirely name-based and unaffected."""
+    definition = get_definition(project, def_id)
+    if definition is None:
+        return False
+    by_name = {p.get("name"): p for p in definition.get("parameters", [])}
+    if set(new_order) != set(by_name):
+        return False
+    definition["parameters"] = [by_name[name] for name in new_order]
+    set_definition(project, def_id, definition)
+    return True
+
+
+def get_parameter_bindings(project, def_id: str, param_name: str = None) -> list:
+    """Every binding on `def_id`'s own definition, or (with `param_name`)
+    only the ones for that one parameter."""
+    definition = get_definition(project, def_id)
+    if definition is None:
+        return []
+    bindings = definition.get("parameter_bindings", [])
+    if param_name is None:
+        return bindings
+    return [b for b in bindings if b.get("parameter") == param_name]
+
+
+def add_parameter_binding(project, def_id: str, param_name: str, block_uuid: str, property_name: str) -> bool:
+    """Binds `param_name` to `block_uuid`'s own `property_name` — looked
+    up against the definition's STORED "blocks" data, same convention as
+    add_boundary_pin(). Returns False if the definition, parameter, or
+    (block, property) doesn't exist, or this exact binding already
+    exists. Does NOT reject a property already bound to a DIFFERENT
+    parameter — compiler/validator.py's own §C4 rule ("dwa parametry
+    powiązane z tą samą właściwością") is a WARNING, not something this
+    data layer refuses outright."""
+    definition = get_definition(project, def_id)
+    if definition is None:
+        return False
+    if not any(p.get("name") == param_name for p in definition.get("parameters", [])):
+        return False
+    block_data = next((b for b in definition["blocks"] if b.get("uuid") == block_uuid), None)
+    if block_data is None or property_name not in block_data.get("properties", {}):
+        return False
+    bindings = definition.setdefault("parameter_bindings", [])
+    if any(b.get("parameter") == param_name and b.get("block_uuid") == block_uuid and b.get("property_name") == property_name for b in bindings):
+        return False
+    bindings.append({"parameter": param_name, "block_uuid": block_uuid, "property_name": property_name})
+    set_definition(project, def_id, definition)
+    return True
+
+
+def remove_parameter_binding(project, def_id: str, block_uuid: str, property_name: str) -> bool:
+    """Un-binds whichever parameter (if any) is currently bound to
+    `block_uuid`'s own `property_name` — the "Odłącz od parametru" action
+    (§C2.3). Returns False if no such binding exists."""
+    definition = get_definition(project, def_id)
+    if definition is None:
+        return False
+    bindings = definition.get("parameter_bindings", [])
+    remaining = [b for b in bindings if not (b.get("block_uuid") == block_uuid and b.get("property_name") == property_name)]
+    if len(remaining) == len(bindings):
+        return False
+    definition["parameter_bindings"] = remaining
+    set_definition(project, def_id, definition)
+    return True
+
+
+def binding_for_property(definition: dict, block_uuid: str, property_name: str):
+    """The parameter `name` currently bound to `block_uuid`'s own
+    `property_name` in `definition`, or None — property_grid.py's own
+    "is this property bound?" check (§C2.3)."""
+    for b in definition.get("parameter_bindings", []):
+        if b.get("block_uuid") == block_uuid and b.get("property_name") == property_name:
+            return b.get("parameter")
+    return None
+
+
+def value_matches_param_type(value, param_type: str) -> bool:
+    """Whether `value`'s own Python type is what `param_type` (one of
+    PARAM_TYPES) expects — the same closed set of checks
+    update_property()'s (blocks/base.py) own isinstance dispatch already
+    uses for a plain property, applied here to an instance's
+    parameter-backed one."""
+    if param_type == "BOOL":
+        return isinstance(value, bool)
+    if param_type == "INT":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if param_type == "REAL":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if param_type in ("STRING", "ENUM"):
+        return isinstance(value, str)
+    return True  # an unrecognized param_type (corrupted file) never blocks a resync
+
+
+def sync_instance_parameters(properties: dict, definition: dict) -> list:
+    """Mutates `properties` (a MacroInstanceBlock's own `.properties`
+    dict, OR a serialized instance's `b_data["properties"]` dict — either
+    way, a plain `{key: value}` mapping) IN PLACE so it carries exactly
+    one entry per CURRENT parameter of `definition`, keyed by that
+    parameter's `display_name` (§C1.3):
+
+    - a parameter with no existing entry (new, or an instance created
+      before it existed) gets its `default`;
+    - a parameter WITH an existing, type-compatible entry keeps that
+      value untouched — this is what makes two instances of the same
+      macro independently keep their own nastawy across a resync
+      triggered by an UNRELATED definition edit (§C5.1's whole point);
+    - a parameter whose existing entry's value no longer matches its
+      (possibly just-changed) `type` is reset to `default` (§C1.4);
+    - any OTHER key in `properties` that isn't a base property
+      (Address/Tag/Comment) and doesn't name a CURRENT parameter is
+      removed outright — a deleted parameter's leftover value, or a
+      rename's old key (module docstring: renaming is remove-then-add).
+
+    Returns a list of `(display_name, new_type)` pairs for every value
+    that got reset due to a type mismatch — resync_all_instances() turns
+    these into ready-to-show warning strings."""
+    params = definition.get("parameters", [])
+    valid_display_names = {p.get("display_name") for p in params}
+
+    for key in list(properties.keys()):
+        if key not in _INSTANCE_BASE_PROPERTY_KEYS and key not in valid_display_names:
+            del properties[key]
+
+    resets = []
+    for param in params:
+        display_name = param.get("display_name")
+        param_type = param.get("type", "STRING")
+        if display_name not in properties:
+            properties[display_name] = param.get("default")
+        elif not value_matches_param_type(properties[display_name], param_type):
+            properties[display_name] = param.get("default")
+            resets.append((display_name, param_type))
+    return resets
 
 
 # ---- Building a definition from a live selection ---------------------------
@@ -482,6 +828,8 @@ def build_definition(name: str, blocks: list) -> tuple:
         "blocks": serialized,
         "input_pins": input_pins,
         "output_pins": output_pins,
+        "parameters": [],
+        "parameter_bindings": [],
     }
     return definition, crossings
 
@@ -635,6 +983,45 @@ def _expand_instance(instance_block, def_id, macro_def, macro_defs, expanding, e
     for block in fresh_blocks:
         for pin in block.inputs + block.outputs:
             pin.connections = [pin_uuid_map.get(c, c) for c in pin.connections]
+
+    # fix/safety-and-macro-params §C3.1: substitute THIS instance's own
+    # parameter values onto the fresh internal blocks' properties — AFTER
+    # they're copied (so there's something to overwrite) and BEFORE the
+    # recursive _expand_blocks() call below (§C3.2: outside-in — if one of
+    # these fresh blocks is itself a NESTED macro instance, its own
+    # properties (parameter values included) must already carry whatever
+    # THIS instance just substituted into them before that nested
+    # instance's OWN bindings get their turn, when the recursive call
+    # expands it in turn). A binding referencing a deleted parameter or
+    # block is silently skipped here — compiler/validator.py's own §C4
+    # rule is what reports that as a compile ERROR; this function only
+    # ever produces a flattened graph, it never itself decides what's
+    # valid.
+    param_by_name = {p.get("name"): p for p in macro_def.get("parameters", [])}
+    for binding in macro_def.get("parameter_bindings", []):
+        param = param_by_name.get(binding.get("parameter"))
+        target = block_by_old_uuid.get(binding.get("block_uuid"))
+        if param is None or target is None:
+            continue
+        display_name = param.get("display_name")
+        property_name = binding.get("property_name")
+        if display_name in instance_block.properties and property_name in target.properties:
+            # Direct dict write, not update_property() — that method
+            # expects a STRING to parse (property_grid.py's own editors
+            # always hand it text), while a parameter's stored value is
+            # already correctly typed (sync_instance_parameters() is what
+            # enforces that). KNOWN NARROW GAP: a block whose OWN
+            # update_property() override reacts to THIS SPECIFIC property
+            # with a side effect beyond storing it (e.g. system.signal's
+            # "Sygnał" re-deriving its output pin type) does not get that
+            # side effect re-run here — not exercised by any binding this
+            # feature's own tests create (a numeric timer/counter preset,
+            # the flagship use case), and no such block is a sensible
+            # macro-parameter target in the first place (its OWN pin type
+            # would need to already match before the macro was ever
+            # built, since expand_project() runs once per compile with no
+            # further chance to react to a pin-type change mid-expansion).
+            target.properties[property_name] = instance_block.properties[display_name]
 
     # Note the boundary pins BEFORE recursively expanding — for a nested
     # macro instance that ALSO happens to sit at this definition's own

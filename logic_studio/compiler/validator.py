@@ -324,3 +324,77 @@ class Validator:
                 warnings.append(
                     f"Etykieta zdefiniowana dla adresu '{address}', który nie istnieje w projekcie."
                 )
+
+        # 7. Macro parameters (fix/safety-and-macro-params §C4) — validated
+        # against `self.project.settings["macro_definitions"]` (the
+        # registry ITSELF, present here regardless of whether
+        # expand_project() found any live instance to substitute onto for
+        # THIS compile — same "validate the registry, not just what's
+        # currently wired up" spirit as §5's internal-signal-registry
+        # checks above), once per definition, independent of how many
+        # instances (if any) exist right now. A "value out of range for
+        # the bound property" rule (e.g. a negative TIME) needs no code
+        # here at all: substitution (core/macros.py's own §C3.1, run
+        # BEFORE this Validator ever sees the expanded graph) has already
+        # overwritten the target block's property with the instance's own
+        # value by the time this runs, so whatever range check that block
+        # TYPE already has for that property (const.time's own "nie może
+        # być ujemny", say) fires on the substituted value exactly as it
+        # would on one typed in directly — no macro-aware duplicate rule
+        # needed, or wanted, for that one bullet.
+        from logic_studio.core import macros as macros_module
+        macro_definitions = self.project.settings.get(macros_module.SETTINGS_KEY, {})
+        for def_id, definition in macro_definitions.items():
+            def_name = definition.get("name") or def_id
+            ref = f"makroblok '{def_name}'"
+            blocks_by_uuid = {b.get("uuid"): b for b in definition.get("blocks", [])}
+            params_by_name = {p.get("name"): p for p in definition.get("parameters", [])}
+
+            bound_param_names = set()
+            property_targets = {}  # (block_uuid, property_name) -> [display_name, ...]
+
+            for binding in definition.get("parameter_bindings", []):
+                param_name = binding.get("parameter")
+                block_uuid = binding.get("block_uuid")
+                property_name = binding.get("property_name")
+                param = params_by_name.get(param_name)
+
+                if param is None:
+                    errors.append(f"[{ref}] Powiązanie parametru wskazuje na nieistniejący parametr '{param_name}'.")
+                    continue
+                block_data = blocks_by_uuid.get(block_uuid)
+                if block_data is None or property_name not in block_data.get("properties", {}):
+                    errors.append(
+                        f"[{ref}] Powiązanie parametru '{param.get('display_name', param_name)}' wskazuje na "
+                        "nieistniejący blok wewnętrzny lub nieistniejącą właściwość."
+                    )
+                    continue
+
+                bound_param_names.add(param_name)
+                current_value = block_data["properties"][property_name]
+                if not macros_module.value_matches_param_type(current_value, param.get("type", "STRING")):
+                    errors.append(
+                        f"[{ref}] Parametr '{param.get('display_name', param_name)}' (typ {param.get('type')}) "
+                        f"nie zgadza się z typem właściwości '{property_name}'."
+                    )
+                property_targets.setdefault((block_uuid, property_name), []).append(param.get("display_name", param_name))
+
+            # §C4: defined but never bound to anything -> WARNING (an
+            # engineer may still be wiring up a brand-new macro).
+            for param in definition.get("parameters", []):
+                if param.get("name") not in bound_param_names:
+                    warnings.append(
+                        f"[{ref}] Parametr '{param.get('display_name', param.get('name'))}' "
+                        "nie jest powiązany z żadną właściwością."
+                    )
+
+            # §C4: two parameters aimed at the same (block, property) ->
+            # WARNING, not an error — legal but misleading (whichever
+            # binding core/macros.py's own substitution loop iterates last
+            # silently wins).
+            for (block_uuid, property_name), names in property_targets.items():
+                if len(names) > 1:
+                    warnings.append(
+                        f"[{ref}] Więcej niż jeden parametr powiązany z tą samą właściwością "
+                        f"'{property_name}': {', '.join(names)} — wygrywa ostatnie podstawienie."
+                    )

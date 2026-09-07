@@ -14,7 +14,7 @@ selection change (§5.5).
 import re
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QFormLayout, QGroupBox, QLabel, QLineEdit,
+    QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox, QLabel, QLineEdit,
     QSpinBox, QDoubleSpinBox, QComboBox, QPushButton
 )
 from PySide6.QtCore import Qt, QSettings
@@ -133,6 +133,7 @@ class PropertyGridPanel(QWidget):
 
         self.current_block = None
         self.current_project = None
+        self.current_macro_def_id = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -211,9 +212,20 @@ class PropertyGridPanel(QWidget):
 
     # ---- Population ----------------------------------------------------------
 
-    def load_block_properties(self, block, project=None):
+    def load_block_properties(self, block, project=None, macro_def_id=None):
+        """`macro_def_id` (fix/safety-and-macro-params §C2.1): the macro
+        currently open in breadcrumb edit view (MainWindow's own
+        `current_macro_def_id`), or None at the top level. `block` is
+        then one of THAT macro's own internal blocks — every property row
+        gets a "Powiąż z parametrem" action, since parameter_bindings
+        anchor on exactly this (block_uuid, property_name) pair. Distinct
+        from `block` itself BEING a placed macro instance (macro_def_id
+        is about the macro being EDITED, not the block being shown) —
+        see _macro_instance_param_info() for that separate case, which
+        applies regardless of `macro_def_id`."""
         self.current_block = block
         self.current_project = project
+        self.current_macro_def_id = macro_def_id
 
         self._clear_all_sections()
         self._remove_empty_placeholder()
@@ -272,15 +284,172 @@ class PropertyGridPanel(QWidget):
     def _populate_parameters(self, block):
         form = self._sections[SECTION_PARAMETERS]["form"]
         skip = set(_IDENTIFICATION_KEYS) | set(_ADDRESSING_KEYS) | {"Address"}
+
+        # fix/safety-and-macro-params §C2.5: `block` itself is a placed
+        # macro instance — its parameter-backed properties get their
+        # unit/description as a tooltip, and an ENUM one gets a combo of
+        # its own enum_values instead of falling through to a plain text
+        # editor. Independent of §C2.1 below (that's about `block` being
+        # an INTERNAL block of a macro currently OPEN for editing).
+        instance_params = self._macro_instance_param_info(block)
+
+        # §C2.1: `block` is one of the CURRENTLY-EDITED macro's own
+        # internal blocks — every row gets a "Powiąż z parametrem"/
+        # "Odłącz od parametru" action. None when not inside a macro's
+        # breadcrumb edit view at all (the common case for every other
+        # block type).
+        binding_def_id, binding_definition = self._binding_context()
+
         for key, value in block.properties.items():
             if key in skip:
                 continue
-            editor = self._make_property_editor(block, key, value)
+
+            param = instance_params.get(key)
+            if param is not None and param.get("type") == "ENUM":
+                editor = self._make_enum_editor(key, value, param.get("enum_values", []))
+            else:
+                editor = self._make_property_editor(block, key, value)
+
             tooltip = block.PROPERTY_TOOLTIPS.get(key, "")
+            if param is not None:
+                tooltip = self._parameter_tooltip(param) or tooltip
             if tooltip:
                 editor.setToolTip(tooltip)  # fix/safety-block-semantics §1.3
+
+            if binding_definition is not None:
+                editor = self._wrap_with_binding_action(block, key, editor, binding_def_id, binding_definition)
+
             base_name, _unit = _split_unit(key)
             form.addRow(base_name, editor)  # §5.3: unit lives on the editor, not the label
+
+    def _macro_instance_param_info(self, block) -> dict:
+        """{property_key: parameter_dict} for a placed macro instance's
+        OWN current parameters (§C2.5) — {} for every other block type,
+        or when there's no project to resolve the definition against."""
+        from logic_studio.core import macros as macros_module
+        def_id = macros_module.macro_def_id(block.type_id)
+        if def_id is None or self.current_project is None:
+            return {}
+        definition = macros_module.get_definition(self.current_project, def_id)
+        if definition is None:
+            return {}
+        return {p.get("display_name"): p for p in definition.get("parameters", [])}
+
+    @staticmethod
+    def _parameter_tooltip(param: dict) -> str:
+        parts = []
+        if param.get("unit"):
+            parts.append(f"Jednostka: {param['unit']}")
+        if param.get("description"):
+            parts.append(param["description"])
+        return " — ".join(parts)
+
+    def _binding_context(self):
+        """(def_id, definition) of the macro CURRENTLY OPEN for editing
+        (self.current_macro_def_id, set by MainWindow via
+        load_block_properties()) — (None, None) at the top level, or
+        while showing a block that isn't part of any macro edit view."""
+        if self.current_macro_def_id is None or self.current_project is None:
+            return None, None
+        from logic_studio.core import macros as macros_module
+        definition = macros_module.get_definition(self.current_project, self.current_macro_def_id)
+        if definition is None:
+            return None, None
+        return self.current_macro_def_id, definition
+
+    def _wrap_with_binding_action(self, block, key, editor, def_id, definition):
+        """§C2.1/§C2.3: wraps `editor` with a small action button —
+        "Powiąż z parametrem..." when this (block.uuid, key) isn't bound
+        to anything yet, or replaces the editor entirely with a read-only
+        display of the bound parameter's name plus "Odłącz od
+        parametru" when it is (§C2.3: "wartość zastąpiona nazwą
+        parametru, pole nieedytowalne")."""
+        from logic_studio.core import macros as macros_module
+        bound_param_name = macros_module.binding_for_property(definition, block.uuid, key)
+
+        row = QWidget()
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+
+        if bound_param_name is not None:
+            param = next((p for p in definition.get("parameters", []) if p.get("name") == bound_param_name), None)
+            label_text = param.get("display_name", bound_param_name) if param else bound_param_name
+            display = QLineEdit(f"↦ {label_text}")
+            display.setReadOnly(True)
+            row_layout.addWidget(display)
+            unbind_btn = QPushButton("Odłącz od parametru")
+            unbind_btn.clicked.connect(lambda checked=False, b=block, k=key: self._unbind_parameter(def_id, b, k))
+            row_layout.addWidget(unbind_btn)
+        else:
+            row_layout.addWidget(editor)
+            bind_btn = QPushButton("Powiąż z parametrem...")
+            bind_btn.clicked.connect(lambda checked=False, b=block, k=key, v=block.properties.get(key): self._open_bind_parameter_dialog(def_id, b, k, v))
+            row_layout.addWidget(bind_btn)
+
+        return row
+
+    def _open_bind_parameter_dialog(self, def_id, block, property_name, current_value):
+        """§C2.1/§C2.2: opens the parameter picker/creator, then commits
+        the chosen or freshly-created parameter as a binding for
+        (block.uuid, property_name) and resyncs every instance — same
+        push_state()/set_dirty()/repaint side effects every other
+        property-panel action already gives (_commit_property())."""
+        from logic_studio.core import macros as macros_module
+        from logic_studio.ui.macro_parameter_dialog import BindParameterDialog
+
+        window = self.window()
+        project = getattr(window, 'project', None) or self.current_project
+        if project is None:
+            return
+
+        definition = macros_module.get_definition(project, def_id)
+        if definition is None:
+            return
+
+        dialog = BindParameterDialog(definition, property_name, current_value, parent=self)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+
+        param_name = dialog.result_parameter_name(project, def_id)
+        if param_name is None:
+            return
+
+        if hasattr(window, 'project'):
+            window.project.push_state()
+            window.set_dirty()
+        macros_module.add_parameter_binding(project, def_id, param_name, block.uuid, property_name)
+        if hasattr(window, '_resync_macro_instances'):
+            notices = window._resync_macro_instances(def_id)
+            if notices and hasattr(window, 'statusBar'):
+                window.statusBar().showMessage(" | ".join(notices), 8000)
+
+        self.load_block_properties(self.current_block, self.current_project, self.current_macro_def_id)
+        if hasattr(window, 'scene'):
+            window.scene.update()
+
+    def _unbind_parameter(self, def_id, block, property_name):
+        from logic_studio.core import macros as macros_module
+
+        window = self.window()
+        project = getattr(window, 'project', None) or self.current_project
+        if project is None:
+            return
+
+        if hasattr(window, 'project'):
+            window.project.push_state()
+            window.set_dirty()
+        macros_module.remove_parameter_binding(project, def_id, block.uuid, property_name)
+
+        self.load_block_properties(self.current_block, self.current_project, self.current_macro_def_id)
+        if hasattr(window, 'scene'):
+            window.scene.update()
+
+    def _make_enum_editor(self, key, value, enum_values):
+        combo = QComboBox()
+        combo.addItems(enum_values)
+        combo.setCurrentText(str(value))
+        combo.currentTextChanged.connect(lambda text, k=key: self._commit_property(k, text))
+        return combo
 
     def _populate_advanced(self, block):
         form = self._sections[SECTION_ADVANCED]["form"]
