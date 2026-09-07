@@ -158,16 +158,30 @@ class ExecutionEngine:
                 for p in b.inputs + b.outputs:
                     p.value = None
 
-    def step(self):
+    def step(self, dry_run: bool = False):
         """Execute exactly one scan cycle if not FAULT.
 
         Follows the 6-step PLC scan from ARCHITECTURE.md §2: acquire inputs,
         execute the topological graph, push outputs — each block evaluated
         exactly once per scan, and the output image written atomically at the
         end so a downstream data recorder never sees a scan half-applied.
+
+        fix/safety-block-semantics §9: `dry_run=True` runs the ENTIRE scan
+        normally — blocks evaluate, values propagate, the canvas can show
+        live states — but step 3 (push outputs to the IOProvider) is
+        skipped. §9.3: a call while `self.state == STOPPED` behaves as
+        `dry_run=True` REGARDLESS of the `dry_run` argument — the manual
+        "Krok"/"Krok x10" buttons are deliberately still usable while
+        STOPPED (offline step-through), and with a real IOProvider on an
+        actual controller, a step taken while the engine reports STOPPED
+        must never energize an output: the state machine's own fail-safe
+        (stop()'s _fail_safe_outputs()) only runs ONCE, on the transition
+        INTO stopped, not on every subsequent step taken from there.
         """
         if self.state == ExecutionState.FAULT or not self.program:
             return
+
+        dry_run = dry_run or self.state == ExecutionState.STOPPED
 
         start_time = time.monotonic_ns()
         self._output_buffer = {"digital": {}, "analog": {}, "internal": {}}
@@ -215,13 +229,17 @@ class ExecutionEngine:
             block.evaluate(engine=self)
 
         # 3. Push outputs: apply the buffered output image to the IOProvider in
-        # one pass, after every block has finished evaluating.
-        for address, value in self._output_buffer["digital"].items():
-            self.io.write_digital_output(address, value)
-        for address, value in self._output_buffer["analog"].items():
-            self.io.write_analog_output(address, value)
-        for name, value in self._output_buffer["internal"].items():
-            self.io.write_internal(name, value)
+        # one pass, after every block has finished evaluating. Skipped
+        # entirely under dry_run (§9.2) — the scan still ran and every
+        # block's own pin values/simulation_state reflect it (so the
+        # canvas can show live states), but nothing physical moves.
+        if not dry_run:
+            for address, value in self._output_buffer["digital"].items():
+                self.io.write_digital_output(address, value)
+            for address, value in self._output_buffer["analog"].items():
+                self.io.write_analog_output(address, value)
+            for name, value in self._output_buffer["internal"].items():
+                self.io.write_internal(name, value)
 
         # 4. Diagnostics
         end_time = time.monotonic_ns()
