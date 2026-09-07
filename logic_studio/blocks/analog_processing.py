@@ -204,6 +204,18 @@ class QualityBlock(BaseAnalogBlock):
         super().__init__(type_id, default_name, category, description)
         self.aliases = ["jakość sygnału", "nadzór pomiaru"]
         self.height = 100
+        # fix/safety-block-semantics §7.4: the inherited 100px (BaseAnalog
+        # Block) truncated "Out Of Range"/"Rate Fault" to "Out Of…"/
+        # "Rate F…" — PortItem.paint() reserves PIN_LABEL_SIDE_FRACTION
+        # (45%) of the block's OWN width for each pin's label, and "Out Of
+        # Range" alone measures ~132px at FONT_SIZE_PIN_LABEL, needing
+        # >=~293px of block width (132 / 0.45) to render unclipped;
+        # "Out Of…" gave no hint whether it meant range or something else.
+        # This can't be computed from font metrics here (logic_studio.blocks
+        # is deliberately Qt-free — see ui/canvas/block_item.py for where
+        # that measurement DOES happen, for IO-shaped blocks) — a fixed,
+        # comfortably-rounded width instead, wide enough with margin.
+        self.width = 300
 
         self.inputs.append(Pin("In", Pin.DIR_INPUT, Pin.TYPE_FLOAT))
         self.outputs.append(Pin("Good", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN))

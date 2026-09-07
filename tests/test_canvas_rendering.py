@@ -126,6 +126,63 @@ def test_multi_pin_io_block_ports_keep_their_pin_label():
     assert len(block.inputs) + len(block.outputs) > 1
     assert not pin_labels_suppressed(item)
 
+
+# ---- fix/safety-block-semantics §7: identifier vs pin-label text zones ---
+
+def test_identifier_and_pin_label_zones_never_overlap():
+    """§7's own required test, all four combinations: (address / no
+    address) x (one pin / many pins). Geometric, on the ZONES each text is
+    drawn into (io_identifier_text_box() for the identifier;
+    PIN_LABEL_SIDE_FRACTION of the block's width, the same reservation
+    PortItem.paint() makes, for pin labels) — not on rendered pixels.
+    input.di (one pin) has its labels suppressed entirely
+    (pin_labels_suppressed()) so there is no pin-label zone to check
+    there; input.ai (three pins, since fix/safety-block-semantics §5)
+    always draws one."""
+    _app()
+    from logic_studio.ui.canvas.block_item import io_identifier_text_box, pin_labels_suppressed
+
+    cases = [
+        ("input.di", ""),
+        ("input.di", "ELA01.DI01"),
+        ("input.ai", ""),
+        ("input.ai", "AI.TEST"),
+    ]
+    for type_id, address in cases:
+        block = BlockRegistry.create_block(type_id)
+        if address:
+            block.properties["Address"] = address
+        item = BlockItem(block)
+        suppressed = pin_labels_suppressed(item)
+
+        if type_id == "input.di":
+            assert suppressed, type_id  # one pin -- nothing drawn to overlap with
+            continue
+
+        assert not suppressed, type_id
+        start_x, available_width = io_identifier_text_box(item.width, "input", suppressed)
+        identifier_right_edge = start_x + available_width
+        pin_label_zone_left_edge = item.width - (item.width * style.PIN_LABEL_SIDE_FRACTION)
+
+        assert identifier_right_edge <= pin_label_zone_left_edge, (
+            f"{type_id} (address={address!r}): identifier zone ends at "
+            f"{identifier_right_edge}, pin-label zone starts at {pin_label_zone_left_edge}"
+        )
+
+def test_quality_block_output_labels_are_not_truncated():
+    """§7.4: analog.quality's inherited 100px width clipped "Out Of Range"
+    to "Out Of…" — wide enough now that PortItem's own elidedText() never
+    needs to cut it."""
+    _app()
+    block = BlockRegistry.create_block("analog.quality")
+    item = BlockItem(block)
+    font = QFont(style.FONT_FAMILY, style.FONT_SIZE_PIN_LABEL)
+    fm = QFontMetricsF(font)
+    side_width = max(10.0, item.width * style.PIN_LABEL_SIDE_FRACTION)
+    for pin in block.outputs:
+        elided = fm.elidedText(pin.name, Qt.ElideRight, side_width)
+        assert elided == pin.name, f"{pin.name!r} truncated to {elided!r} at block width {item.width}"
+
 def test_gate_body_has_no_separate_shorter_height():
     """§2.3: the body always spans the block's full height now — there is
     no more independent "gate_body_height" a multi-input gate's ports could
