@@ -812,6 +812,49 @@ def test_v10_project_input_ai_gets_max_hold_properties_backfilled():
     assert ai.outputs[2].name == "Hold Expired"
     assert ai.outputs[2].safety_relevant is True
 
+
+# ---- fix/safety-block-semantics §6: safety_relevant resync on load --------
+
+def test_quality_good_resyncs_to_true_even_from_a_stale_saved_false():
+    """§6.1: EVERY project saved before this PR has "false" stored for
+    Good's safety_relevant (nothing ever set it) -- Pin.restore_fields()
+    would otherwise trust that stale value forever, permanently hiding
+    the new §6.2 warning on every existing project's quality blocks."""
+    from logic_studio.core.project import Project
+
+    data = {
+        "format": "EPW_LOGIC", "schema_version": 10,
+        "settings": {"ela_devices": ["ELA01"], "ada_devices": ["ADA01"], "cycle_time_ms": 100},
+        "blocks": [{
+            "type_id": "analog.quality", "uuid": "q1",
+            "properties": {"Min": 0.0, "Max": 100.0, "Range Source": "Własny"},
+            "inputs": [], "outputs": [
+                {"uuid": "p1", "name": "Good", "direction": "output", "data_type": "BOOL", "connections": [], "disabled": False, "safety_relevant": False},
+            ],
+        }],
+    }
+    p = Project.deserialize(data)
+    assert p.blocks[0].outputs[0].safety_relevant is True
+
+def test_ai_quality_resyncs_to_true_even_from_a_stale_saved_false():
+    from logic_studio.core.project import Project
+
+    data = {
+        "format": "EPW_LOGIC", "schema_version": 10,
+        "settings": {"ela_devices": ["ELA01"], "ada_devices": ["ADA01"], "cycle_time_ms": 100},
+        "blocks": [{
+            "type_id": "input.ai", "uuid": "ai1",
+            "properties": {"Address": ""},
+            "inputs": [], "outputs": [
+                {"uuid": "p1", "name": "Value", "direction": "output", "data_type": "REAL", "connections": [], "disabled": False, "safety_relevant": False},
+                {"uuid": "p2", "name": "Quality", "direction": "output", "data_type": "BOOL", "connections": [], "disabled": False, "safety_relevant": False},
+            ],
+        }],
+    }
+    p = Project.deserialize(data)
+    assert p.blocks[0].outputs[1].safety_relevant is True
+
+
 # ---- fix/safety-block-semantics §1: Stuck Tolerance ------------------------
 
 def test_quality_block_stuck_tolerance_zero_never_fires_on_realistic_noise():

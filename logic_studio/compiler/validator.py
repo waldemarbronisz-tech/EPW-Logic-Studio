@@ -97,6 +97,21 @@ class Validator:
                         "działa jak przekaźnik powtarzający."
                     )
 
+            # fix/safety-block-semantics §6: a new category of rule, not the
+            # same as "Input is unconnected" above — not every unconnected
+            # OUTPUT is a problem (most are genuinely optional), but a pin
+            # marked safety_relevant carries information about whether the
+            # logic built on it can be trusted at all, so leaving it
+            # unconnected means nothing downstream is even looking. Never
+            # an error: an engineer may deliberately decide the quality
+            # check isn't needed for a given signal.
+            for pin in block.outputs:
+                if pin.safety_relevant and not pin.connections:
+                    warnings.append(
+                        f"[{self._block_ref(block)}] Wyjście '{pin.name}' informujące o wiarygodności pomiaru "
+                        "nie jest nigdzie użyte. Logika będzie działać bez kontroli jakości sygnału."
+                    )
+
             # 3. Explicit IO Address Validation
             if block.type_id == "input.di":
                 addr = block.properties.get("Address", "")

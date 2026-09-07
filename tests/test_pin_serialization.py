@@ -172,6 +172,47 @@ def test_block_enabled_survives_roundtrip():
     assert p2.blocks[0].enabled is False
     assert not hasattr(p2.blocks[0], 'visibility')
 
+# ---- fix/safety-block-semantics §6: safety_relevant must survive clone() -
+# clone() is not a hypothetical path -- core/macros.py's expand_project()
+# clones EVERY top-level block on EVERY compile to isolate Validator/
+# GraphBuilder/Exporter from the live project. Before this fix, clone()
+# rebuilt every pin from scratch without copying safety_relevant, so the
+# compiler-level §6.2 warning was silently inoperative for ANY block,
+# regardless of what the live pin actually had.
+
+def test_clone_preserves_safety_relevant_on_output_pins():
+    from logic_studio.blocks.analog_io import AnalogInputBlock
+
+    ai = AnalogInputBlock()
+    assert ai.outputs[1].safety_relevant is True  # Quality, sanity check
+    clone = ai.clone(preserve_uuid=True)
+    assert clone.outputs[1].safety_relevant is True
+
+    clone_no_uuid = ai.clone(preserve_uuid=False)
+    assert clone_no_uuid.outputs[1].safety_relevant is True
+
+def test_clone_preserves_safety_relevant_on_input_pins():
+    """Inputs can carry safety_relevant too (Pin.__init__ makes no
+    direction distinction) even though no shipped block sets one today —
+    clone() must not special-case outputs only."""
+    from logic_studio.blocks.logic_gates import AndGate
+
+    gate = AndGate()
+    gate.inputs[0].safety_relevant = True
+    clone = gate.clone()
+    assert clone.inputs[0].safety_relevant is True
+    assert clone.inputs[1].safety_relevant is False
+
+def test_clone_preserves_false_safety_relevant_too():
+    """Not just "copies True" -- a pin that ISN'T safety_relevant on the
+    original must not become True on the clone either."""
+    from logic_studio.blocks.logic_gates import AndGate
+
+    gate = AndGate()
+    clone = gate.clone()
+    assert clone.outputs[0].safety_relevant is False
+
+
 def test_block_serialized_fields_round_trip_via_project_deserialize():
     p = Project()
     gate = AndGate()

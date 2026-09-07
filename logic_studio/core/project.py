@@ -630,6 +630,15 @@ class Project:
                 if i < len(block.outputs):
                     Pin.restore_fields(block.outputs[i], pin_data)
 
+            # fix/safety-block-semantics §6: give a block one last chance
+            # to reassert any pin metadata it considers INTRINSIC to a
+            # specific pin (not user/file data) now that restore_fields()
+            # above may have just overwritten it with a stale saved value
+            # — see BaseLogicBlock.resync_derived_pin_metadata()'s own
+            # docstring for the full reasoning. A no-op for every block
+            # that doesn't override it.
+            block.resync_derived_pin_metadata()
+
             proj.add_block(block)
 
         if unknown_type_ids:

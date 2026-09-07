@@ -210,6 +210,12 @@ class QualityBlock(BaseAnalogBlock):
         self.outputs.append(Pin("Out Of Range", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN))
         self.outputs.append(Pin("Rate Fault", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN))
         self.outputs.append(Pin("Stuck", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN))
+        # fix/safety-block-semantics §6.1: this is the entire reason the
+        # block exists — logic downstream needs to see whether the
+        # measurement it's built on can be trusted. See
+        # resync_derived_pin_metadata() below for why __init__ alone isn't
+        # enough for an EXISTING project's block.
+        self.outputs[0].safety_relevant = True
 
         self.properties["Min"] = 0.0
         self.properties["Max"] = 100.0
@@ -257,6 +263,15 @@ class QualityBlock(BaseAnalogBlock):
         self._last_value = None
         self._last_measurement_time_ms = None
         self._unchanged_streak = 0
+
+    def resync_derived_pin_metadata(self):
+        """§6.1: Good's safety_relevant is a fact about this block TYPE,
+        not user/file data — every project saved before §6 has "false"
+        stored for it (nothing ever set it before now), which
+        Pin.restore_fields() would otherwise restore right on top of
+        __init__'s fresh True, silently hiding the new unused-output
+        warning (§6.2) on every EXISTING project's quality blocks."""
+        self.outputs[0].safety_relevant = True
 
     def set_range(self, range_min, range_max):
         """§4.2: called by the Compiler at compile time, exactly like

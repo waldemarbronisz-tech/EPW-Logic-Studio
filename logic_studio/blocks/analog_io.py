@@ -77,6 +77,18 @@ class AnalogInputBlock(BaseLogicBlock):
         self.outputs[1].value = False
         self.outputs[2].value = False
 
+    def resync_derived_pin_metadata(self):
+        """fix/safety-block-semantics §6.1: Quality/Hold Expired's
+        safety_relevant is a fact about this block TYPE, never user/file
+        data — reasserted here in case an old/hand-edited file's saved
+        value ever disagreed (Pin.restore_fields() would otherwise trust
+        it). Hold Expired itself needs no such defense in practice (a file
+        old enough to lack that pin entirely never gets this far — see
+        core/project.py's Project.deserialize() pin-restore loop), but
+        this stays cheap, explicit insurance rather than an assumption."""
+        self.outputs[1].safety_relevant = True
+        self.outputs[2].safety_relevant = True
+
     def _is_good(self, raw) -> bool:
         if raw is None:
             return False
