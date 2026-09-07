@@ -136,6 +136,21 @@ class Validator:
                     int(raw)
                 except (TypeError, ValueError):
                     errors.append(f"[{self._block_ref(block)}] Wartość stałej INT nie jest poprawną liczbą całkowitą: {raw!r}.")
+            elif block.type_id == "analog.quality":
+                # fix/safety-block-semantics §1.4: Stuck Tolerance=0 means
+                # bit-exact equality, which a real measurement chain's own
+                # ADC noise essentially never produces — the check would
+                # compile clean and pass every unit test, then silently
+                # never fire in the field. Warn, don't error: a purely
+                # digital/simulated signal source genuinely IS bit-exact.
+                stuck_scans = int(block.properties.get("Stuck Scans", 0) or 0)
+                tolerance = float(block.properties.get("Stuck Tolerance", 0.0) or 0.0)
+                if stuck_scans > 0 and tolerance == 0.0:
+                    warnings.append(
+                        f"[{self._block_ref(block)}] Detekcja zamrożenia sygnału z tolerancją 0 nie zadziała "
+                        "na realnym torze pomiarowym (szum ostatniego bitu przetwornika). "
+                        "Ustaw Stuck Tolerance."
+                    )
             elif block.type_id == "const.time":
                 raw = block.properties.get("Time (ms)", 1000)
                 try:

@@ -272,6 +272,9 @@ class PropertyGridPanel(QWidget):
             if key in skip:
                 continue
             editor = self._make_property_editor(block, key, value)
+            tooltip = block.PROPERTY_TOOLTIPS.get(key, "")
+            if tooltip:
+                editor.setToolTip(tooltip)  # fix/safety-block-semantics §1.3
             base_name, _unit = _split_unit(key)
             form.addRow(base_name, editor)  # §5.3: unit lives on the editor, not the label
 

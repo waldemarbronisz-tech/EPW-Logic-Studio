@@ -123,6 +123,37 @@ def test_analog_point_validation_and_range_resolution():
     assert compiled_ai._range_min == -40.0
     assert compiled_ai._range_max == 150.0
 
+def test_quality_stuck_zero_tolerance_warns():
+    """fix/safety-block-semantics §1.4: Stuck Scans configured with the
+    tolerance left at its bit-exact default is a compile WARNING, not an
+    error -- it's a real hazard on live hardware but a legitimate setup
+    for a purely digital/simulated signal source."""
+    from logic_studio.blocks.analog_processing import QualityBlock
+
+    p = Project()
+    q = QualityBlock()
+    q.properties["Stuck Scans"] = 3
+    p.add_block(q)
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is not None
+    assert any("Stuck Tolerance" in w for w in c.warnings)
+
+def test_quality_stuck_nonzero_tolerance_does_not_warn():
+    from logic_studio.blocks.analog_processing import QualityBlock
+
+    p = Project()
+    q = QualityBlock()
+    q.properties["Stuck Scans"] = 3
+    q.properties["Stuck Tolerance"] = 0.05
+    p.add_block(q)
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is not None
+    assert not any("Stuck Tolerance" in w for w in c.warnings)
+
 def test_invalid_analog_input_address_fails_compilation():
     from logic_studio.blocks.analog_io import AnalogInputBlock
 

@@ -61,6 +61,15 @@ class BaseLogicBlock:
     )
     _TRANSIENT_FIELDS = ("simulation_state", "is_source", "aliases", "allows_disabled_inputs")
 
+    # fix/safety-block-semantics §1.3: a class-level (not per-instance —
+    # deliberately not in any of the three tuples above, exactly like
+    # SERIALIZED_FIELDS/_STRUCTURED_FIELDS/_TRANSIENT_FIELDS themselves)
+    # {property_key: tooltip_text} map a block subclass can override to
+    # put a warning or unit hint directly on that property's editor in the
+    # property grid (ui/panels/property_grid.py's _populate_parameters()).
+    # Empty by default; most blocks need none.
+    PROPERTY_TOOLTIPS: dict = {}
+
     def __init__(self, type_id: str, default_name: str, category: str, description: str = ""):
         self.uuid: str = str(uuid.uuid4())
         # feat/io-labels-and-ids §4: human-readable id ("g12", "i3", ...),

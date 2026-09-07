@@ -178,9 +178,29 @@ class DeadbandBlock(BaseAnalogBlock):
 class QualityBlock(BaseAnalogBlock):
     """Supervises a raw analog reading for range, rate-of-change and
     stuck-signal faults so downstream safety logic never silently trusts a
-    damaged, frozen or stale-but-plausible measurement."""
+    damaged, frozen or stale-but-plausible measurement.
 
-    def __init__(self, type_id="analog.quality", default_name="QUALITY", category="Elementy Analogowe", description="Signal Quality Supervision"):
+    fix/safety-block-semantics §1: stuck-signal detection compares two
+    consecutive readings for EXACT equality by default (Stuck Tolerance =
+    0.0, preserved for backward compatibility) — a real measurement chain
+    (ADC, cable, transmitter) essentially never produces bit-identical
+    samples even from a genuinely frozen sensor, because there is always
+    some least-significant-bit noise. For Stuck detection to mean anything
+    on real hardware, Stuck Tolerance MUST be set above 0 — a starting
+    point around 0,1% of the measurement's engineering range is
+    reasonable (tight enough to still catch a truly frozen signal, loose
+    enough that normal ADC noise doesn't defeat it every scan)."""
+
+    PROPERTY_TOOLTIPS = {
+        "Stuck Tolerance": (
+            "Dla realnego sygnału z przetwornika ta wartość MUSI być większa "
+            "od zera — szum ostatniego bitu przetwornika sprawia, że dwie "
+            "kolejne próbki prawie nigdy nie są identyczne bit-w-bit. "
+            "Punkt startowy: około 0,1% zakresu pomiarowego."
+        ),
+    }
+
+    def __init__(self, type_id="analog.quality", default_name="QUALITY", category="Elementy Analogowe", description="Nadzór jakości sygnału analogowego: zakres, szybkość zmiany, zamrożenie. UWAGA: dla realnego przetwornika ustaw Stuck Tolerance > 0 (rząd wielkości: ok. 0,1% zakresu pomiarowego) — przy tolerancji 0.0 detekcja zamrożenia nie zadziała na sygnale z prawdziwego toru pomiarowego."):
         super().__init__(type_id, default_name, category, description)
         self.aliases = ["jakość sygnału", "nadzór pomiaru"]
         self.height = 100
@@ -195,6 +215,10 @@ class QualityBlock(BaseAnalogBlock):
         self.properties["Max"] = 100.0
         self.properties["Max Rate"] = 0.0    # max change per scan; 0 = check disabled
         self.properties["Stuck Scans"] = 0   # consecutive unchanged scans; 0 = check disabled
+        # §1.1: 0.0 = bit-exact equality, i.e. IDENTICAL to this block's
+        # behavior before this property existed — see the class docstring
+        # for why this is unsafe on a real measurement chain.
+        self.properties["Stuck Tolerance"] = 0.0
 
         self.is_stateful = True
 
@@ -234,7 +258,11 @@ class QualityBlock(BaseAnalogBlock):
 
             stuck_scans = int(self.properties.get("Stuck Scans", 0))
             if stuck_scans > 0:
-                if self._last_value is not None and fval == self._last_value:
+                # §1.2: within `tolerance` counts as "unchanged" — at the
+                # default 0.0 this is exact equality, identical to this
+                # block's behavior before Stuck Tolerance existed.
+                tolerance = float(self.properties.get("Stuck Tolerance", 0.0))
+                if self._last_value is not None and abs(fval - self._last_value) <= tolerance:
                     self._unchanged_streak += 1
                 else:
                     self._unchanged_streak = 0

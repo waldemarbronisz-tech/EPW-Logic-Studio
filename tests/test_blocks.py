@@ -441,6 +441,64 @@ def test_quality_block_non_numeric_input_is_not_good():
     q.evaluate()  # no input connected -> value is None
     assert q.outputs[0].value is False
 
+# ---- fix/safety-block-semantics §1: Stuck Tolerance ------------------------
+
+def test_quality_block_stuck_tolerance_zero_never_fires_on_realistic_noise():
+    """§1 DOWÓD, reproduced as a test: a frozen sensor with last-bit noise
+    (50.000/50.001 alternating) never trips Stuck at the pre-existing
+    exact-equality default — this is the bug, and the backward-
+    compatibility guarantee (default 0.0 behaves EXACTLY like before this
+    property existed) in the same assertion."""
+    from logic_studio.blocks.analog_processing import QualityBlock
+
+    q = QualityBlock()
+    q.properties["Stuck Scans"] = 3
+    assert q.properties["Stuck Tolerance"] == 0.0  # default
+
+    readings = [50.000, 50.001, 50.000, 50.001, 50.000, 50.001]
+    for v in readings:
+        q.inputs[0].value = v
+        q.evaluate()
+    assert q.outputs[3].value is False  # Stuck never fires
+
+def test_quality_block_stuck_tolerance_above_zero_catches_realistic_noise():
+    """Same frozen-sensor-with-noise series, but with a tolerance sized for
+    real ADC noise -- Stuck MUST fire."""
+    from logic_studio.blocks.analog_processing import QualityBlock
+
+    q = QualityBlock()
+    q.properties["Stuck Scans"] = 3
+    q.properties["Stuck Tolerance"] = 0.01
+
+    readings = [50.000, 50.001, 50.000, 50.001]
+    for v in readings:
+        q.inputs[0].value = v
+        q.evaluate()
+    assert q.outputs[3].value is True
+
+def test_quality_block_stuck_tolerance_streak_resets_on_a_real_change():
+    from logic_studio.blocks.analog_processing import QualityBlock
+
+    q = QualityBlock()
+    q.properties["Stuck Scans"] = 2
+    q.properties["Stuck Tolerance"] = 0.01
+
+    q.inputs[0].value = 50.000
+    q.evaluate()  # baseline sample, nothing to compare yet
+    q.inputs[0].value = 50.001
+    q.evaluate()  # unchanged scan #1
+    q.inputs[0].value = 50.000
+    q.evaluate()  # unchanged scan #2
+    assert q.outputs[3].value is True
+
+    q.inputs[0].value = 52.0  # genuine change, well outside tolerance
+    q.evaluate()
+    assert q.outputs[3].value is False
+
+    q.inputs[0].value = 52.001
+    q.evaluate()
+    assert q.outputs[3].value is False  # streak restarted, only 1 so far
+
 def test_comparator_default_behavior_unchanged():
     """AUDIT_REPORT.md §5: Hysteresis=T On=T Off=0 must behave exactly like
     before this feature existed, and is_stateful must be False."""
