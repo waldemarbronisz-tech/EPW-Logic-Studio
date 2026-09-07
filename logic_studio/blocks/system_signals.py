@@ -82,6 +82,103 @@ class SystemBooleanSignalBlock(BaseLogicBlock):
         self.simulation_state["sim_value"] = self.outputs[0].value
 
 @BlockRegistry.register
+class SystemSignalOutputBlock(BaseLogicBlock):
+    """feat/sswin-signals §2.2: the write-direction counterpart of
+    SystemBooleanSignalBlock (system.signal) above — writes a system-signal
+    a-catalog signal whose source == "logic" (SSWIN.CMD_* today; every
+    other catalog signal is source == "runtime" and compiler/validator.py
+    rejects a write to one of those outright). Buffered through
+    ExecutionEngine.queue_system_signal_write(), flushed to the
+    IOProvider atomically at end-of-scan — same mechanism as
+    VirtualOutputBlock (virtual.output) uses for internal signals, see
+    that block's own comment.
+
+    PROPERTY_TOOLTIPS' own text on "Minimalny poziom dostępu" (§3.2) is
+    the one place this fact is spelled out to the engineer editing the
+    property directly, not just in ARCHITECTURE.md: Logic Studio's own
+    simulation does NOT enforce it — only EPW-OS does, at the point it
+    actually executes SSWIN.CMD_DISARM et al."""
+
+    PROPERTY_TOOLTIPS = {
+        "Minimalny poziom dostępu": (
+            "Egzekwowane przez EPW-OS w czasie wykonania, NIE przez "
+            "symulację Logic Studio — ta wartość jedzie do eksportu "
+            "runtime jako informacja dla sterownika."
+        ),
+    }
+
+    def __init__(self, type_id="system.signal_out", default_name="Wyjście systemowe", category="Inne", description="System Signal Output"):
+        super().__init__(type_id, default_name, category, description)
+
+        self.color = "#800080"  # Purple family — same as system.signal
+        self.inputs.append(Pin("In", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
+
+        self.properties["Sygnał"] = ""
+        # §3.1: "Brak" default for every signal; a signal that turns out to
+        # be safety_relevant gets bumped to "Engineer" the moment it's
+        # SELECTED (see _apply_default_access_level below) — never silently
+        # left at "Brak" for a signal that needs the gate.
+        self.properties["Minimalny poziom dostępu"] = "Brak"
+        self._sync_input_type()
+
+    def _sync_input_type(self):
+        """Input pin type must match the selected catalog signal's own
+        type — mirrors SystemBooleanSignalBlock._sync_output_type() above,
+        same reasoning (most SSWIN.CMD_* signals are BOOL, but the catalog
+        doesn't forbid a future REAL "logic" command)."""
+        from logic_studio.core import system_signals
+        signal_id = self.properties.get("Sygnał", "")
+        entry = system_signals.get_signal(signal_id) if signal_id else None
+        self.inputs[0].data_type = Pin.TYPE_FLOAT if entry and entry.get("type") == "REAL" else Pin.TYPE_BOOLEAN
+
+    def _apply_default_access_level(self):
+        """§3.1: recomputed every time "Sygnał" changes — picking a signal
+        applies the SENSIBLE default for THAT signal (Engineer if it's
+        safety_relevant, Brak otherwise), rather than leaving whatever the
+        previously-selected signal's default happened to be. An engineer
+        who then manually overrides the level keeps that override until
+        the next time they change "Sygnał" again."""
+        from logic_studio.core import system_signals
+        signal_id = self.properties.get("Sygnał", "")
+        entry = system_signals.get_signal(signal_id) if signal_id else None
+        self.properties["Minimalny poziom dostępu"] = "Engineer" if entry and entry.get("safety_relevant") else "Brak"
+
+    def update_property(self, key, value):
+        super().update_property(key, value)
+        if key == "Sygnał":
+            self._sync_input_type()
+            self._apply_default_access_level()
+
+    @classmethod
+    def deserialize(cls, data: dict):
+        """Same reasoning as SystemBooleanSignalBlock.deserialize() above:
+        BaseLogicBlock.deserialize() sets `properties` directly, bypassing
+        update_property(), so without this override a project loaded from
+        disk kept the input pin's default Boolean type regardless of a
+        REAL-typed "Sygnał" until the engine ran at least one scan.
+        "Minimalny poziom dostępu" itself IS restored verbatim from the
+        save file — deliberately NOT recomputed here, since that would
+        silently discard an engineer's manual override every time the
+        project is reopened."""
+        block = super().deserialize(data)
+        block._sync_input_type()
+        return block
+
+    def evaluate(self, engine=None):
+        self._sync_input_type()
+        v = self.inputs[0].value
+        if self.inputs[0].data_type == Pin.TYPE_FLOAT:
+            val = float(v) if v is not None else 0.0
+        else:
+            val = bool(v) if v is not None else False
+        self.simulation_state["sim_value"] = val
+
+        signal_id = self.properties.get("Sygnał", "")
+        if engine and hasattr(engine, 'queue_system_signal_write') and signal_id:
+            engine.queue_system_signal_write(signal_id, val)
+
+
+@BlockRegistry.register
 class ButtonBlock(BaseLogicBlock):
     def __init__(self, type_id="system.button", default_name="Przycisk", category="Przyciski", description="Przycisk interfejsu"):
         super().__init__(type_id, default_name, category, description)

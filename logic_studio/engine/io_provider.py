@@ -39,6 +39,16 @@ class IOProvider:
     def read_system_signal(self, signal_id: str, now_ms: int = 0):
         raise NotImplementedError()
 
+    # feat/sswin-signals §2.1: the FIRST write direction for this address
+    # space — every system signal until now was source == "runtime" (read
+    # only). A signal marked source == "logic" in the catalog (SSWIN.CMD_*
+    # today) is written by system.signal_out through this method, via the
+    # same atomic-flush buffering as write_digital_output/write_internal
+    # (ExecutionEngine.queue_system_signal_write()/step()) — never called
+    # directly from a block's evaluate().
+    def write_system_signal(self, signal_id: str, value):
+        raise NotImplementedError()
+
 class SimulationIOProvider(IOProvider):
     """Memory-backed IO for headless testing and Logic Studio GUI simulation."""
     def __init__(self):
@@ -125,6 +135,13 @@ class SimulationIOProvider(IOProvider):
             period = _PULSE_PERIODS_MS[signal_id]
             return (now_ms % period) < (period / 2)
         return self.system_signal_overrides.get(signal_id, False)
+
+    def write_system_signal(self, signal_id: str, value):
+        # Same backing dict read_system_signal() falls back to above — a
+        # system.signal block reading e.g. SSWIN.CMD_ARM right after a
+        # system.signal_out block wrote it (same or a later scan) sees the
+        # written value, exactly like write_internal()/read_internal().
+        self.system_signal_overrides[signal_id] = value
 
 
 # Square-wave period for each generator signal (§3.2/§3.3) — deterministic,

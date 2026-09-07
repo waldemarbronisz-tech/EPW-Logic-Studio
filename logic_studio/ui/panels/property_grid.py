@@ -28,6 +28,14 @@ _SIGNAL_PICKER_TARGETS = {
     ("internal.reg_in", "Bit"): ("REAL", ("internal",)),
     ("internal.reg_out", "Bit"): ("REAL", ("internal",)),
     ("system.signal", "Sygnał"): (None, ("system",)),
+    # feat/sswin-signals §2.4: an OUTPUT block may only ever point at a
+    # system signal source == "logic" (writing a source == "runtime" one
+    # is a compile error, compiler/validator.py) — filtered on that field,
+    # never on category name, so a future category of "logic" commands
+    # needs no change here. A 3rd tuple element (beyond the (value_type,
+    # sections) pair every other target uses) is this filter; absent means
+    # "no filter", see _open_signal_picker() below.
+    ("system.signal_out", "Sygnał"): (None, ("system",), "logic"),
 }
 
 # feat/io-labels-and-ids §5.1: the four collapsible sections, in display
@@ -119,6 +127,10 @@ _COMBO_OPTIONS = {
     ("analog.quality", "Range Source"): ["Z punktu analogowego", "Własny"],
     # fix/safety-block-semantics §5.2
     ("input.ai", "Hold Timeout Value"): ["Zero", "Ostatnia dobra", "Dolna granica zakresu"],
+    # feat/sswin-signals §3.1: matches SYS.ACCESS_USER/_OPERATOR/_ENGINEER's
+    # own three named levels (system_signals_catalog.json), plus "Brak" for
+    # "no gate at all".
+    ("system.signal_out", "Minimalny poziom dostępu"): ["Brak", "User", "Operator", "Engineer"],
 }
 
 _NUMERIC_RANGE = 1_000_000  # generic wide bound when no domain floor/ceiling applies
@@ -467,7 +479,8 @@ class PropertyGridPanel(QWidget):
         target = _SIGNAL_PICKER_TARGETS.get((self.current_block.type_id, key))
         if target is None:
             return
-        value_type, sections = target
+        value_type, sections = target[0], target[1]
+        system_source_filter = target[2] if len(target) > 2 else None
 
         window = self.window()
         project = getattr(window, 'project', None) or self.current_project
@@ -477,7 +490,10 @@ class PropertyGridPanel(QWidget):
         from logic_studio.ui.signal_picker import SignalPickerDialog
         from PySide6.QtWidgets import QDialog
 
-        dialog = SignalPickerDialog(project, value_type=value_type, parent=self, sections=sections)
+        dialog = SignalPickerDialog(
+            project, value_type=value_type, parent=self, sections=sections,
+            system_source_filter=system_source_filter,
+        )
         if dialog.exec() != QDialog.Accepted:
             return
         chosen = dialog.selected_signal_id()

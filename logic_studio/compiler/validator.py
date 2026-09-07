@@ -324,3 +324,79 @@ class Validator:
                 warnings.append(
                     f"Etykieta zdefiniowana dla adresu '{address}', który nie istnieje w projekcie."
                 )
+
+        # 7. System-signal WRITE direction (feat/sswin-signals §2.3) — the
+        # first category of system signals with source == "logic"
+        # (SSWIN.CMD_* today). system.signal (read) already has its own,
+        # deliberately lenient WARNING for an unrecognized id (§3.4
+        # migration compat, case 3 above) — system.signal_out is a brand
+        # new block type with no such back-compat concern, so an unknown
+        # id there is a hard ERROR instead.
+        from logic_studio.core import system_signals
+
+        sys_writers = {}  # signal_id -> [block_ref, ...]
+        sys_referenced = set()  # any signal_id read OR written by a block
+
+        for block in blocks:
+            if block.type_id == "system.signal":
+                sig_id = block.properties.get("Sygnał", "")
+                if sig_id:
+                    sys_referenced.add(sig_id)
+            elif block.type_id == "system.signal_out":
+                sig_id = block.properties.get("Sygnał", "")
+                if not sig_id:
+                    continue  # unconfigured — no separate "???" warning for this block yet
+                sys_referenced.add(sig_id)
+                entry = system_signals.get_signal(sig_id, self.project)
+                if entry is None:
+                    errors.append(f"[{self._block_ref(block)}] Nierozpoznany sygnał systemowy: '{sig_id}' (spoza katalogu).")
+                    continue
+                if entry.get("source") == "runtime":
+                    errors.append(
+                        f"[{self._block_ref(block)}] Sygnał '{sig_id}' jest produkowany przez urządzenie "
+                        "i nie może być zapisywany przez logikę."
+                    )
+                    continue
+                sys_writers.setdefault(sig_id, []).append(self._block_ref(block))
+
+        # §2.3: more than one writer for the same "logic"-sourced signal ->
+        # ERROR, exactly like the internal-signal registry's own rule above.
+        for sig_id, writer_refs in sys_writers.items():
+            if len(writer_refs) > 1:
+                errors.append(
+                    f"Sygnał systemowy '{sig_id}' ma więcej niż jeden blok zapisujący: "
+                    + ", ".join(writer_refs) + "."
+                )
+
+        # §2.3: a "logic"-sourced catalog signal nobody reads OR writes ->
+        # WARNING (housekeeping aid, same spirit as §4.3's unused-internal-
+        # signal rule) — every SSWIN.CMD_* entry is a fixed catalog
+        # signal, never itself "undefined", so there's no ERROR case
+        # analogous to internal bits' missing-registry-entry rule here.
+        for sig in system_signals.get_all_signals(self.project):
+            if sig.get("source") == "logic" and sig["id"] not in sys_referenced:
+                warnings.append(f"Sygnał systemowy '{sig['id']}' (komenda) nie jest używany przez żaden blok.")
+
+        # 8. Access-level gate on a block writing a safety_relevant system
+        # signal (feat/sswin-signals §3.3) — WARNING only, never an error:
+        # an engineer may deliberately decide "Brak" is fine for a given
+        # deployment, but leaving it unset without a second thought on a
+        # signal like SSWIN.CMD_DISARM is exactly the "logic bug disarms
+        # the object" hazard this property exists to catch early. §3.2:
+        # Logic Studio itself never ENFORCES the gate — only warns that
+        # it's missing — EPW-OS is what actually checks it at runtime.
+        for block in blocks:
+            if block.type_id != "system.signal_out":
+                continue
+            sig_id = block.properties.get("Sygnał", "")
+            if not sig_id:
+                continue
+            entry = system_signals.get_signal(sig_id, self.project)
+            if entry is None or not entry.get("safety_relevant"):
+                continue
+            level = block.properties.get("Minimalny poziom dostępu", "Brak")
+            if level == "Brak":
+                warnings.append(
+                    f"[{self._block_ref(block)}] Blok steruje sygnałem krytycznym '{sig_id}' "
+                    "bez wymaganego poziomu dostępu."
+                )

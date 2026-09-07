@@ -65,17 +65,24 @@ class _NewInternalSignalDialog(QDialog):
 
 
 class SignalPickerDialog(QDialog):
-    def __init__(self, project, value_type: str = "BOOL", parent=None, sections=("physical", "internal", "system")):
+    def __init__(self, project, value_type: str = "BOOL", parent=None, sections=("physical", "internal", "system"), system_source_filter=None):
         """`value_type`: "BOOL"/"REAL" filters every section to that type;
         None shows both (used for system.signal's "Sygnał", which can
         point at either). `sections` restricts which of the three §6.3
         top-level sections are populated at all — system.signal has no use
         for "Wejścia i wyjścia fizyczne"/"Sygnały wewnętrzne", so its
-        picker passes sections=("system",)."""
+        picker passes sections=("system",). `system_source_filter`
+        (feat/sswin-signals §2.4) additionally restricts the "system"
+        section to catalog entries whose "source" field matches exactly —
+        system.signal_out passes "logic" so an engineer configuring an
+        OUTPUT block is never offered a source == "runtime" signal it
+        could never legally write; None (every other caller) shows every
+        system signal regardless of source, unchanged from before."""
         super().__init__(parent)
         self.project = project
         self.value_type = value_type
         self.sections = sections
+        self.system_source_filter = system_source_filter
         self._chosen_id = None
         self._chosen_kind = None
         self.setWindowTitle("Wybór sygnału")
@@ -167,7 +174,11 @@ class SignalPickerDialog(QDialog):
             from logic_studio.core import system_signals
             sys_root = QTreeWidgetItem(self.tree, ["Sygnały systemowe"])
             for cat in system_signals.get_categories(self.project):
-                matching = [s for s in cat["signals"] if self.value_type is None or s["type"] == self.value_type]
+                matching = [
+                    s for s in cat["signals"]
+                    if (self.value_type is None or s["type"] == self.value_type)
+                    and (self.system_source_filter is None or s.get("source") == self.system_source_filter)
+                ]
                 if not matching:
                     continue
                 cat_item = QTreeWidgetItem(sys_root, [cat["name"]])

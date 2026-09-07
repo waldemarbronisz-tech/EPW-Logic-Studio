@@ -300,7 +300,7 @@ class SignalsPanel(QWidget):
         has_icon = severity in _ICON_SEVERITIES
 
         type_text = f"{_KIND_SHORT.get(usage.kind, usage.kind)} · {usage.data_type}"
-        writes_text, writes_tooltip = self._writers_text(usage)
+        writes_text, writes_tooltip = self._writers_text(signal_id, usage)
         reads_text, reads_tooltip = self._readers_text(usage)
 
         texts = [""] * len(COLUMN_HEADERS)
@@ -331,15 +331,30 @@ class SignalsPanel(QWidget):
         category_item.addChild(item)
         return item
 
-    @staticmethod
-    def _writers_text(usage):
+    def _writers_text(self, signal_id, usage):
         # §2.2: physical/system INPUTS are written by the field device, not
         # by any project block — no block ever has an input pin wired to a
-        # DI/AI/system-signal address, so `writers` is structurally always
-        # empty for these kinds; shown as "urządzenie" rather than "—" to
-        # say why, not just that nothing's there.
-        if usage.kind in (KIND_PHYSICAL_DI, KIND_ANALOG_IN, KIND_SYSTEM):
+        # DI/AI address, so `writers` is structurally always empty for
+        # those kinds; shown as "urządzenie" rather than "—" to say why,
+        # not just that nothing's there.
+        #
+        # feat/sswin-signals §2.5: KIND_SYSTEM used to be lumped in with
+        # those two unconditionally — wrong the moment a system signal CAN
+        # have a project block writing it (source == "logic", e.g.
+        # SSWIN.CMD_ARM via system.signal_out): such a signal's `writers`
+        # is no longer structurally empty, so it must fall through to the
+        # normal short_id rendering below instead. Checked against the
+        # catalog's own "source" field, not usage.writers being non-empty —
+        # a "logic" signal with no writer YET (still being wired up) must
+        # show "—" (§2.3's own "nieużywany" warning already flags that),
+        # never the misleading "urządzenie".
+        if usage.kind in (KIND_PHYSICAL_DI, KIND_ANALOG_IN):
             return "urządzenie", "Sygnał pochodzi z urządzenia fizycznego, nie z bloku w projekcie."
+        if usage.kind == KIND_SYSTEM:
+            from logic_studio.core import system_signals
+            entry = system_signals.get_signal(signal_id, self.project)
+            if entry is None or entry.get("source") != "logic":
+                return "urządzenie", "Sygnał pochodzi z urządzenia fizycznego, nie z bloku w projekcie."
         if not usage.writers:
             return "—", ""
         short_ids = [w[1] for w in usage.writers]
@@ -433,10 +448,11 @@ class SignalsPanel(QWidget):
 
     def _on_item_double_clicked(self, item, _column):
         """§3.1: jumps to the WRITER of this signal, or its first reader
-        when there's no writer (either it's a physical/analog input or
-        system signal, whose writer is structurally always "urządzenie" —
-        never a project block — or an internal signal that's read but
-        never written, which §1.4 already flags as its own warning)."""
+        when there's no writer — either a physical/analog input or a
+        source == "runtime" system signal (writer structurally always
+        "urządzenie", never a project block, feat/sswin-signals §2.5), or
+        an internal/source-"logic" signal that's read but never written,
+        which §1.4/§2.3 already flag as their own warning."""
         signal_id = self._signal_id_of(item)
         if signal_id is None:
             return  # a category header, not a signal row
