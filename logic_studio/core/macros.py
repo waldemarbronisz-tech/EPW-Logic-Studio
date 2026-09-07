@@ -965,13 +965,36 @@ def _expand_instance(instance_block, def_id, macro_def, macro_defs, expanding, e
         # Assigning fresh uuids unconditionally here — not relying on
         # incidental constructor behavior — closes that regardless of
         # which block type's deserialize() is involved.
+        #
+        # test/clone-field-coverage: Pin.restore_fields() FIRST — found
+        # missing here while auditing every block/pin copy path in the
+        # project for the same bug class fix/safety-block-semantics §6
+        # fixed for clone(). block_class.deserialize(b_data) above (an
+        # ordinary block's, i.e. BaseLogicBlock.deserialize()) does NOT
+        # touch pins at all — by design, see its own docstring, "Pin
+        # deserialization is handled by the project loader" — so `fresh`'s
+        # pins were still whatever `cls()`'s own constructor set them to.
+        # This loop went on to hand-restore ONLY uuid/connections (needed
+        # for the fresh-per-expansion identity every macro instance
+        # requires), silently leaving `disabled`/`safety_relevant` at
+        # their constructor defaults for EVERY block living inside ANY
+        # macro definition — worse than the clone() bug this whole
+        # exercise started from, since it was never caught by that fix at
+        # all (a macro-internal block never goes through clone()).
+        # restore_fields() itself also sets uuid/connections from
+        # `pin_data` — immediately overwritten by the fresh-uuid lines
+        # right after, which is why it's safe to call unconditionally
+        # here rather than threading a "skip these two fields" exception
+        # into restore_fields() itself.
         for i, pin_data in enumerate(b_data.get("inputs", [])):
             if i < len(fresh.inputs):
+                Pin.restore_fields(fresh.inputs[i], pin_data)
                 fresh.inputs[i].uuid = str(uuid_module.uuid4())
                 pin_uuid_map[pin_data["uuid"]] = fresh.inputs[i].uuid
                 fresh.inputs[i].connections = list(pin_data.get("connections", []))
         for i, pin_data in enumerate(b_data.get("outputs", [])):
             if i < len(fresh.outputs):
+                Pin.restore_fields(fresh.outputs[i], pin_data)
                 fresh.outputs[i].uuid = str(uuid_module.uuid4())
                 pin_uuid_map[pin_data["uuid"]] = fresh.outputs[i].uuid
                 fresh.outputs[i].connections = list(pin_data.get("connections", []))

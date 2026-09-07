@@ -244,34 +244,39 @@ class BaseLogicBlock:
         # (isolating a CompiledProgram from the UI project), pin UUIDs and their
         # `connections` lists — which reference OTHER pins' UUIDs — are copied
         # verbatim, because GraphBuilder's execution_order is keyed by those UUIDs.
-        # disabled/negated (feat/editor-modes-and-geometry §2/§8) and
-        # safety_relevant (fix/safety-block-semantics §6 — found here while
-        # wiring compiler/validator.py to actually read it: without this,
-        # EVERY compile silently lost the flag on EVERY output pin, since
-        # core/macros.py's expand_project() clones every top-level block
-        # before Validator ever sees it, making the whole warning
-        # inoperative) are configuration of the PIN ITSELF, not tied to a
-        # specific wire — copied unconditionally, unlike uuid/connections
-        # which only make sense to preserve for the isolated-CompiledProgram
-        # case.
-        new_block.inputs = []
-        for p in self.inputs:
-            new_p = Pin(p.name, p.direction, p.data_type)
-            new_p.disabled = p.disabled
-            new_p.safety_relevant = p.safety_relevant
-            if preserve_uuid:
-                new_p.uuid = p.uuid
-                new_p.connections = list(p.connections)
-            new_block.inputs.append(new_p)
+        #
+        # test/clone-field-coverage: every OTHER non-identity Pin.SERIALIZED_
+        # FIELDS entry (disabled, safety_relevant, ...) is configuration of
+        # the pin ITSELF, not tied to a specific wire — copied unconditionally,
+        # unlike uuid/connections which only make sense to preserve for the
+        # isolated-CompiledProgram case. Derived from Pin.SERIALIZED_FIELDS
+        # itself, the same declarative pattern ui/canvas/scene.py's own
+        # paste_clipboard() already uses for its own pin copy (pin_copy_
+        # fields) — NOT hand-enumerated field-by-field the way this used to
+        # be written as two separate loops. That original shape is exactly
+        # what let `disabled` get copied for inputs but not outputs, and
+        # `safety_relevant` (fix/safety-block-semantics §6) get copied for
+        # NEITHER — two independently-written loops, free to drift from each
+        # other exactly like the two hand-written serialize()/deserialize()
+        # enumerations this whole SERIALIZED_FIELDS mechanism was built to
+        # replace. One shared helper now instead of two loops that could
+        # silently stop agreeing again the next time a field is added.
+        clone_pin_fields = tuple(
+            f for f in Pin.SERIALIZED_FIELDS
+            if f not in Pin._IDENTITY_FIELDS and f not in ("uuid", "connections")
+        )
 
-        new_block.outputs = []
-        for p in self.outputs:
+        def _clone_pin(p):
             new_p = Pin(p.name, p.direction, p.data_type)
-            new_p.safety_relevant = p.safety_relevant
+            for field in clone_pin_fields:
+                setattr(new_p, field, getattr(p, field))
             if preserve_uuid:
                 new_p.uuid = p.uuid
                 new_p.connections = list(p.connections)
-            new_block.outputs.append(new_p)
+            return new_p
+
+        new_block.inputs = [_clone_pin(p) for p in self.inputs]
+        new_block.outputs = [_clone_pin(p) for p in self.outputs]
 
         new_block.simulation_state = self.simulation_state.copy()
 

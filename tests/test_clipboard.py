@@ -280,3 +280,52 @@ def test_cut_is_exactly_one_undo_entry(qsettings):
     window.scene.cut_selected_items()
     assert len(window.project.undo_stack) == before + 1
     _close(window)
+
+
+# ---- test/clone-field-coverage §3: copy/paste is a THIRD copy path --------
+# paste_clipboard() (ui/canvas/scene.py) already derives its own field list
+# (`pin_copy_fields`) from Pin.SERIALIZED_FIELDS generically rather than
+# hand-enumerating "disabled, safety_relevant, ..." the way clone() used to
+# — this locks that in as a guarantee, not just an inference from reading
+# the source. `disabled`/`safety_relevant` are the two non-identity fields
+# NOT reset on paste (uuid/connections are deliberately always fresh, see
+# scene.py's own comment) — matches CLONE_ALWAYS_FIELDS in
+# tests/test_pin_serialization.py, duplicated here rather than imported
+# (no test module in this suite imports from another).
+
+CLIPBOARD_PRESERVED_PIN_FIELDS = ("disabled", "safety_relevant")
+
+@pytest.mark.parametrize("side", ["inputs", "outputs"])
+@pytest.mark.parametrize("field", CLIPBOARD_PRESERVED_PIN_FIELDS)
+def test_pin_field_survives_copy_paste(field, side, qsettings):
+    _app()
+    window = _make_window(qsettings)
+    window.scene.add_block_from_library("logic.and", 0, 0)
+    gate = window.project.blocks[0]
+    setattr(getattr(gate, side)[0], field, True)
+    _block_items(window)[0].setSelected(True)
+
+    window.scene.copy_selected_items()
+    window.scene.paste_clipboard()
+
+    pasted = window.project.blocks[-1]
+    assert getattr(getattr(pasted, side)[0], field) is True
+    _close(window)
+
+def test_duplicate_shares_the_same_field_coverage_as_copy_paste(qsettings):
+    """Ctrl+D (duplicate_selected_items()) calls copy_selected_items() +
+    paste_clipboard() directly — no separate implementation to drift, so
+    one confirming test is enough rather than re-parametrizing the whole
+    field list a second time."""
+    _app()
+    window = _make_window(qsettings)
+    window.scene.add_block_from_library("logic.and", 0, 0)
+    gate = window.project.blocks[0]
+    gate.outputs[0].safety_relevant = True
+    _block_items(window)[0].setSelected(True)
+
+    window.scene.duplicate_selected_items()
+
+    duplicated = window.project.blocks[-1]
+    assert duplicated.outputs[0].safety_relevant is True
+    _close(window)

@@ -1,15 +1,17 @@
 # EPW Logic Studio — Pełny raport audytowy (dla Claude.ai)
 
 **Data:** 2026-09-07 (migawka §1-§10 odświeżona do stanu na branchu
-`fix/safety-and-macro-params`, zbudowanym na `main` commit `693b224` —
-po scaleniu PR #31 `fix/safety-block-semantics`; wszystkie liczby poniżej
+`test/clone-field-coverage`, zbudowanym na `main` commit `13dfec6` — po
+scaleniu PR #33 `fix/safety-and-macro-params`; wszystkie liczby poniżej
 wyliczone bezpośrednio z repozytorium na tym branchu, nie przepisane z
 poprzedniej wersji — polecenia użyte do ich wyliczenia podane w każdej
-sekcji. Ta gałąź obejmuje WYŁĄCZNIE Część C zadania, jaka ją zapoczątkowała
-("parametry makrobloków") — Części A/B (semantyka bloków bezpieczeństwa,
-kolizja tekstu na blokach analogowych) okazały się już w pełni zrobione
-przez scalony PR #31, zweryfikowane na czystym `origin/main` przed
-napisaniem jakiegokolwiek kodu tej gałęzi; nic z nich nie powtórzono.
+sekcji. Krótkie zadanie uzupełniające: rozszerzenie testów-strażników pól
+o ścieżkę klonowania (§40's `fix/safety-block-semantics` §6 znalazło
+`safety_relevant` gubione przez `clone()` — czwarty przypadek tej klasy
+błędu), audyt WSZYSTKICH ścieżek kopiowania bloku/pinu w repozytorium, i
+— przy okazji tego audytu — znalezienie i naprawienie PIĄTEGO,
+niezależnego przypadku tej samej klasy błędu, w tym samym module co
+czwarty, którego fix/safety-block-semantics §6 nie objął w ogóle.
 **Zakres:** wyłącznie warstwa logiki — `EPW-Logic-Studio/` (moduł `logic_studio`, testy, przykłady `.epwlogic`). Pozostałe moduły platformy (`EPW-OS`, `EPW-Synoptic-Editor`) celowo pominięte.
 **Cel dokumentu:** dać modelowi bez dostępu do repo pełny, samodzielny obraz architektury, stanu i znanych problemów, żeby mógł doradzać / kontynuować pracę bez dodatkowych pytań.
 **Struktura dokumentu:** §1-§10 to opisowa migawka BIEŻĄCEGO stanu — ma być
@@ -32,21 +34,15 @@ Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) 
 
 ## 2. Status repozytorium
 
-- Gałąź: `fix/safety-and-macro-params` (na `main` commit `693b224`, po scaleniu PR #31 `fix/safety-block-semantics`), jeszcze niescalona.
-- **Testy: 1380/1380 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~38s.
-- **63 pliki testowe** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **17422 linie** testów — `find tests -name "test_*.py" | xargs wc -l`.
-- **Kod produkcyjny (`logic_studio/`): 17848 linii w 73 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
-  - `blocks/`: 2716
-  - `ui/`: 10256
-  - `core/`: 3137
-  - `compiler/`: 1043
-  - `engine/`: 476
-  - `app.py`/`__init__.py` (top-level): 220
-- **69 zarejestrowanych typów bloków w 12 kategoriach** — patrz §5 (polecenie i pełna lista tam), bez zmian od ostatniej migawki. Parametry makrobloków (§24.13 ARCHITECTURE.md) NIE dodają wpisów tutaj — `MacroInstanceBlock` jest, jak zawsze, celowo nigdy rejestrowany w `BlockRegistry`.
+- Gałąź: `test/clone-field-coverage` (na `main` commit `13dfec6`, po scaleniu PR #33 `fix/safety-and-macro-params`), jeszcze niescalona.
+- **Testy: 1414/1414 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~40s.
+- **63 pliki testowe** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **17706 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
+- **Kod produkcyjny (`logic_studio/`): 17876 linii w 73 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l` (+28 linii, wyłącznie w `blocks/base.py`/`core/macros.py` — komentarze i naprawa, zero nowych plików/typów).
+- **69 zarejestrowanych typów bloków w 12 kategoriach** — patrz §5 (polecenie i pełna lista tam), bez zmian od ostatniej migawki. `MacroInstanceBlock` jest, jak zawsze, celowo nigdy rejestrowany w `BlockRegistry`.
 - **10 przykładowych projektów** w `examples/*.epwlogic` — wszystkie otwierają się, kompilują i eksportują z bieżącym kodem (zweryfikowane przy każdym PR, patrz dziennik).
-- **140 commitów** w historii (`git log --oneline | wc -l`, przed commitem tej gałęzi) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
+- **143 commity** w historii (`git log --oneline | wc -l`, przed commitem tej gałęzi) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
 
-Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §27, +§24.13 na tej gałęzi), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
+Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §27, +§24.13, +§3.3 na tej gałęzi), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
 
 ## 3. Struktura katalogów
 
@@ -114,7 +110,7 @@ EPW-Logic-Studio/
 - Typy: `Digital, Analog, Integer, Float, Boolean, String, Any` (wewnętrzne) ↔ `BOOL, REAL, DINT, STRING, ANY` (kanoniczne runtime).
 - `connect(other_pin)`: odrzuca input-input/output-output, wymusza **single driver** na inpucie, egzekwuje zgodność typów (poza `TYPE_ANY`).
 - Połączenia trzymane jako listy UUID **po obu stronach**.
-- `SERIALIZED_FIELDS = ("uuid", "name", "direction", "data_type", "connections", "disabled", "safety_relevant")` — jedno źródło prawdy dla `serialize()`/`deserialize()`, pilnowane testem audytującym pola (`tests/test_pin_serialization.py`).
+- `SERIALIZED_FIELDS = ("uuid", "name", "direction", "data_type", "connections", "disabled", "safety_relevant")` — jedno źródło prawdy dla `serialize()`/`deserialize()`, pilnowane testem audytującym pola (`tests/test_pin_serialization.py`). Od `test/clone-field-coverage` (§41 dziennika) to samo źródło prawdy pilnuje też `clone()` I kopiowania do schowka — trzy niezależne ścieżki, ARCHITECTURE.md §3.3.
   - `disabled` (feat/editor-modes-and-geometry §2): input jawnie wyłączony z logiki bloku (nie mylić z wyłączeniem CAŁEGO bloku — §4.2 niżej) — wykluczony z `evaluate()` całkowicie, nie karmiony wartością domyślną. Tylko dla wejść bez podłączonego przewodu, na blokach które się na to zgadzają (`allows_disabled_inputs` — bramki wielowejściowe).
   - `safety_relevant` — ustawiane na `input.ai`'s `Quality`/`Hold Expired` i `analog.quality`'s `Good` (fix/safety-block-semantics §6, ARCHITECTURE.md §27.1). Nie tylko podświetlenie w `ElementPreviewPanel` od tej gałęzi — `compiler/validator.py` teraz ostrzega, gdy taki pin nie ma żadnego połączenia. `BaseLogicBlock.clone()` kopiuje tę flagę bezwarunkowo (jak `disabled`) — bez tego `core/macros.py`'s `expand_project()` gubiłaby ją na każdej kompilacji; `BaseLogicBlock.resync_derived_pin_metadata()` (nowy hak, wołany przez `Project.deserialize()`) pozwala blokowi wymusić wartość WŁAŚCIWĄ DLA TYPU zamiast ufać temu, co akurat zapisano w starszym pliku.
   - `value` jest CELOWO wykluczone z `SERIALIZED_FIELDS` (`_TRANSIENT_FIELDS`) — runtime/symulacyjne, nigdy nie zapisywane do pliku.
@@ -123,7 +119,7 @@ EPW-Logic-Studio/
 - `SERIALIZED_FIELDS = ("uuid", "short_id", "display_name", "execution_priority", "color", "enabled")`, `_STRUCTURED_FIELDS = ("type_id", "category", "description", "x", "y", "width", "height", "inputs", "outputs", "properties")`, `_TRANSIENT_FIELDS = ("simulation_state", "is_source", "aliases", "allows_disabled_inputs")` — te trzy krotki razem muszą pokrywać KAŻDY atrybut instancji; pilnowane testem audytującym (`tests/test_pin_serialization.py::test_every_serializable_block_attribute_is_accounted_for`).
   - `short_id` (feat/io-labels-and-ids §4, `core/short_id.py`): projekt-unikalny, czytelny identyfikator (`g12`, `i3`, `o7`, ...) — jedna litera prefiksu na kategorię, licznik per-prefiks NIGDY nie zagęszczany ponownie po usunięciu bloku (usunięty numer nie wraca do puli). Przypisywany raz, wyłącznie przez `Project.add_block()`.
   - `enabled` (feat/clipboard-and-align §4): tymczasowe wyłączenie CAŁEGO bloku bez usuwania go ze schematu — wyłączony blok nie wchodzi do `execution_order` ani do eksportu runtime, jego wyjścia dostają wymuszoną, zdefiniowaną wartość bezpieczną (nigdy `None`) co skan. Przełączany z menu kontekstowego bloku / menu Edit (`LogicScene.set_blocks_enabled()`). Patrz ARCHITECTURE.md §15.5 i dziennik §18.
-- `clone(preserve_uuid=False)` — musi zachować UUID pinów przy `preserve_uuid=True`, inaczej graf topologiczny (budowany po UUID) się rozjeżdża. Kopiuje `disabled`/`safety_relevant` na każdym pinie BEZWARUNKOWO (niezależnie od `preserve_uuid`) — to konfiguracja PINU, nie coś związanego z konkretnym przewodem (fix/safety-block-semantics §6, ARCHITECTURE.md §27.1 — bez tego `core/macros.py`'s `expand_project()`, klonujące każdy blok najwyższego poziomu przy każdej kompilacji, gubiłoby `safety_relevant` na każdym pinie, robiąc regułę walidatora w §6 martwą).
+- `clone(preserve_uuid=False)` — musi zachować UUID pinów przy `preserve_uuid=True`, inaczej graf topologiczny (budowany po UUID) się rozjeżdża. Kopiuje `disabled`/`safety_relevant` na każdym pinie BEZWARUNKOWO (niezależnie od `preserve_uuid`) — to konfiguracja PINU, nie coś związanego z konkretnym przewodem (fix/safety-block-semantics §6, ARCHITECTURE.md §27.1 — bez tego `core/macros.py`'s `expand_project()`, klonujące każdy blok najwyższego poziomu przy każdej kompilacji, gubiłoby `safety_relevant` na każdym pinie, robiąc regułę walidatora w §6 martwą). Od `test/clone-field-coverage` (§41 dziennika) obie pętle wejść/wyjść dzielą JEDEN `_clone_pin()` — wcześniej dwie osobne, hand-enumerated pętle, dokładnie ten kształt, który pozwolił `disabled` przetrwać na wejściach, a nie na wyjściach.
 - `resync_derived_pin_metadata()` (fix/safety-block-semantics §6) — hak, no-op domyślnie, wołany przez `Project.deserialize()` zaraz po przywróceniu pól pinów z pliku (`Pin.restore_fields()`). Pozwala blokowi wymusić metadanę pinu będącą WŁASNOŚCIĄ TYPU (np. `analog.quality`'s `Good.safety_relevant` zawsze `True`) zamiast ufać wartości zapisanej w starszym pliku, która mogła być zapisana, zanim ta metadana w ogóle istniała.
 - `evaluate(engine=None)` / `reset_runtime_state()` — nadpisywane przez podklasy; opcjonalny `is_stateful = True` używany przez kompilator do legalnego przerywania pętli sprzężenia zwrotnego (§6).
 
@@ -249,18 +245,19 @@ Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyśc
 ### 7.3 `RuntimeSnapshot` / `RuntimeBlockState` / `RuntimePinState`
 Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 
-## 8. Testy ([tests/](tests/)) — 1380/1380 PASS
+## 8. Testy ([tests/](tests/)) — 1414/1414 PASS
 
-63 pliki `test_*.py`, 17422 linie. Kilka największych/najbardziej reprezentatywnych plików:
+63 pliki `test_*.py`, 17706 linii. Kilka największych/najbardziej reprezentatywnych plików:
 
 | Plik | Zakres |
 |---|---|
-| `test_macro_parameters.py` | parametry instancji makrobloku — model danych, `sync_instance_parameters()`, dwie niezależne instancje z różnymi nastawami kompilujące się i działające niezależnie w symulacji, zagnieżdżenie, resync przy dodaniu/usunięciu/zmianie typu parametru, round-trip zapisu, każda reguła walidacji z §C4 osobno, brak śladu w eksporcie runtime, cała ścieżka UI wiązania/odwiązywania (§40 dziennika na tej gałęzi) — 48 testów |
+| `test_pin_serialization.py` | audyt pól — round-trip zapisu/odczytu (Poziom 1/2) I, od tej gałęzi, `clone()` (Poziom 3): każde pole `Pin.SERIALIZED_FIELDS`/`BaseLogicBlock.SERIALIZED_FIELDS` osobno, po obu stronach (wejście/wyjście), przy `preserve_uuid` True i False (§41 dziennika) — 47 testów |
+| `test_macro_parameters.py` | parametry instancji makrobloku — model danych, `sync_instance_parameters()`, dwie niezależne instancje z różnymi nastawami kompilujące się i działające niezależnie w symulacji, zagnieżdżenie, resync przy dodaniu/usunięciu/zmianie typu parametru, round-trip zapisu, każda reguła walidacji z §C4 osobno, brak śladu w eksporcie runtime, cała ścieżka UI wiązania/odwiązywania (§40 dziennika) — 48 testów |
 | `test_pdf_export.py` | `signal_list_rows()`, paginacja `_draw_signal_list_pages()` w izolacji (fałszywy `writer` + `QPainter` nieaktywny), `export_schematic_to_pdf()` end-to-end z realnym `QPdfWriter`, wpięcie `MainWindow._export_pdf()` (§38 dziennika) — 15 testów |
 | `test_defined_outputs.py` | żaden zarejestrowany, wykonywalny typ bloku nie zostawia wyjścia jako `None` po `evaluate()` bez podłączonych wejść — parametryzowany nad wszystkimi 69 typami (fix/safety-block-semantics §8) — 66 testów |
 | `test_canvas_rendering.py` | rysowanie bloków/kanwy, w tym strefy tekstu identyfikatora vs etykiet pinów nienachodzące na siebie (§7 na tej gałęzi) — 143 testy |
 | `test_realistic_signals.py` | bloki analogowe na danych przypominających realny tor pomiarowy — szum ostatniego bitu, dryf, zanik sygnału, oscylacja na progu histerezy, symulowany czas skan-po-skanie (fix/safety-block-semantics §10) — 13 testów |
-| `test_macros.py` | model danych makrobloków — definicje, `build_definition()`, `expand_project()` (zagnieżdżanie, cykle, brakujące definicje, błąd granicy zakotwiczonej na zagnieżdżonej instancji), `instantiate_definition_blocks()`/`update_definition_blocks()`, `add_boundary_pin()`/`remove_boundary_pin()`/`resync_all_instances()`, `core/macros.py` (§24/§31/§32/§35 dziennika) — 42 testy |
+| `test_macros.py` | model danych makrobloków — definicje, `build_definition()`, `expand_project()` (zagnieżdżanie, cykle, brakujące definicje, błąd granicy zakotwiczonej na zagnieżdżonej instancji, PIĄTY przypadek klasy błędu "pole gubione przy kopiowaniu" — §41 dziennika), `instantiate_definition_blocks()`/`update_definition_blocks()`, `add_boundary_pin()`/`remove_boundary_pin()`/`resync_all_instances()`, `core/macros.py` (§24/§31/§32/§35/§41 dziennika) — 46 testów |
 | `test_macro_navigation.py` | nawigacja breadcrumb "wejdź w makroblok" — wejście/wyjście, commit przy wyjściu, zagnieżdżenie, normalizacja do głównego poziomu przy zapisie/kompilacji/undo/redo/nowym projekcie (§31 dziennika) — 15 testów |
 | `test_macro_pin_editing.py` | edytowalne piny makrobloku end-to-end — wystaw/usuń pin z menu kontekstowego/dialogu, resync na żywej instancji i zagnieżdżonej w innej definicji (§35 dziennika) — 14 testów |
 | `test_project_diff.py` | `compare_projects()` — każda kategoria zmiany (dodane/usunięte/zmienione bloki, pola/właściwości/połączenia/przesunięcie, zmiany ustawień), w izolacji od Project/Qt (§36 dziennika na tej gałęzi) — 24 testy |
@@ -290,7 +287,7 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_wire_routing_obstacles.py` | router A* z omijaniem przeszkód, w izolacji od sceny (§24 dziennika) — 15 testów |
 | `test_const_validation.py` | walidacja właściwości `const.real/int/time` (§26 dziennika) — 16 testów |
 | `test_block_disable.py` | tymczasowe wyłączanie bloku — 16 testów |
-| `test_clipboard.py` | schowek kopiuj/wytnij/wklej — 14 testów |
+| `test_clipboard.py` | schowek kopiuj/wytnij/wklej, w tym potwierdzenie że `paste_clipboard()`'s `pin_copy_fields` (już wyprowadzone z `Pin.SERIALIZED_FIELDS`) rzeczywiście przenosi każde pole — trzecia ścieżka kopiowania z audytu §41 dziennika, jedyna bezpieczna od początku — 19 testów |
 | `test_duplicate_address_hyperlink.py` | hiperłącze do duplikatów adresu (§27 dziennika) — 10 testów |
 | `test_canvas_navigation.py` | `ui/canvas/navigation.py` (skok+pulsowanie), wydzielone z `SignalsPanel` (§27 dziennika) — 7 testów |
 | `test_watch_panel.py` | panel "Obserwowane" — tabela regulowalnych kolumn, sparkline, popup trendu z regulowalnym zakresem czasu i przewijaniem wstecz, dodawanie przez `SignalPickerDialog`, umiejscowienie w `output_panel` (§29 dziennika) — 38 testów |
@@ -298,7 +295,7 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_wire_routing.py` | kierunek wejścia/wyjścia przewodu z pinu — 6 testów |
 | `test_e2e.py`, `test_isolation.py`, `test_compiler.py`, `test_project.py`, `test_acceptance.py`, ... | pipeline end-to-end, izolacja `CompiledProgram`, kompilator, (de)serializacja projektu, scenariusze akceptacyjne |
 
-Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1380 passed w ~38s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
+Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1414 passed w ~40s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
 
 ## 9. Znane problemy i uwagi z audytu (wyłącznie OTWARTE)
 
@@ -1763,6 +1760,54 @@ testy-strażnicy (`tests/test_macros.py`'s własny `_empty_definition()`,
 definicji/konstruktora, to dokładnie ich zadanie, nie regresja). Pełny
 zestaw: 1380 passed (1332 + 48 nowych — patrz §8 tej migawki). Wszystkie
 10 `examples/*.epwlogic` nadal się otwierają, kompilują i eksportują.
+
+## 41. Test-strażnik pól rozszerzony o ścieżkę klonowania — i piąty, nowy przypadek tej samej klasy błędu (branch `test/clone-field-coverage`)
+
+Krótkie zadanie uzupełniające fix/safety-block-semantics §6 (gdzie
+znaleziono, że `BaseLogicBlock.clone()` nie kopiował `safety_relevant` —
+CZWARTY przypadek klasy błędu "pole modelu gubione na jednej z trzech
+ścieżek kopiowania", po `Pin.connections` aliasowanym zamiast kopiowanym,
+`Pin.disabled` gubionym przy wczytaniu i `execution_state` serializowanym
+ale nieodtwarzanym). Pełny opis zasady w ARCHITECTURE.md §3.3 — tu status
+i, co ważniejsze, co ten audyt ZNALAZŁ.
+
+**Audyt WSZYSTKICH ścieżek kopiowania bloku/pinu w repozytorium** — 6
+znalezionych, każda zaraportowana z osobna:
+
+| # | Ścieżka | Stan PRZED tą gałęzią | Naprawiona? |
+|---|---|---|---|
+| 1 | `serialize()`/`deserialize()` (zapis/odczyt projektu) | Bezpieczna — `SERIALIZED_FIELDS` generyczne od feat/wire-modes-and-labels §0.1 | — (już naprawiona wcześniej) |
+| 2 | `BaseLogicBlock.clone()` | Bezpieczna dla `safety_relevant` na obu stronach (fix/safety-block-semantics §6) — ale `disabled` kopiowane TYLKO na wejściach (dwie osobne, ręcznie pisane pętle, nigdy nie zauważone) | **Tak** — jeden `_clone_pin()` zamiast dwóch pętli |
+| 3 | Schowek: `copy_selected_items()`/`paste_clipboard()` (`ui/canvas/scene.py`) | Bezpieczna od początku — `pin_copy_fields` już wtedy wyprowadzone z `Pin.SERIALIZED_FIELDS` generycznie | Nie wymagała naprawy — zablokowana testem regresyjnym |
+| 4 | Ctrl+D (`duplicate_selected_items()`) | Bezpieczna — dzieli implementację ze ścieżką #3, nie ma własnej | Nie wymagała naprawy |
+| 5 | Undo/redo różnicowe (`core/state_diff.py`) | Bezpieczna z konstrukcji — operuje na CAŁYCH, już zserializowanych słownikach bloków, nigdy nie wyciąga pojedynczych pól, więc nie ma z czego "zapomnieć" pola | Nie wymagała naprawy |
+| 6 | Resync instancji makra (`core/macros.py::_resync_pin_list()`/`_resync_instance_live()`) | Bezpieczna z konstrukcji — dopasowany pin jest PONOWNIE UŻYWANY jako TEN SAM obiekt (nigdy nie kopiowany), nowy pin startuje od świeżych wartości domyślnych (poprawnie, bo nie ma wcześniejszego stanu do skopiowania) | Nie wymagała naprawy |
+| 7 (znaleziona PRZY OKAZJI, nie na liście zadania) | `core/macros.py::_expand_instance()` — restauracja pinów bloku WEWNĘTRZNEGO makra przy rozwijaniu w czasie kompilacji | **ZEPSUTA** — ręcznie odtwarzała WYŁĄCZNIE `uuid`/`connections`, nigdy `disabled`/`safety_relevant` (ani żadnego przyszłego pola) — gorsza niż błąd z §6, bo blok wewnątrz makra NIGDY nie przechodzi przez `clone()`, więc naprawa §6 w ogóle jej nie dotyczyła | **Tak** — `Pin.restore_fields()` przed nadaniem świeżego uuid |
+
+**#7 jest tu najważniejsze**: punkt 3 zadania ("sprawdź inne ścieżki
+kopiowania") kazał zaraportować stan istniejących ścieżek — audyt
+poszedł krok dalej i ZNALAZŁ szóstą, nigdzie wcześniej niezgłoszoną
+ścieżkę o TEJ SAMEJ chorobie, w tym samym pliku co #2 (`core/macros.py`),
+ale w zupełnie innej funkcji, którą fix/safety-block-semantics §6 nigdy
+nie dotknęło. Znaleziona dopiero dlatego, że nowy test kompilacyjny z
+punktu 2 zadania (blok `safety_relevant` WEWNĄTRZ definicji makra, po
+`expand_project()`) czerwienił się, mimo że `clone()` był już naprawiony
+— dowód wprost, że "clone() jest bezpieczny" i "kompilacja jest
+bezpieczna" to DWA różne twierdzenia, jeśli macro expansion ma własną,
+niezależną ścieżkę kopiowania obok `clone()`.
+
+Testy: `tests/test_pin_serialization.py` — nowa sekcja "Poziom 3:
+`clone()`", sparametryzowana po każdym polu `PROJECT_LEVEL_FIELDS`, po
+obu stronach (`inputs`/`outputs`) i obu wartościach `preserve_uuid`, plus
+analogiczny zestaw dla `BaseLogicBlock.SERIALIZED_FIELDS` (+25 testów,
+47 razem). `tests/test_macros.py` — dwa nowe testy kompilacyjne (punkt 2
+zadania: `safety_relevant` i `disabled` na bloku WEWNĄTRZ makra
+przetrwują `expand_project()`) + jeden potwierdzający resync (+4, 46
+razem). `tests/test_clipboard.py` — sparametryzowany test copy/paste +
+test na Ctrl+D, oba zielone od razu (+3, 19 razem — potwierdzenie
+bezpiecznej ścieżki, nie regresja). Pełny zestaw: 1414 passed (1380 +
+34 nowych — patrz §8 tej migawki dla pełnego rozbicia). Wszystkie 10
+`examples/*.epwlogic` nadal się otwierają, kompilują i eksportują.
 
 ## Zasada utrzymania tego dokumentu
 

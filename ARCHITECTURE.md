@@ -140,6 +140,65 @@ a project that references an unrecognized block `type_id` — it raises
 `ValueError` naming the missing type(s) rather than silently dropping that
 logic (see AUDIT_REPORT.md §3.3, previous PR).
 
+### 3.3 A model field must survive THREE paths, not one
+
+`Pin.SERIALIZED_FIELDS`/`BaseLogicBlock.SERIALIZED_FIELDS` (feat/wire-
+modes-and-labels §0.1) turned "does this field round-trip through save
+and load" from two independently hand-written enumerations (free to
+silently drift apart) into one declarative list both `serialize()` and
+`deserialize()`/`restore_fields()` walk generically. That fixed the FIRST
+two occurrences of this bug class (`connections` aliased instead of
+copied, `disabled` dropped on load) — but a field added to
+`SERIALIZED_FIELDS` and nowhere else can still go on to get silently
+dropped somewhere ELSE in the codebase, because **save/load is only ONE
+of three independent copy paths a block/pin can travel**:
+
+1. **Save and load** — `serialize()`/`deserialize()`/`restore_fields()`,
+   covered by `SERIALIZED_FIELDS` directly.
+2. **Cloning** — `BaseLogicBlock.clone()`, used every single time a
+   project compiles (`core/macros.py::expand_project()` clones EVERY
+   top-level block to isolate Validator/GraphBuilder/Exporter from the
+   live project, §24.4) and by macro expansion's own internal-block
+   restoration (`_expand_instance()`).
+3. **Copying to the clipboard** — `ui/canvas/scene.py`'s
+   `copy_selected_items()`/`paste_clipboard()` (§15.1), which
+   `duplicate_selected_items()` (Ctrl+D) reuses directly rather than
+   keeping a third, independent implementation.
+
+`safety_relevant` shipped correctly on path 1 and was silently dropped on
+path 2 for a full PR cycle (fix/safety-block-semantics §6 — the
+compiler-level "unused safety-relevant output" warning was inoperative
+for EVERY project until that was found and fixed) — the FOURTH
+occurrence of this bug class, and the reason `test/clone-field-coverage`
+exists: auditing path 2 for that fix turned up a FIFTH, independent
+instance in the SAME pull request's own blind spot — `_expand_instance()`
+restored only a macro-internal pin's `uuid`/`connections` by hand,
+silently dropping `disabled`/`safety_relevant` (and any future field) for
+every block living inside ANY macro definition, on every single compile,
+never caught by the clone() fix at all since a macro-internal block never
+goes through `clone()`.
+
+**The fix in both directions is the same shape**: stop hand-enumerating
+which fields to copy, and derive the list from `SERIALIZED_FIELDS`
+instead — `paste_clipboard()`'s own `pin_copy_fields` already does this
+(and was, on audit, the one path that was safe by construction from the
+start); `clone()`'s two separate input/output loops were refactored to
+share one `_clone_pin()` helper built the same way;
+`_expand_instance()`'s pin restoration now calls `Pin.restore_fields()`
+before minting the fresh per-expansion uuid, instead of hand-copying two
+named fields.
+
+**Rule for every future field added to either SERIALIZED_FIELDS list**:
+it is not "done" once it round-trips through save/load. Confirm it also
+survives `clone()` (both `preserve_uuid` values, both `inputs` and
+`outputs` — the exact shape that let `disabled` differ between the two
+sides once already) and clipboard copy/paste. `tests/test_pin_
+serialization.py`'s parametrized clone-path tests and `tests/test_
+clipboard.py`'s copy/paste ones — both driven off the SAME field lists
+this section names — are what make skipping this check for a new field
+fail loudly instead of shipping quietly broken, the same role the
+save/load round-trip tests already played for the first two occurrences.
+
 ## 4. Stateful Feedback Execution
 Pure combinational logic feedback (e.g. `AND` looped back into itself) is prohibited. However, the compiler explicitly permits feedback if a node along the cycle is flagged with `is_stateful = True` (e.g., `TON`, `RS`, `SR`). This satisfies industrial loop criteria where latency exists through memory buffers.
 
