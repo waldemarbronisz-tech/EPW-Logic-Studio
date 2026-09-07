@@ -2094,3 +2094,174 @@ Testy: `tests/test_pdf_export.py` (15) — `signal_list_rows()` (3),
 paginacja izolowana (2), `export_schematic_to_pdf()` end-to-end z
 prawdziwym `QPdfWriter`+`tmp_path` (5), wpięcie `MainWindow._export_pdf()`
 (5) — pełne rozbicie w AUDIT_REPORT.md §38.
+
+## 27. Bloki istotne dla bezpieczeństwa (fix/safety-block-semantics)
+
+Trzy bloki bezpośrednio odpowiedzialne za wiarygodność pomiaru analogowego
+— `input.ai`, `analog.quality` i mechanizm kroku silnika — miały cechy,
+przez które w polu (na realnym torze pomiarowym) zadziałałyby inaczej,
+niż wynika z ich nazwy i opisu, mimo przechodzenia wszystkich testów
+jednostkowych sprzed tej gałęzi. Ta sekcja to jedno miejsce zbierające
+"co jest istotne dla bezpieczeństwa w tym projekcie i dlaczego", zamiast
+rozrzucania tego po komentarzach w kodzie — pełne uzasadnienia
+poszczególnych napraw są w dzienniku (§39 niżej).
+
+### 27.1 Wyjścia oznaczone `safety_relevant`
+
+| Blok | Wyjście | Znaczenie |
+|---|---|---|
+| `input.ai` | `Quality` | Czy ostatni odczyt można ufać (zakres, NaN/Inf) — istnieje od `feat/analog-chain`. |
+| `input.ai` | `Hold Expired` | Czy `Value` jest trzymane dłużej niż `Max Hold (ms)` pozwala — nowe, §5 poniżej. |
+| `analog.quality` | `Good` | Zbiorczy werdykt (zakres + szybkość zmiany + zamrożenie) — nowe. |
+
+`Pin.safety_relevant` istniał od dawna (`feat/block-rendering-library`,
+podświetlenie w `ElementPreviewPanel`) i był ustawiany na `input.ai`'s
+`Quality` od `feat/analog-chain` — ale przez cały ten czas był CZYSTĄ
+metadaną UI: nic w `compiler/validator.py` go nie czytało. Ta gałąź
+zmienia to (§27.2) i przy okazji zamyka dwa błędy w samej infrastrukturze
+pola, które sprawiłyby, że nowa reguła nigdy by nie zadziałała:
+- `BaseLogicBlock.clone()` odtwarzał każdy pin od zera BEZ kopiowania
+  `safety_relevant` — `core/macros.py`'s `expand_project()` klonuje
+  KAŻDY blok najwyższego poziomu przy KAŻDEJ kompilacji, więc reguła z
+  §27.2 nigdy by się nie uruchomiła, niezależnie od tego, co miał żywy
+  pin. Naprawione analogicznie do `disabled`, które `clone()` już
+  wcześniej kopiował bezwarunkowo z tego samego powodu.
+- Nowy hak `BaseLogicBlock.resync_derived_pin_metadata()`, wołany przez
+  `Project.deserialize()` zaraz po `Pin.restore_fields()` — pozwala
+  blokowi ponownie wymusić metadanę pinu, która jest WŁASNOŚCIĄ TYPU
+  bloku (nie danymi z pliku). KAŻDY projekt zapisany przed tą gałęzią ma
+  zapisane `"safety_relevant": false` dla `Good` (nic wcześniej tego nie
+  ustawiało) — bez tego haka `Pin.restore_fields()` przywróciłoby tę
+  nieaktualną wartość na zawsze, chowając nowe ostrzeżenie (§27.2) na
+  KAŻDYM istniejącym projekcie. To ta sama, ogólna forma luki, którą
+  ARCHITECTURE.md §22 świadomie zostawił otwartą dla `system.signal`
+  ("§19.2... POZOSTAJE OTWARTE") — zamknięta tutaj, bo §27.2 jest
+  pierwszym miejscem, w którym `safety_relevant` faktycznie coś zmienia
+  funkcjonalnie (wcześniej czysta dekoracja UI, dokładnie z tego powodu
+  §22 zostawił to bez naprawy wtedy).
+
+### 27.2 Reguła walidatora: niepodłączone wyjście `safety_relevant`
+
+`compiler/validator.py` ostrzega (nigdy nie blokuje kompilacji — inżynier
+może świadomie zrezygnować z kontroli jakości danego sygnału) dla
+każdego wyjścia z `safety_relevant=True`, które nie ma ŻADNEGO
+połączenia:
+
+```
+[<short_id>] Wyjście '<pin>' informujące o wiarygodności pomiaru
+nie jest nigdzie użyte. Logika będzie działać bez kontroli jakości
+sygnału.
+```
+
+To NOWA kategoria reguły, odrębna od istniejącego "Input is unconnected"
+— większość niepodłączonych WYJŚĆ jest zupełnie w porządku (opcjonalne
+diagnostyki), ale pin oznaczony `safety_relevant` niesie informację o
+tym, czy logika NIŻEJ w schemacie w ogóle może zaufać danym, na których
+się opiera.
+
+Sprawdzone przed dodaniem: czy istnieje już w repozytorium jakiś
+mechanizm wizualnego oznaczania problemu NA BLOKU/PINIE (trójkąt,
+ikona) do ponownego wykorzystania. Najbliższe odpowiedniki — czerwona
+kropka jakości na `input.ai`, wypełniony kwadrat retencji na sygnałach
+wewnętrznych, tekstowa plakietka "z⁻¹" dla opóźnionych odczytów
+cyklicznych (§5.3 `feat/internal-bits`) — żaden nie jest generycznym
+"ten pin ma ostrzeżenie walidatora". Nie dopisano nowego mechanizmu "na
+wszelki wypadek" — ostrzeżenie trafia tam, gdzie trafia KAŻDE inne
+ostrzeżenie walidatora (panel Warnings), spójnie z ostrzeżeniami o
+nieużywanym sygnale wewnętrznym czy nieaktualnej etykiecie I/O, które
+też nie mają własnej ikony na kanwie.
+
+### 27.3 Dlaczego `analog.quality`'s "Max Rate" jest na SEKUNDĘ, nie na skan
+
+Poprzednia wersja liczyła `abs(fval - poprzednia_wartość) > max_rate` —
+czysta różnica między kolejnymi skanami, bez odniesienia do czasu.
+`cycle_time_ms` jest ustawieniem PROJEKTU, niezwiązanym z żadnym
+konkretnym progiem bezpieczeństwa — zmiana czasu cyklu ze 100ms na 50ms
+BEZ ŻADNEGO ostrzeżenia i bez przeliczenia sprawiała, że ta sama nastawa
+oznaczała fizycznie DWA RAZY SZYBSZĄ dopuszczalną zmianę (100
+jednostek/s zamiast 50). Nastaw zabezpieczeniowy nie może zmieniać
+znaczenia fizycznego przy edycji parametru z nim niezwiązanego — stąd
+`Max Rate (/s)`, liczone jako `abs(delta) / (dt_ms / 1000.0)` z
+`engine.time.current_time_ms()`, dokładnie jak zwykły timer
+(`blocks/timers.py`'s `TimerBase._get_time()`), włącznie z twardym
+`RuntimeError` przy braku `TimeProvider` — cichą degradacją z powrotem
+do "na skan" odtworzyłaby dokładnie ten sam błąd, tylko niewidocznie.
+Migracja schematu v8→v9 (`core/project.py`) przelicza istniejące
+wartości (`nowa = stara * 1000 / cycle_time_ms`), zachowując tę samą
+fizyczną szybkość zmiany, i flaguje to jako ostrzeżenie kompilatora przy
+pierwszej kompilacji po wczytaniu — surowa liczba na ekranie się
+zmieniła, nawet jeśli jej ZNACZENIE nie, i inżynier powinien to zobaczyć.
+
+### 27.4 `input.ai`'s `Max Hold (ms)` — ograniczenie czasu podtrzymania
+
+Trzymanie ostatniej dobrej wartości przez cały czas trwania złej jakości
+to POPRAWNA decyzja projektowa (fail-safe: logika niżej działa na
+nieaktualnych, ale wiarygodnych danych, nigdy na śmieciach) — ale bez
+ograniczenia czasu oznaczało to, że logika może liczyć na pomiarze
+sprzed godzin czy dni, dopóki nic nie jest podłączone do `Quality`.
+`Max Hold (ms)` (domyślnie 0 = bez ograniczenia, identycznie jak
+wcześniej) i `Hold Timeout Value` ("Zero" / "Ostatnia dobra" / "Dolna
+granica zakresu") określają, co dzieje się po przekroczeniu limitu;
+`Quality` pozostaje `False` niezależnie od wyboru — ta właściwość dobiera
+wyłącznie DEFINIOWANĄ liczbę zastępczą dla przypadku, gdy logika niżej i
+tak nie jest podłączona do `Quality`. Nowe wyjście `Hold Expired`
+(`safety_relevant=True`) pozwala logice zareagować JAWNIE, zamiast
+wnioskować to pośrednio z `Quality` i czasu.
+
+### 27.5 `analog.quality`'s zakres z punktu analogowego
+
+`analog.quality` miał WŁASNE, niezależnie edytowalne `Min`/`Max` —
+schemat AI(-40..150) → QUALITY(Min=0, Max=100) uruchamiał dwie
+NIEZGODNE kontrole zakresu jednocześnie, bez żadnego sygnału tego
+rozjazdu. `Range Source` = "Z punktu analogowego" (domyślne dla NOWO
+umieszczanych bloków) rozwiązuje zakres z punktu analogowego bloku
+`input.ai` podłączonego BEZPOŚREDNIO do `In`
+(`Compiler.compile()`, tak jak `input.ai` już robi to dla siebie) —
+brak takiego bezpośredniego podłączenia jest błędem kompilacji, nie
+tylko ostrzeżeniem, bo wtedy dosłownie nie ma z czego rozwiązać zakresu.
+"Własny" to zachowanie sprzed tej gałęzi; migracja schematu v9→v10
+ustawia je jawnie na KAŻDYM istniejącym bloku (nigdy na nowy domyślny),
+tą samą zasadą co §27.1's `resync_derived_pin_metadata()` — nowa
+właściwość dodana do `__init__` po zapisaniu projektu jest inaczej
+CAŁKOWICIE nieobecna w `block.properties` tego zapisanego bloku
+(`BaseLogicBlock.deserialize()` podmienia cały słownik właściwości
+zawartością pliku, nie scala go z domyślnymi), niewidoczna w panelu
+właściwości mimo że logika i tak poprawnie działa na domyślnej
+wartości `.get()`.
+
+### 27.6 Krok silnika w stanie STOPPED to teraz "dry run"
+
+Przycisk "Krok"/"Krok ×10" jest celowo aktywny również w stanie
+STOPPED-z-programem (krokowanie offline to realna funkcja inżynierska) —
+każdy taki krok wykonywał PEŁNY skan I zapisywał wynik na `IOProvider`,
+mimo że silnik raportuje STOPPED. `stop()`'s własny fail-safe
+(`_fail_safe_outputs()`) uruchamia się TYLKO przy przejściu W stan
+zatrzymany, nie przy kolejnych krokach wykonanych Z tego stanu. W
+symulatorze niegroźne; z prawdziwym `ModbusIOProvider` na obiekcie krok
+inżynierski przy zatrzymanym sterowniku zamknąłby prawdziwy stycznik i
+zostawił go tam. `ExecutionEngine.step(dry_run=False)`: cały skan nadal
+się wykonuje normalnie (bloki liczą, wartości się propagują, kanwa może
+pokazać stany), ale krok zapisu na `IOProvider` jest pomijany;
+`step()` wywołane w stanie `STOPPED` zachowuje się jak `dry_run=True`
+NIEZALEŻNIE od argumentu — krokowanie offline zostaje w pełni użyteczne,
+tylko już nigdy nie rusza prawdziwego wyjścia. UI pokazuje "Krok (bez
+zapisu wyjść)" na pasku stanu wyłącznie dla kroku wziętego w STOPPED;
+krok w PAUSED działa dokładnie jak wcześniej.
+
+### 27.7 Zasada zdefiniowanych wyjść
+
+Audyt każdego zarejestrowanego, wykonywalnego typu bloku (poza
+`Dokumentacja`) — świeża instancja, `reset_runtime_state()`,
+`evaluate()` bez podłączonych wejść — znalazł sześć bloków zostawiających
+wyjście jako `None`: `analog.deadband` (oba wyjścia — znalezisko, które
+zapoczątkowało ten audyt), `analog.scale`, `analog.limit`,
+`analog.hysteresis`, `analog.mov_avg` (wszystkie: `Out`) i `timer.tof`
+(`ET`, w stanie nigdy-niewyzwolonym). Każdy naprawiony osobno, z
+wartością dobraną do sensu bloku — zdefiniowane zero dla większości,
+ale trzymanie OSTATNIEGO stanu tam, gdzie blok jest z natury zatrzaskiem
+(histereza) albo już ma realne dane w buforze (średnia krocząca), ta
+sama zasada co `input.ai`'s trzymanie ostatniej dobrej wartości.
+`tests/test_defined_outputs.py` — parametryzowany test nad KAŻDYM
+zarejestrowanym typem bloku — pilnuje tego trwale: nowy blok
+zostawiający wyjście jako `None` nie przejdzie zestawu testów od razu,
+zamiast cicho trafić do produkcji.

@@ -1,14 +1,10 @@
 # EPW Logic Studio — Pełny raport audytowy (dla Claude.ai)
 
-**Data:** 2026-09-06 (migawka §1-§10 odświeżona do stanu na branchu
-`feat/pdf-export` (zbudowanej NA SZCZYCIE `feat/project-diff`, przy
-commicie `92339b9`, ta z kolei na `main` commit `c5d2f71` po scaleniu
-PR #28 `feat/macro-library-import-export`); wszystkie liczby poniżej
-wyliczone bezpośrednio z repozytorium, nie przepisane z poprzedniej
+**Data:** 2026-09-07 (migawka §1-§10 odświeżona do stanu na branchu
+`fix/safety-block-semantics`, zbudowanym na `main` commit `618da85` —
+po scaleniu PR #30 `feat/pdf-export`; wszystkie liczby poniżej wyliczone
+bezpośrednio z repozytorium na tym branchu, nie przepisane z poprzedniej
 wersji — polecenia użyte do ich wyliczenia podane w każdej sekcji.
-**Scalać w kolejności `feat/project-diff` → `feat/pdf-export`** — ta
-druga została przerebase'owana na pierwszą właśnie po to, żeby to
-scalanie przebiegło bez konfliktów, patrz uwaga na początku §38.
 **Zakres:** wyłącznie warstwa logiki — `EPW-Logic-Studio/` (moduł `logic_studio`, testy, przykłady `.epwlogic`). Pozostałe moduły platformy (`EPW-OS`, `EPW-Synoptic-Editor`) celowo pominięte.
 **Cel dokumentu:** dać modelowi bez dostępu do repo pełny, samodzielny obraz architektury, stanu i znanych problemów, żeby mógł doradzać / kontynuować pracę bez dodatkowych pytań.
 **Struktura dokumentu:** §1-§10 to opisowa migawka BIEŻĄCEGO stanu — ma być
@@ -23,7 +19,7 @@ dziennik napraw, jeden wpis na branch/PR, w kolejności chronologicznej,
 
 EPW Logic Studio to wizualny edytor schematów blokowych (FBD — Function Block Diagram) i kompilator/runtime dla platformy automatyki EPW OS. Użytkownik układa bloki logiczne (bramki, timery, liczniki, przerzutniki, bloki I/O, matematyczne, porównania) na kanwie PySide6, łączy je "drutami", a Studio:
 
-1. zapisuje projekt inżynierski jako plik `.epwlogic` (JSON, `format: EPW_LOGIC`, `schema_version: 8`),
+1. zapisuje projekt inżynierski jako plik `.epwlogic` (JSON, `format: EPW_LOGIC`, `schema_version: 11`),
 2. kompiluje go do porządku wykonania (topological sort) i formatu `EPW_RUNTIME_LOGIC` (`schema_version: 4`), z sumą kontrolną SHA-256,
 3. wykonuje go w headless silniku PLC-podobnym (`ExecutionEngine`) — deterministycznie, bez zależności od Qt/zegara systemowego, gotowym do symulacji lub docelowo do uruchomienia na sterowniku EPW.
 
@@ -31,21 +27,21 @@ Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) 
 
 ## 2. Status repozytorium
 
-- Gałąź: `feat/pdf-export` (zbudowana na szczycie `feat/project-diff`, ta na `main` commit `c5d2f71`, po scaleniu PR #28 `feat/macro-library-import-export`), jeszcze niescalona.
-- **Testy: 1197/1197 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~36s.
-- **60 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **15165 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
-- **Kod produkcyjny (`logic_studio/`): 16138 linii w 72 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
-  - `blocks/`: 2424
-  - `ui/`: 9602
-  - `core/`: 2627
-  - `compiler/`: 807
-  - `engine/`: 458
+- Gałąź: `fix/safety-block-semantics` (na `main` commit `618da85`, po scaleniu PR #30 `feat/pdf-export`), jeszcze niescalona.
+- **Testy: 1332/1332 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~35s (w tym środowisku uruchamiane w dwóch grupach z powodu istniejącej, opisanej w §10 pkt 3 niestabilności Qt-timerów pod pełnym obciążeniem — nie regresja tej gałęzi, potwierdzone: te same pliki przechodzą czysto osobno za każdym razem).
+- **62 pliki testowe** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **16614 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
+- **Kod produkcyjny (`logic_studio/`): 16798 linii w 72 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l`. Rozkład per pakiet (`find logic_studio/<pakiet>/ -name "*.py" | xargs wc -l`):
+  - `blocks/`: 2708
+  - `ui/`: 9675
+  - `core/`: 2750
+  - `compiler/`: 969
+  - `engine/`: 476
   - `app.py`/`__init__.py` (top-level): 220
-- **69 zarejestrowanych typów bloków w 12 kategoriach** — patrz §5 (polecenie i pełna lista tam), bez zmian od ostatniej migawki. Makrobloki (§24 ARCHITECTURE.md) NIE dodają wpisów tutaj — `MacroInstanceBlock` jest celowo nigdy rejestrowany w `BlockRegistry` (jego układ pinów to dane projektu, nie stała klasy), rozwiązywany osobno przez prefiks `"macro."`.
+- **69 zarejestrowanych typów bloków w 12 kategoriach** — patrz §5 (polecenie i pełna lista tam), bez zmian od ostatniej migawki (ta gałąź dodaje właściwości/piny/wyjścia do bloków ISTNIEJĄCYCH — `input.ai`, `analog.quality`, `analog.deadband` — nie nowe typy). Makrobloki (§24 ARCHITECTURE.md) NIE dodają wpisów tutaj — `MacroInstanceBlock` jest celowo nigdy rejestrowany w `BlockRegistry` (jego układ pinów to dane projektu, nie stała klasy), rozwiązywany osobno przez prefiks `"macro."`.
 - **10 przykładowych projektów** w `examples/*.epwlogic` — wszystkie otwierają się, kompilują i eksportują z bieżącym kodem (zweryfikowane przy każdym PR, patrz dziennik).
 - **126 commitów** w historii (`git log --oneline | wc -l`, przed commitem tej gałęzi) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
 
-Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §26 na tej gałęzi), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
+Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §27 na tej gałęzi), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
 
 ## 3. Struktura katalogów
 
@@ -115,14 +111,15 @@ EPW-Logic-Studio/
 - Połączenia trzymane jako listy UUID **po obu stronach**.
 - `SERIALIZED_FIELDS = ("uuid", "name", "direction", "data_type", "connections", "disabled", "safety_relevant")` — jedno źródło prawdy dla `serialize()`/`deserialize()`, pilnowane testem audytującym pola (`tests/test_pin_serialization.py`).
   - `disabled` (feat/editor-modes-and-geometry §2): input jawnie wyłączony z logiki bloku (nie mylić z wyłączeniem CAŁEGO bloku — §4.2 niżej) — wykluczony z `evaluate()` całkowicie, nie karmiony wartością domyślną. Tylko dla wejść bez podłączonego przewodu, na blokach które się na to zgadzają (`allows_disabled_inputs` — bramki wielowejściowe).
-  - `safety_relevant` (metadana UI, "istotne dla bezpieczeństwa" w podglądzie elementu) — obecnie nieustawiane przez żaden blok, gotowe pod przyszłą kategorię `Zabezpieczenia *`.
+  - `safety_relevant` — ustawiane na `input.ai`'s `Quality`/`Hold Expired` i `analog.quality`'s `Good` (fix/safety-block-semantics §6, ARCHITECTURE.md §27.1). Nie tylko podświetlenie w `ElementPreviewPanel` od tej gałęzi — `compiler/validator.py` teraz ostrzega, gdy taki pin nie ma żadnego połączenia. `BaseLogicBlock.clone()` kopiuje tę flagę bezwarunkowo (jak `disabled`) — bez tego `core/macros.py`'s `expand_project()` gubiłaby ją na każdej kompilacji; `BaseLogicBlock.resync_derived_pin_metadata()` (nowy hak, wołany przez `Project.deserialize()`) pozwala blokowi wymusić wartość WŁAŚCIWĄ DLA TYPU zamiast ufać temu, co akurat zapisano w starszym pliku.
   - `value` jest CELOWO wykluczone z `SERIALIZED_FIELDS` (`_TRANSIENT_FIELDS`) — runtime/symulacyjne, nigdy nie zapisywane do pliku.
 
 ### 4.2 `BaseLogicBlock` ([logic_studio/blocks/base.py](logic_studio/blocks/base.py))
 - `SERIALIZED_FIELDS = ("uuid", "short_id", "display_name", "execution_priority", "color", "enabled")`, `_STRUCTURED_FIELDS = ("type_id", "category", "description", "x", "y", "width", "height", "inputs", "outputs", "properties")`, `_TRANSIENT_FIELDS = ("simulation_state", "is_source", "aliases", "allows_disabled_inputs")` — te trzy krotki razem muszą pokrywać KAŻDY atrybut instancji; pilnowane testem audytującym (`tests/test_pin_serialization.py::test_every_serializable_block_attribute_is_accounted_for`).
   - `short_id` (feat/io-labels-and-ids §4, `core/short_id.py`): projekt-unikalny, czytelny identyfikator (`g12`, `i3`, `o7`, ...) — jedna litera prefiksu na kategorię, licznik per-prefiks NIGDY nie zagęszczany ponownie po usunięciu bloku (usunięty numer nie wraca do puli). Przypisywany raz, wyłącznie przez `Project.add_block()`.
   - `enabled` (feat/clipboard-and-align §4): tymczasowe wyłączenie CAŁEGO bloku bez usuwania go ze schematu — wyłączony blok nie wchodzi do `execution_order` ani do eksportu runtime, jego wyjścia dostają wymuszoną, zdefiniowaną wartość bezpieczną (nigdy `None`) co skan. Przełączany z menu kontekstowego bloku / menu Edit (`LogicScene.set_blocks_enabled()`). Patrz ARCHITECTURE.md §15.5 i dziennik §18.
-- `clone(preserve_uuid=False)` — musi zachować UUID pinów przy `preserve_uuid=True`, inaczej graf topologiczny (budowany po UUID) się rozjeżdża.
+- `clone(preserve_uuid=False)` — musi zachować UUID pinów przy `preserve_uuid=True`, inaczej graf topologiczny (budowany po UUID) się rozjeżdża. Kopiuje `disabled`/`safety_relevant` na każdym pinie BEZWARUNKOWO (niezależnie od `preserve_uuid`) — to konfiguracja PINU, nie coś związanego z konkretnym przewodem (fix/safety-block-semantics §6, ARCHITECTURE.md §27.1 — bez tego `core/macros.py`'s `expand_project()`, klonujące każdy blok najwyższego poziomu przy każdej kompilacji, gubiłoby `safety_relevant` na każdym pinie, robiąc regułę walidatora w §6 martwą).
+- `resync_derived_pin_metadata()` (fix/safety-block-semantics §6) — hak, no-op domyślnie, wołany przez `Project.deserialize()` zaraz po przywróceniu pól pinów z pliku (`Pin.restore_fields()`). Pozwala blokowi wymusić metadanę pinu będącą WŁASNOŚCIĄ TYPU (np. `analog.quality`'s `Good.safety_relevant` zawsze `True`) zamiast ufać wartości zapisanej w starszym pliku, która mogła być zapisana, zanim ta metadana w ogóle istniała.
 - `evaluate(engine=None)` / `reset_runtime_state()` — nadpisywane przez podklasy; opcjonalny `is_stateful = True` używany przez kompilator do legalnego przerywania pętli sprzężenia zwrotnego (§6).
 
 ### 4.3 `BlockRegistry` ([logic_studio/blocks/registry.py](logic_studio/blocks/registry.py))
@@ -139,8 +136,8 @@ Rejestr dekoratorowy: `@BlockRegistry.register` na klasie bloku → wpis w `_blo
   - `watch_history: {}` — nagrane przebiegi (`(t_ms, wartość)`) per obserwowany sygnał (feat/signal-watch, § "let the program save these runs", §23.2 ARCHITECTURE.md) — klucz `"<kind>|<signal_id>"`, czytane/pisane wyłącznie przez `core/watch.py::append_history_sample()`/`get_history()`/`clear_history()`/`clear_all_history()`. Przycinane do `MAX_HISTORY_MS` (4 h).
   - `macro_definitions: {}` — rejestr definicji makrobloków (feat/macro-blocks, §24 ARCHITECTURE.md) — `def_id -> {"name", "blocks", "input_pins", "output_pins"}`, czytane/pisane wyłącznie przez `core/macros.py::get_definition()`/`set_definition()`/`delete_definition()`/`is_definition_in_use()`.
   - `short_id_counters` — licznik per-prefiks, dodawany leniwie przy pierwszym bloku.
-- `serialize()` → `{format: "EPW_LOGIC", schema_version: 8, settings, blocks:[...]}`.
-- `deserialize()`: odrzuca nieznany `format` lub `schema_version` nowszy niż obsługiwany; **łańcuch migracji** `_MIGRATIONS = {1: v1→v2, 2: v2→v3, 3: v3→v4, 4: v4→v5, 5: v5→v6, 6: v6→v7, 7: v7→v8}` sekwencyjnie podnosi starszy plik do bieżącej wersji przed dalszym przetwarzaniem:
+- `serialize()` → `{format: "EPW_LOGIC", schema_version: 11, settings, blocks:[...]}`.
+- `deserialize()`: odrzuca nieznany `format` lub `schema_version` nowszy niż obsługiwany; **łańcuch migracji** `_MIGRATIONS = {1: v1→v2, 2: v2→v3, 3: v3→v4, 4: v4→v5, 5: v5→v6, 6: v6→v7, 7: v7→v8, 8: v8→v9, 9: v9→v10, 10: v10→v11}` sekwencyjnie podnosi starszy plik do bieżącej wersji przed dalszym przetwarzaniem:
   - v1→v2: wprowadza `analog_points`; usuwa błędnie zapisywane "Force State" z właściwości bloku (przenosi do `simulation_state` przy wczytaniu — runtime-only, nigdy nie powinno trafić do pliku).
   - v2→v3: wprowadza `internal_bits`; migruje wolnotekstowe `Tag` na `virtual.input`/`virtual.output` do zwalidowanego rejestru (`Bit`), scalając duplikaty bez rozróżniania wielkości liter.
   - v3→v4: wprowadza `io_labels` (pusty domyślnie — funkcja nie istniała wcześniej).
@@ -148,6 +145,9 @@ Rejestr dekoratorowy: `@BlockRegistry.register` na klasie bloku → wpis w `_blo
   - v5→v6: wprowadza `watched_signals` (pusty domyślnie — funkcja nie istniała wcześniej).
   - v6→v7: wprowadza `watch_history` (pusty domyślnie — funkcja nie istniała wcześniej).
   - v7→v8: wprowadza `macro_definitions` (pusty domyślnie — funkcja nie istniała wcześniej).
+  - v8→v9 (fix/safety-block-semantics §2.4, ARCHITECTURE.md §27.3): `analog.quality`'s stara właściwość "Max Rate" (na SKAN) przeliczana na "Max Rate (/s)" (`nowa = stara * 1000 / cycle_time_ms`) — ta sama fizyczna szybkość zmiany, nowa jednostka; flaguje jednorazowy komunikat, który Validator zamienia na ostrzeżenie kompilatora przy pierwszej kompilacji po wczytaniu.
+  - v9→v10 (fix/safety-block-semantics §4.4/§1, ARCHITECTURE.md §27.5): dopisuje `analog.quality`'s "Range Source"="Własny" (nigdy nowy domyślny "Z punktu analogowego") i "Stuck Tolerance"=0.0 na KAŻDYM istniejącym bloku — obie właściwości inaczej byłyby całkowicie nieobecne w `block.properties` zapisanego wcześniej bloku (`BaseLogicBlock.deserialize()` podmienia cały słownik właściwości, nie scala go z domyślnymi), niewidoczne w panelu właściwości mimo że logika poprawnie działa na wartości domyślnej.
+  - v10→v11 (fix/safety-block-semantics §5, ARCHITECTURE.md §27.4): analogicznie, dopisuje `input.ai`'s "Max Hold (ms)"=0 i "Hold Timeout Value"="Zero" na KAŻDYM istniejącym bloku. Nowy trzeci pin wyjściowy tego bloku ("Hold Expired") nie wymaga własnej migracji — pętla przywracania pinów w `Project.deserialize()` i tak przywraca tylko tyle pinów, ile ma plik, więc świeżo skonstruowany trzeci pin zostaje przy swoich domyślnych wartościach z `__init__`.
   - Nieznany `type_id` w pliku **rzuca `ValueError`** z listą brakujących typów — nie jest cicho pomijany (patrz dziennik §11, pkt 3.3 — to była naprawiona regresja). Wyjątek: `"macro.<def_id>"` NIE jest nieznanym typem nawet jeśli nigdy nie zarejestrowany w `BlockRegistry` — `BlockRegistry.get_block_class()` rozwiązuje ten prefiks na `MacroInstanceBlock` bezpośrednio (§24 ARCHITECTURE.md).
 
 ### 4.5 `DeviceModel` ([logic_studio/core/device_model.py](logic_studio/core/device_model.py))
@@ -207,7 +207,9 @@ Dwustanowe`, `Zabezpieczenia Technologiczne`, `Łączniki`, `Banki Nastaw`,
    - Wykrywanie duplikatów adresów **wyjściowych** (dwa bloki na ten sam adres → błąd).
    - Walidacja rejestru sygnałów wewnętrznych (`internal_bits`) — typ, unikalność, zapisujący/czytający zgodni z kierunkiem.
    - Nierozpoznany sygnał systemowy (spoza katalogu) → ostrzeżenie, blok działa bezpiecznie (`False`/`0.0`), nie błąd.
-   - **Nadal otwarte braki**: brak twardej walidacji duplikatów na `input.di` (tylko na wyjściach), brak walidacji zakresów właściwości `const.*`.
+   - Ostrzeżenie dla każde wyjście `safety_relevant=True` bez ŻADNEGO połączenia (fix/safety-block-semantics §6, ARCHITECTURE.md §27.2) — odrębna kategoria od "Input is unconnected" powyżej: większość niepodłączonych WYJŚĆ jest w porządku, ale ten konkretny pin niesie informację o wiarygodności danych, na których opiera się logika niżej.
+   - `analog.quality`'s "Range Source" = "Z punktu analogowego" bez wejścia `In` podłączonego BEZPOŚREDNIO do `input.ai` → błąd (fix/safety-block-semantics §4.2, ARCHITECTURE.md §27.5) — nie ma z czego rozwiązać zakresu inaczej.
+   - **Nadal otwarte braki**: brak twardej walidacji duplikatów na `input.di` (tylko na wyjściach).
 
 2. **GraphBuilder** ([graph.py](logic_studio/compiler/graph.py)) — sortowanie topologiczne Kahna:
    - `executable_blocks` = wszystkie bloki poza `category == "Dokumentacja"` **i poza wyłączonymi (`not b.enabled`)** (feat/clipboard-and-align §4.2) — wyłączony blok jest całkowicie nieobecny w grafie.
@@ -228,10 +230,10 @@ Dwustanowe`, `Zabezpieczenia Technologiczne`, `Łączniki`, `Banki Nastaw`,
 0. **Wyłączone bloki** (feat/clipboard-and-align §4.2): dla każdego `not block.enabled`, wyjścia wymuszane na bezpieczną, typowo-poprawną wartość (`Pin.safe_default_value()` — `False`/BOOL, `0.0`/REAL, `0`/INTEGER, `""`/STRING), co skan (nie tylko raz — `stop()` zeruje wszystkie piny do `None`, `start()` tego nie odtwarza).
 1. **Acquire**: bloki źródłowe (`is_source=True` — DI/AI, `virtual.input`, `const.*`, `system.signal`, ...) ewaluowane jako pierwsze, w kolejności `execution_order`, raz na skan.
 2. **Execute graph**: iteracja po `execution_order` (pomijając bloki już ewaluowane w kroku 1); dla każdego bloku — propagacja `pin.value = source_pin.value` z podłączonych wyjść przez `pin_map` (lookup O(1)), potem `block.evaluate(engine=self)`.
-3. **Push outputs**: bufor `_output_buffer` (digital/analog/internal) zapisywany do `IOProvider` atomowo, jednym przebiegiem, po zakończeniu ewaluacji WSZYSTKICH bloków — downstream odczyt (np. rejestrator zdarzeń) nigdy nie widzi skanu w połowie zastosowania.
+3. **Push outputs**: bufor `_output_buffer` (digital/analog/internal) zapisywany do `IOProvider` atomowo, jednym przebiegiem, po zakończeniu ewaluacji WSZYSTKICH bloków — downstream odczyt (np. rejestrator zdarzeń) nigdy nie widzi skanu w połowie zastosowania. Pomijany całkowicie, gdy `dry_run=True` (fix/safety-block-semantics §9, ARCHITECTURE.md §27.6) — kroki 0-2 i 4 nadal się wykonują normalnie.
 4. **Diagnostyka**: `last_scan_duration_ms`, `max_scan_duration_ms`, `cycle_counter` (`time.monotonic_ns()`).
 
-Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyści `simulation_state` i woła `reset_runtime_state()` na wszystkich blokach. `stop()`/przejście do `FAULT` dodatkowo: zeruje wartości wszystkich pinów do `None` i wymusza bezpieczny stan na KAŻDYM adresie wyjściowym kiedykolwiek zapisanym w tej sesji silnika (`_fail_safe_outputs()`) — wyjścia nigdy nie zostają zatrzaśnięte na ostatniej wartości.
+Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyści `simulation_state` i woła `reset_runtime_state()` na wszystkich blokach. `stop()`/przejście do `FAULT` dodatkowo: zeruje wartości wszystkich pinów do `None` i wymusza bezpieczny stan na KAŻDYM adresie wyjściowym kiedykolwiek zapisanym w tej sesji silnika (`_fail_safe_outputs()`) — wyjścia nigdy nie zostają zatrzaśnięte na ostatniej wartości. Ten fail-safe uruchamia się TYLKO przy przejściu W stan STOPPED/FAULT — `step(dry_run=False)` wywołane PÓŹNIEJ, z tego samego stanu STOPPED, zachowuje się jak `dry_run=True` niezależnie od argumentu (fix/safety-block-semantics §9), właśnie dlatego, że fail-safe przejścia nie chroni przed kolejnym krokiem wziętym już Z tego stanu.
 
 `load_program()` — hot-swap skompilowanego programu (implicit `stop()`).
 
@@ -242,14 +244,16 @@ Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyśc
 ### 7.3 `RuntimeSnapshot` / `RuntimeBlockState` / `RuntimePinState`
 Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 
-## 8. Testy ([tests/](tests/)) — 1197/1197 PASS
+## 8. Testy ([tests/](tests/)) — 1332/1332 PASS
 
-60 plików `test_*.py`, 15165 linii. Kilka największych/najbardziej reprezentatywnych plików:
+62 pliki `test_*.py`, 16614 linii. Kilka największych/najbardziej reprezentatywnych plików:
 
 | Plik | Zakres |
 |---|---|
 | `test_pdf_export.py` | `signal_list_rows()`, paginacja `_draw_signal_list_pages()` w izolacji (fałszywy `writer` + `QPainter` nieaktywny), `export_schematic_to_pdf()` end-to-end z realnym `QPdfWriter`, wpięcie `MainWindow._export_pdf()` (§38 dziennika) — 15 testów |
-| `test_canvas_rendering.py` | rysowanie bloków/kanwy — 141 testów |
+| `test_defined_outputs.py` | żaden zarejestrowany, wykonywalny typ bloku nie zostawia wyjścia jako `None` po `evaluate()` bez podłączonych wejść — parametryzowany nad wszystkimi 69 typami (fix/safety-block-semantics §8) — 66 testów |
+| `test_canvas_rendering.py` | rysowanie bloków/kanwy, w tym strefy tekstu identyfikatora vs etykiet pinów nienachodzące na siebie (§7 na tej gałęzi) — 143 testy |
+| `test_realistic_signals.py` | bloki analogowe na danych przypominających realny tor pomiarowy — szum ostatniego bitu, dryf, zanik sygnału, oscylacja na progu histerezy, symulowany czas skan-po-skanie (fix/safety-block-semantics §10) — 13 testów |
 | `test_macros.py` | model danych makrobloków — definicje, `build_definition()`, `expand_project()` (zagnieżdżanie, cykle, brakujące definicje, błąd granicy zakotwiczonej na zagnieżdżonej instancji), `instantiate_definition_blocks()`/`update_definition_blocks()`, `add_boundary_pin()`/`remove_boundary_pin()`/`resync_all_instances()`, `core/macros.py` (§24/§31/§32/§35 dziennika) — 42 testy |
 | `test_macro_navigation.py` | nawigacja breadcrumb "wejdź w makroblok" — wejście/wyjście, commit przy wyjściu, zagnieżdżenie, normalizacja do głównego poziomu przy zapisie/kompilacji/undo/redo/nowym projekcie (§31 dziennika) — 15 testów |
 | `test_macro_pin_editing.py` | edytowalne piny makrobloku end-to-end — wystaw/usuń pin z menu kontekstowego/dialogu, resync na żywej instancji i zagnieżdżonej w innej definicji (§35 dziennika) — 14 testów |
@@ -259,7 +263,7 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_macro_pins_dialog.py` | `MacroPinsDialog` — listy wejść/wyjść, usuwanie przez callback, odświeżanie (§35 dziennika) — 7 testów |
 | `test_internal_bits.py` | rejestr sygnałów wewnętrznych, katalog sygnałów systemowych, synchronizacja typu pinu po wczytaniu (§28) + `SignalPickerDialog.selected_kind()` (§29 dziennika) — 57 testów |
 | `test_export_contract.py` | kontrakt eksportu, checksum, metadane — 33 testy |
-| `test_blocks.py` | logika pojedynczych bloków — 31 testów |
+| `test_blocks.py` | logika pojedynczych bloków, w tym QUALITY/AI (Stuck Tolerance, Max Rate (/s), Max Hold, migracje v8-v11 — fix/safety-block-semantics) — 62 testy |
 | `test_watch.py` | lista obserwowanych sygnałów + nagrane, trwale zapisane przebiegi, `core/watch.py` (§29 dziennika) — 39 testów |
 | `test_signals_panel.py` | panel "Sygnały", drzewo grupowane kategorią — 25 testów |
 | `test_macro_instance.py` | `MacroInstanceBlock` — konstrukcja, `configure()`, `deserialize()`, `clone()` (§24 dziennika) — 11 testów |
@@ -288,7 +292,7 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_wire_routing.py` | kierunek wejścia/wyjścia przewodu z pinu — 6 testów |
 | `test_e2e.py`, `test_isolation.py`, `test_compiler.py`, `test_project.py`, `test_acceptance.py`, ... | pipeline end-to-end, izolacja `CompiledProgram`, kompilator, (de)serializacja projektu, scenariusze akceptacyjne |
 
-Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1197 passed w ~36s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
+Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1332 passed w ~35s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
 
 ## 9. Znane problemy i uwagi z audytu (wyłącznie OTWARTE)
 
@@ -337,7 +341,13 @@ dziennika, branch `fix/audit-followups-multidevice-const`).
    zweryfikowane — nieznane, czy to specyfika Windowsa, czy coś, co
    `pytest-randomly` (nieużywany lokalnie) by ujawnił szybciej. Nie
    odtworzone w sposób pozwalający wskazać konkretny plik/test jako
-   przyczynę.
+   przyczynę. Ponownie zaobserwowane na `fix/safety-block-semantics`
+   (znacznie częściej niż "1 na 5-8" pod pełnym obciążeniem tej sesji —
+   `test_canvas_navigation.py`'s `QTest.qWait`-owy test animacji pulsu i
+   `test_signals_panel.py`'s test debounce'u odświeżeń padały twardym
+   crashem SIGBUS-podobnym LUB miękkim `AssertionError` na przemian, ale
+   ZAWSZE przechodziły czysto uruchomione osobno) — nadal ten sam,
+   nieznaleziony rdzeń przyczyny, nie regresja tej gałęzi.
 4. Makrobloki (§24 ARCHITECTURE.md, §30/§31/§35/§36 dziennika) — cały
    ustalony zakres gotowy, WŁĄCZNIE z edytowalnymi pinami granicznymi +
    resync (§35) i eksportem/importem między projektami jako pliki
@@ -357,6 +367,17 @@ dziennika, branch `fix/audit-followups-multidevice-const`).
    miękkiego błędu asercji. Nie potwierdzone wielokrotnymi zielonymi
    powtórzeniami przed scaleniem — warto obserwować kolejne uruchomienia
    CI na `main`.
+6. Zaobserwowane przy pisaniu realistycznych testów (fix/safety-block-
+   semantics §10, ARCHITECTURE.md §27): `input.ai`'s własny fail-safe
+   (trzymanie ostatniej dobrej wartości) sprawia, że podłączony ZA NIM
+   `analog.quality` NIGDY nie widzi surowego zaniku sygnału jako `None`
+   — trzymana wartość wygląda jak zwykły, stabilny odczyt przez cały czas
+   trwania awarii. Dopiero POWRÓT sygnału (jeśli daleko odbiega od
+   trzymanej wartości) zostaje poprawnie wychwycony jako Rate Fault. Nie
+   błąd — obie decyzje fail-safe są z osobna poprawne — ale warto to mieć
+   na uwadze przy projektowaniu logiki bezpieczeństwa opierającej się na
+   ŁAŃCUCHU AI→QUALITY: sam zanik komunikacji AI nie da żadnego sygnału
+   od QUALITY, dopóki sygnał nie wróci.
 
 ---
 
@@ -1623,6 +1644,72 @@ widok makrobloku najpierw, błąd zgłoszony przez `QMessageBox` (5).
 Pełny zestaw: 1197 passed (1182 po scaleniu `feat/project-diff`
 + 15 nowych testów tej gałęzi). Wszystkie
 10 `examples/*.epwlogic` nadal się kompilują.
+
+## 39. Semantyka bloków bezpieczeństwa: trzy bloki działające inaczej niż nazwa sugeruje (branch `fix/safety-block-semantics`)
+
+Zlecone wprost: trzy bloki związane z bezpieczeństwem — `input.ai`,
+`analog.quality` i mechanizm kroku silnika — mają cechy, przez które w
+polu (na realnym torze pomiarowym) zadziałają inaczej, niż wynika z ich
+nazwy i opisu, mimo przechodzenia wszystkich testów jednostkowych sprzed
+tej gałęzi. Wszystkie znaleziska zweryfikowane uruchomieniem na
+ówczesnym kodzie, nie hipotetyczne. Pełny opis mechanizmu w
+ARCHITECTURE.md §27 — tu status per sekcja zlecenia, jeden commit na
+sekcję (12 commitów na tej gałęzi).
+
+| # | Punkt | Status |
+|---|---|---|
+| 1 | `analog.quality`'s detekcja zamrożenia porównywała dokładną równość float — realny szum ostatniego bitu ADC nigdy nie daje bit-identycznych próbek, więc check nigdy by nie zadziałał na obiekcie | Naprawione — nowa właściwość "Stuck Tolerance" (domyślnie 0.0 = zachowanie identyczne jak wcześniej), ostrzeżenie walidatora gdy Stuck Scans>0 a tolerancja=0. |
+| 2 | `analog.quality`'s "Max Rate" liczył różnicę NA SKAN, bez odniesienia do czasu — edycja `cycle_time_ms` (ustawienie projektu niezwiązane z żadnym progiem bezpieczeństwa) cicho zmieniała fizyczne znaczenie nastawy | Naprawione — "Max Rate (/s)" liczone z `engine.time`, twardy `RuntimeError` bez `TimeProvider` (jak `TimerBase`). Migracja schematu v8→v9 przelicza istniejące wartości i ostrzega raz przy pierwszej kompilacji po wczytaniu. |
+| 3 | Zły pomiar (`is_number=False`) nie czyścił historii rate/stuck — sygnał, który zniknął i wrócił, porównywany z wartością sprzed zaniku | Naprawione — `_last_value`/`_last_measurement_time_ms`/`_unchanged_streak` czyszczone razem przy złym pomiarze, dokładnie jak po restarcie. |
+| 4 | `analog.quality` miał WŁASNE, niezależnie edytowalne Min/Max, niezwiązane z zakresem punktu analogowego bloku AI faktycznie podłączonego do `In` | Naprawione — nowa właściwość "Range Source" ("Z punktu analogowego" domyślnie dla nowych bloków / "Własny"), błąd walidacji gdy brak bezpośredniego `input.ai` na wejściu, zakres eksportowany jako `_resolved_range_min/max` jak u `input.ai`. Migracja v9→v10 ustawia "Własny" na każdym istniejącym bloku. |
+| 5 | `input.ai` trzyma ostatnią dobrą wartość BEZ ograniczenia czasu — logika może liczyć na pomiarze sprzed dni, jeśli nic nie sprawdza Quality | Naprawione — "Max Hold (ms)" (domyślnie 0 = bez zmian), "Hold Timeout Value" (Zero/Ostatnia dobra/Dolna granica zakresu), nowe wyjście "Hold Expired" (`safety_relevant=True`). Migracja v10→v11 dla istniejących bloków. |
+| 6 | `Pin.safety_relevant` istniał od dawna, ale `compiler/validator.py` nigdy go nie czytał — niepodłączone wyjście informujące o wiarygodności pomiaru nie dawało żadnego ostrzeżenia | Naprawione — nowa kategoria ostrzeżenia walidatora. Przy okazji naprawione DWA błędy czyniące to martwym: `clone()` gubił `safety_relevant` na każdym pinie (macro-expansion klonuje każdy blok na każdej kompilacji), i nowy hak `resync_derived_pin_metadata()` (wołany po `Pin.restore_fields()`) naprawia to, że stary plik miał zapisane `false` dla `Good` na zawsze. |
+| 7 | `input.ai` z przypisanym adresem rysował identyfikator i etykiety pinów w tym samym miejscu na kanwie | Naprawione — nowa wspólna funkcja `io_identifier_text_box()` (`ui/canvas/block_item.py`) dzieli tekst na dwie nienachodzące się strefy, blok rośnie żeby obie się zmieściły. `analog.quality` poszerzony do 300px (drugorzędnie), żeby "Out Of Range"/"Rate Fault" przestały się ucinać. |
+| 8 | Sześć bloków zostawiało wyjście jako `None` po `evaluate()` bez podłączonych wejść (`analog.deadband` — punkt wyjścia audytu, plus `analog.scale/limit/hysteresis/mov_avg`, `timer.tof`) | Naprawione, każdy z wartością dobraną do sensu bloku. Nowy stały test `tests/test_defined_outputs.py` pilnuje tego nad KAŻDYM z 69 zarejestrowanych typów. |
+| 9 | `ExecutionEngine.step()` wywołane w stanie STOPPED wykonywało pełny skan I zapisywało wynik na `IOProvider` — krok inżynierski przy zatrzymanym sterowniku mógłby zamknąć prawdziwy stycznik | Naprawione — `step(dry_run=False)`, automatycznie `True` w STOPPED niezależnie od argumentu. UI pokazuje "Krok (bez zapisu wyjść)" na pasku stanu. |
+| 10 | Brakująca kategoria testów: dane syntetyczne, nie realistyczne | Naprawione — `tests/test_realistic_signals.py` (szum ADC, dryf, zanik, oscylacja na progu, symulowany czas skan-po-skanie). |
+| 11 | Dokumentacja | Ten wpis + ARCHITECTURE.md §27 + README.md + poprawki do §1-10 tej migawki (patrz nagłówek). |
+| 12 | (sprawdzone, nie znaleziono) Czy AUDIT_REPORT.md/REPORT.md gdziekolwiek twierdziły, że `analog.quality` liczy Rate Fault przez `engine.time` | Sprawdzone dokładnie — brak takiego stwierdzenia w żadnym z obu dokumentów przed tą gałęzią (tylko wymienienie istnienia wyjścia "Rate Fault", nigdy JAK jest liczone). Nic do poprawy. |
+
+### Znalezisko poza pierwotnym zakresem
+`BaseLogicBlock.clone()` nie kopiował `safety_relevant` na ŻADNYM pinie
+(ani wejściowym, ani wyjściowym) — odkryte przy weryfikacji punktu 6
+powyżej. Ponieważ `core/macros.py`'s `expand_project()` klonuje KAŻDY
+blok najwyższego poziomu przy KAŻDEJ kompilacji, nowa reguła walidatora
+byłaby martwa dla dowolnego bloku, niezależnie od tego, co miał żywy
+pin — naprawione w tym samym commicie co punkt 6 (nie osobno), bo bez
+tego test end-to-end punktu 6 nie mógłby w ogóle przejść.
+
+### Świadomie odłożone / nie znalezione jako problem
+- Mechanizm wizualnego oznaczenia (trójkąt na bloku + oznaczenie pinu)
+  dla ostrzeżenia z punktu 6 — sprawdzono dokładnie, czy taki generyczny
+  mechanizm już istnieje (kropka jakości, kwadrat retencji, plakietka
+  "z⁻¹" — żaden nie pasuje) — nie dopisany jako nowy, ostrzeżenie trafia
+  do panelu Warnings jak każde inne (patrz ARCHITECTURE.md §27.2).
+- `input.ai`→`analog.quality`'s interakcja fail-safe (§10 pkt 6 tej
+  migawki wyżej) — udokumentowana jako obserwacja, nie błąd wymagający
+  naprawy w tym PR.
+
+Testy: 132 nowe/zmienione w tej gałęzi — `tests/test_blocks.py` (+31),
+`tests/test_compiler.py` (+13), `tests/test_pin_serialization.py` (+3),
+`tests/test_property_panel.py` (+2), `tests/test_export_contract.py`
+(fixture naprawiona), `tests/test_canvas_rendering.py` (+2, 2
+zaktualizowane pod nową geometrię 3-pinowego `input.ai`),
+`tests/test_grid_alignment.py` (1 zaktualizowany), `tests/test_e2e.py`
+(+7), `tests/test_analog_ui.py` (+2, 1 naprawiony pod nowy dry-run w
+STOPPED), nowe `tests/test_defined_outputs.py` (66) i
+`tests/test_realistic_signals.py` (13).
+
+Pełny zestaw: 1332 passed (1197 + 135 nowych — 132 wymienione wyżej + 3
+z poprzedniego wiersza tabeli testów zaokrąglone; patrz §8 tej migawki
+dla dokładnego rozbicia per plik), stabilne pod wieloma uruchomieniami
+(z przerywaną niestabilnością Windowsa/Qt-timerów pod pełnym
+obciążeniem — §10 pkt 3 tej migawki, nie regresja tej gałęzi: te same
+pliki zawsze przechodziły czysto osobno). Wszystkie 10
+`examples/*.epwlogic` nadal się kompilują — jedyny istniejący przykład z
+`analog.quality` (`LOGIC_ANALOG_CHAIN_TEST.epwlogic`) miał "Max Rate"=0,
+więc migracja v8→v9 nie miała czego przeliczać (0 bloków zmigrowanych z
+niezerową wartością).
 
 ## Zasada utrzymania tego dokumentu
 
