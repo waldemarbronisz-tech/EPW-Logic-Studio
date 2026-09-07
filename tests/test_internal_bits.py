@@ -173,7 +173,14 @@ def test_virtual_output_to_virtual_input_same_scan_via_compiler():
 def test_catalog_loads_and_has_expected_categories():
     from logic_studio.core import system_signals
     names = [c["name"] for c in system_signals.get_categories()]
-    assert names == ["Stan systemu", "Komunikacja", "Poziom dostępu", "Generatory czasu"]
+    # feat/sswin-signals (catalog 1.1.0): four new categories exposing the
+    # FIXED part of EPW-OS's alarm/intrusion subsystem, appended after the
+    # original four — see system_signals_catalog.json's own _comment for
+    # why the dynamic per-line part (SSWIN.L<n>.*) is deliberately absent.
+    assert names == [
+        "Stan systemu", "Komunikacja", "Poziom dostępu", "Generatory czasu",
+        "Stan dozoru", "Alarmy", "Sygnalizatory", "Komendy",
+    ]
 
 def test_catalog_contains_every_signal_from_the_spec():
     from logic_studio.core import system_signals
@@ -185,13 +192,27 @@ def test_catalog_contains_every_signal_from_the_spec():
         "ADA01.ONLINE", "ADA01.FAULT", "ADA01.SAFE_PATH_OK",
         "SYS.ACCESS_LEVEL", "SYS.ACCESS_USER", "SYS.ACCESS_OPERATOR", "SYS.ACCESS_ENGINEER",
         "SYS.PULSE_100MS", "SYS.PULSE_500MS", "SYS.PULSE_1S", "SYS.BLINK_SLOW", "SYS.BLINK_FAST",
+        # feat/sswin-signals — SSWIN.STATE
+        "SSWIN.ARMED", "SSWIN.ARMED_PARTIAL", "SSWIN.DISARMED", "SSWIN.READY_TO_ARM",
+        "SSWIN.EXIT_DELAY", "SSWIN.ENTRY_DELAY", "SSWIN.DELAY_REMAINING",
+        # SSWIN.ALARM
+        "SSWIN.ALARM_ACTIVE", "SSWIN.ALARM_LATCHED", "SSWIN.ALARM_MEMORY", "SSWIN.PANIC",
+        "SSWIN.TAMPER", "SSWIN.FAULT", "SSWIN.LAST_TRIGGER", "SSWIN.ACTIVE_COUNT",
+        # SSWIN.OUT
+        "SSWIN.SIREN_ACTIVE", "SSWIN.STROBE_ACTIVE", "SSWIN.SIREN_TIME_LEFT",
+        # SSWIN.CMD
+        "SSWIN.CMD_ARM", "SSWIN.CMD_ARM_PARTIAL", "SSWIN.CMD_DISARM", "SSWIN.CMD_RESET",
+        "SSWIN.CMD_SILENCE",
     }
     assert ids == expected
 
 def test_catalog_safety_relevant_signals():
     from logic_studio.core import system_signals
     safety = {s["id"] for s in system_signals.get_all_signals() if s["safety_relevant"]}
-    assert safety == {"SYS.HEALTH", "SYS.FAULT", "ELA01.FAULT", "ADA01.FAULT", "ADA01.SAFE_PATH_OK"}
+    assert safety == {
+        "SYS.HEALTH", "SYS.FAULT", "ELA01.FAULT", "ADA01.FAULT", "ADA01.SAFE_PATH_OK",
+        "SSWIN.PANIC", "SSWIN.TAMPER", "SSWIN.FAULT", "SSWIN.CMD_DISARM",
+    }
 
 def test_catalog_get_signal_unknown_returns_none():
     from logic_studio.core import system_signals

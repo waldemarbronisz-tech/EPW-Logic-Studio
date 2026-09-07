@@ -1,8 +1,8 @@
 {
   "format": "EPW_SIGNAL_CATALOG",
   "schema_version": 1,
-  "catalog_version": "1.0.0",
-  "_comment": "Fixed platform contract, identical in every project — see ARCHITECTURE.md 'Przestrzenie nazw sygnałów'. Deliberately does NOT yet include EPM recorder, protection (zabezpieczenia), or telemechanics signals — those wait on that part of the platform contract being frozen. A new signal is a MINOR catalog_version bump; removing or renaming one is MAJOR (a project compiled against an older catalog_version than a signal's introduction should be handled by EPW-OS's own compatibility check, not this file).",
+  "catalog_version": "1.1.0",
+  "_comment": "Fixed platform contract, identical in every project — see ARCHITECTURE.md 'Przestrzenie nazw sygnałów'. Deliberately does NOT yet include EPM recorder, protection (zabezpieczenia), or telemechanics signals — those wait on that part of the platform contract being frozen. A new signal is a MINOR catalog_version bump; removing or renaming one is MAJOR (a project compiled against an older catalog_version than a signal's introduction should be handled by EPW-OS's own compatibility check, not this file). feat/sswin-signals (1.1.0): exposes the FIXED part of EPW-OS's alarm/intrusion subsystem (dozór, sabotaż) — state, alarms, sirens, and the commands logic may issue back to it. The dynamic part (per-line signals, SSWIN.L<n>.*) is deliberately NOT here: their count comes from the object's own EPW-OS configuration, not from hardware Logic Studio knows about, and needs a catalog-import mechanism analogous to the ELA/ADA device list import — a separate PR. Do not hand-add SSWIN.L<n>.* entries here. Prefix SSWIN. (not ALM., which is reserved for compiler-side alarm.definition conditions the logic itself computes and an operator acknowledges) is deliberate: ALM. and SSWIN. name two different kinds of thing — a logic-computed condition vs. a device subsystem's own state — and a name close to ALM./ALARM. in the signal picker's tree would invite exactly the kind of mix-up a fixed platform catalog exists to prevent. Should the alarm system later gain zone support, the SSWIN.STATE signals below keep their current, aggregate meaning (ARMED = any zone armed) and per-zone state would arrive as its own dimension, SSWIN.Z<n>.*, not by changing what these mean.",
   "categories": [
     {
       "id": "SYS.STATE",
@@ -46,6 +46,56 @@
         {"id": "SYS.PULSE_1S", "description": "Impuls 1 s", "label": "", "type": "BOOL", "source": "runtime", "safety_relevant": false},
         {"id": "SYS.BLINK_SLOW", "description": "Miganie wolne (1 Hz)", "label": "MIG WOLNE", "type": "BOOL", "source": "runtime", "safety_relevant": false},
         {"id": "SYS.BLINK_FAST", "description": "Miganie szybkie (4 Hz)", "label": "MIG SZYBKIE", "type": "BOOL", "source": "runtime", "safety_relevant": false}
+      ]
+    },
+    {
+      "id": "SSWIN.STATE",
+      "name": "Stan dozoru",
+      "signals": [
+        {"id": "SSWIN.ARMED", "description": "Dozór załączony (pełny)", "label": "DOZÓR", "type": "BOOL", "source": "runtime", "safety_relevant": false},
+        {"id": "SSWIN.ARMED_PARTIAL", "description": "Dozór częściowy (nocny)", "label": "DOZÓR CZ.", "type": "BOOL", "source": "runtime", "safety_relevant": false},
+        {"id": "SSWIN.DISARMED", "description": "Dozór wyłączony", "label": "WYŁ", "type": "BOOL", "source": "runtime", "safety_relevant": false},
+        {"id": "SSWIN.READY_TO_ARM", "description": "Gotowość do załączenia — wszystkie linie w spoczynku", "label": "GOTOWY", "type": "BOOL", "source": "runtime", "safety_relevant": false},
+        {"id": "SSWIN.EXIT_DELAY", "description": "Trwa czas na wyjście", "label": "NA WYJŚCIE", "type": "BOOL", "source": "runtime", "safety_relevant": false},
+        {"id": "SSWIN.ENTRY_DELAY", "description": "Trwa czas na wejście", "label": "NA WEJŚCIE", "type": "BOOL", "source": "runtime", "safety_relevant": false},
+        {"id": "SSWIN.DELAY_REMAINING", "description": "Pozostały czas opóźnienia [s]", "label": "", "type": "REAL", "source": "runtime", "safety_relevant": false}
+      ]
+    },
+    {
+      "id": "SSWIN.ALARM",
+      "name": "Alarmy",
+      "_comment": "SSWIN.TAMPER działa niezależnie od stanu dozoru — sygnalizuje sabotaż również przy wyłączonym dozorze (obudowa/przewód/zwarcie linii to zdarzenie techniczne, nie intruzyjne, więc nie czeka na uzbrojenie obiektu).",
+      "signals": [
+        {"id": "SSWIN.ALARM_ACTIVE", "description": "Alarm trwa", "label": "ALARM", "type": "BOOL", "source": "runtime", "safety_relevant": false},
+        {"id": "SSWIN.ALARM_LATCHED", "description": "Alarm zatrzaśnięty do skasowania", "label": "ALARM ZATRZ.", "type": "BOOL", "source": "runtime", "safety_relevant": false},
+        {"id": "SSWIN.ALARM_MEMORY", "description": "Pamięć alarmu od ostatniego kasowania", "label": "PAMIĘĆ", "type": "BOOL", "source": "runtime", "safety_relevant": false},
+        {"id": "SSWIN.PANIC", "description": "Alarm napadowy", "label": "NAPAD", "type": "BOOL", "source": "runtime", "safety_relevant": true},
+        {"id": "SSWIN.TAMPER", "description": "Sabotaż — obudowa, przewód, zwarcie linii", "label": "SABOTAŻ", "type": "BOOL", "source": "runtime", "safety_relevant": true},
+        {"id": "SSWIN.FAULT", "description": "Awaria systemu alarmowego", "label": "AW SSWiN", "type": "BOOL", "source": "runtime", "safety_relevant": true},
+        {"id": "SSWIN.LAST_TRIGGER", "description": "Numer linii, która wywołała ostatni alarm", "label": "", "type": "REAL", "source": "runtime", "safety_relevant": false},
+        {"id": "SSWIN.ACTIVE_COUNT", "description": "Liczba naruszonych linii", "label": "", "type": "REAL", "source": "runtime", "safety_relevant": false}
+      ]
+    },
+    {
+      "id": "SSWIN.OUT",
+      "name": "Sygnalizatory",
+      "_comment": "Wyłącznie do odczytu stanu — wysterowaniem syreny/lampy (czas trwania, wygaszenie) zajmuje się EPW-OS wg własnej konfiguracji; logika ma jedynie wiedzieć, czy sygnalizator jest aktywny, nie sterować nim wprost.",
+      "signals": [
+        {"id": "SSWIN.SIREN_ACTIVE", "description": "Sygnalizator akustyczny załączony", "label": "SYRENA", "type": "BOOL", "source": "runtime", "safety_relevant": false},
+        {"id": "SSWIN.STROBE_ACTIVE", "description": "Sygnalizator optyczny załączony", "label": "LAMPA", "type": "BOOL", "source": "runtime", "safety_relevant": false},
+        {"id": "SSWIN.SIREN_TIME_LEFT", "description": "Pozostały czas trwania sygnału [s]", "label": "", "type": "REAL", "source": "runtime", "safety_relevant": false}
+      ]
+    },
+    {
+      "id": "SSWIN.CMD",
+      "name": "Komendy",
+      "_comment": "Pierwsza kategoria sygnałów systemowych source==\"logic\" — zapisywanych przez logikę (system.signal_out), nie przez urządzenie. SSWIN.CMD_SILENCE jest celowo rozdzielone od SSWIN.CMD_RESET: wyciszenie sygnalizatora nie może kasować pamięci alarmu (SSWIN.ALARM_MEMORY), bo wtedy zniknąłby ślad zdarzenia zanim ktokolwiek je obejrzał.",
+      "signals": [
+        {"id": "SSWIN.CMD_ARM", "description": "Załącz dozór pełny", "label": "ZAŁ DOZÓR", "type": "BOOL", "source": "logic", "safety_relevant": false},
+        {"id": "SSWIN.CMD_ARM_PARTIAL", "description": "Załącz dozór częściowy", "label": "ZAŁ CZĘŚĆ.", "type": "BOOL", "source": "logic", "safety_relevant": false},
+        {"id": "SSWIN.CMD_DISARM", "description": "Wyłącz dozór", "label": "WYŁ DOZÓR", "type": "BOOL", "source": "logic", "safety_relevant": true},
+        {"id": "SSWIN.CMD_RESET", "description": "Skasuj alarm i pamięć", "label": "KASUJ", "type": "BOOL", "source": "logic", "safety_relevant": false},
+        {"id": "SSWIN.CMD_SILENCE", "description": "Wycisz sygnalizator bez kasowania alarmu", "label": "WYCISZ", "type": "BOOL", "source": "logic", "safety_relevant": false}
       ]
     }
   ]
