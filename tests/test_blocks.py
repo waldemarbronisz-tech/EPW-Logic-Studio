@@ -397,19 +397,80 @@ def test_quality_block_out_of_range_and_good():
     assert q.outputs[1].value is True
 
 def test_quality_block_rate_fault():
+    """fix/safety-block-semantics §2: Max Rate is now Max Rate (/s) —
+    physical units per SECOND, computed from engine.time, not a bare
+    per-scan delta. SimulationTimeProvider.advance() steps the clock
+    explicitly, same as every timer test above."""
+    from logic_studio.blocks.analog_processing import QualityBlock
+
+    engine = MockEngine()
+    q = QualityBlock()
+    q.properties["Max Rate (/s)"] = 5.0  # 5 units/second
+
+    q.inputs[0].value = 10.0
+    q.evaluate(engine)
+    assert q.outputs[2].value is False  # no previous value to compare yet
+
+    engine.time.advance(1000)  # exactly 1 second later
+    q.inputs[0].value = 20.0  # 10 units in 1s == 10/s, > 5/s limit
+    q.evaluate(engine)
+    assert q.outputs[2].value is True
+    assert q.outputs[0].value is False
+
+def test_quality_block_rate_fault_is_independent_of_cycle_time():
+    """§2's own stated purpose: the SAME Max Rate (/s) setting must give
+    the SAME Rate Fault verdict for the SAME physical rate of change,
+    regardless of how often the engine happens to scan."""
+    from logic_studio.blocks.analog_processing import QualityBlock
+
+    for dt_ms, rate_faults in ((100, False), (50, True)):
+        engine = MockEngine()
+        q = QualityBlock()
+        q.properties["Max Rate (/s)"] = 50.0
+
+        q.inputs[0].value = 0.0
+        q.evaluate(engine)
+
+        engine.time.advance(dt_ms)
+        q.inputs[0].value = 4.0  # 4 units per scan, regardless of dt
+        q.evaluate(engine)
+        assert q.outputs[2].value is rate_faults, f"dt_ms={dt_ms}"
+
+def test_quality_block_rate_check_requires_a_time_provider():
+    """§2.3: mirrors TimerBase — silently degrading to per-scan semantics
+    for lack of a TimeProvider would reintroduce exactly the bug this
+    section fixes, just invisibly. Must raise, not default to False."""
     from logic_studio.blocks.analog_processing import QualityBlock
 
     q = QualityBlock()
-    q.properties["Max Rate"] = 5.0
+    q.properties["Max Rate (/s)"] = 5.0
+    q.inputs[0].value = 10.0
+    with pytest.raises(RuntimeError):
+        q.evaluate(engine=None)
+
+def test_quality_block_rate_check_disabled_needs_no_time_provider():
+    """The default (Max Rate (/s)=0) must keep working with no engine at
+    all -- backward compatibility for every existing bare evaluate() call
+    that never touches this property."""
+    from logic_studio.blocks.analog_processing import QualityBlock
+
+    q = QualityBlock()
+    q.inputs[0].value = 10.0
+    q.evaluate(engine=None)  # must not raise
+    assert q.outputs[2].value is False
+
+def test_quality_block_zero_dt_skips_rate_check_without_crashing():
+    from logic_studio.blocks.analog_processing import QualityBlock
+
+    engine = MockEngine()
+    q = QualityBlock()
+    q.properties["Max Rate (/s)"] = 5.0
 
     q.inputs[0].value = 10.0
-    q.evaluate()
-    assert q.outputs[2].value is False  # no previous value to compare yet
-
-    q.inputs[0].value = 20.0  # jumped 10 in one scan, > Max Rate 5
-    q.evaluate()
-    assert q.outputs[2].value is True
-    assert q.outputs[0].value is False
+    q.evaluate(engine)
+    q.inputs[0].value = 999.0  # huge jump, but same scan (dt=0)
+    q.evaluate(engine)
+    assert q.outputs[2].value is False
 
 def test_quality_block_stuck_signal():
     from logic_studio.blocks.analog_processing import QualityBlock
@@ -440,6 +501,67 @@ def test_quality_block_non_numeric_input_is_not_good():
     q = QualityBlock()
     q.evaluate()  # no input connected -> value is None
     assert q.outputs[0].value is False
+
+# ---- fix/safety-block-semantics §2.4: schema v8->v9 migration -------------
+
+def test_v8_project_migrates_max_rate_to_per_second():
+    from logic_studio.core.project import Project
+
+    data = {
+        "format": "EPW_LOGIC", "schema_version": 8,
+        "settings": {"ela_devices": ["ELA01"], "ada_devices": ["ADA01"], "cycle_time_ms": 50},
+        "blocks": [{
+            "type_id": "analog.quality", "uuid": "q1",
+            "properties": {"Max Rate": 5.0},
+            "inputs": [], "outputs": [],
+        }],
+    }
+    p = Project.deserialize(data)
+    q = p.blocks[0]
+    assert "Max Rate" not in q.properties
+    assert q.properties["Max Rate (/s)"] == pytest.approx(100.0)  # 5.0 * 1000 / 50
+
+def test_v8_project_with_max_rate_zero_migrates_cleanly_with_no_notice():
+    from logic_studio.core.project import Project
+
+    data = {
+        "format": "EPW_LOGIC", "schema_version": 8,
+        "settings": {"ela_devices": ["ELA01"], "ada_devices": ["ADA01"], "cycle_time_ms": 100},
+        "blocks": [{
+            "type_id": "analog.quality", "uuid": "q1",
+            "properties": {"Max Rate": 0.0},
+            "inputs": [], "outputs": [],
+        }],
+    }
+    p = Project.deserialize(data)
+    q = p.blocks[0]
+    assert q.properties["Max Rate (/s)"] == 0.0
+    assert "_max_rate_migration_notice" not in q.simulation_state
+
+def test_v8_migration_flags_a_compile_warning_with_old_and_new_values():
+    from logic_studio.core.project import Project
+    from logic_studio.compiler.core import Compiler
+
+    data = {
+        "format": "EPW_LOGIC", "schema_version": 8,
+        "settings": {"ela_devices": ["ELA01"], "ada_devices": ["ADA01"], "cycle_time_ms": 100},
+        "blocks": [{
+            "type_id": "analog.quality", "uuid": "q1",
+            "properties": {"Max Rate": 5.0},
+            "inputs": [], "outputs": [],
+        }],
+    }
+    p = Project.deserialize(data)
+    c = Compiler(p)
+    res = c.compile()
+    assert res is not None
+    assert any("5" in w and "50" in w and "Max Rate" in w for w in c.warnings), c.warnings
+
+    # Fires exactly once -- a second compile in the same session must not
+    # repeat the same migration notice.
+    c2 = Compiler(p)
+    c2.compile()
+    assert not any("Max Rate przeliczono" in w for w in c2.warnings)
 
 # ---- fix/safety-block-semantics §1: Stuck Tolerance ------------------------
 

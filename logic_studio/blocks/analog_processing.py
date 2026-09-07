@@ -213,7 +213,10 @@ class QualityBlock(BaseAnalogBlock):
 
         self.properties["Min"] = 0.0
         self.properties["Max"] = 100.0
-        self.properties["Max Rate"] = 0.0    # max change per scan; 0 = check disabled
+        # §2.1: physical units PER SECOND, not per scan — see the class
+        # docstring/migration note (core/project.py's _migrate_v8_to_v9)
+        # for why "per scan" silently changed meaning with cycle_time_ms.
+        self.properties["Max Rate (/s)"] = 0.0    # 0 = check disabled
         self.properties["Stuck Scans"] = 0   # consecutive unchanged scans; 0 = check disabled
         # §1.1: 0.0 = bit-exact equality, i.e. IDENTICAL to this block's
         # behavior before this property existed — see the class docstring
@@ -223,13 +226,27 @@ class QualityBlock(BaseAnalogBlock):
         self.is_stateful = True
 
         self._last_value = None
+        # §2.2: engine time (ms) at the last VALID measurement — paired
+        # with _last_value, both reset together (§3) so a rate/stuck check
+        # never compares across a bad-quality gap.
+        self._last_measurement_time_ms = None
         # Count of consecutive scans where the value did NOT change relative
         # to the scan before it. Reaching "Stuck Scans" trips Stuck.
         self._unchanged_streak = 0
 
     def reset_runtime_state(self):
         self._last_value = None
+        self._last_measurement_time_ms = None
         self._unchanged_streak = 0
+
+    def _get_time_ms(self, engine):
+        """§2.3: mirrors blocks/timers.py's TimerBase._get_time() exactly —
+        a rate-of-change check silently degrading to "per scan" because no
+        TimeProvider was wired up would reintroduce the exact bug §2 fixes,
+        just less visibly. Loud failure instead."""
+        if engine and hasattr(engine, 'time') and engine.time:
+            return engine.time.current_time_ms()
+        raise RuntimeError("TimeProvider missing. ExecutionEngine must inject deterministic time.")
 
     def evaluate(self, engine=None):
         val = self.inputs[0].value
@@ -252,9 +269,19 @@ class QualityBlock(BaseAnalogBlock):
             max_v = float(self.properties.get("Max", 100.0))
             out_of_range = fval < min_v or fval > max_v
 
-            max_rate = float(self.properties.get("Max Rate", 0.0))
-            if max_rate > 0 and self._last_value is not None:
-                rate_fault = abs(fval - self._last_value) > max_rate
+            max_rate = float(self.properties.get("Max Rate (/s)", 0.0))
+            if max_rate > 0:
+                # §2.3: only require a TimeProvider when this check is
+                # actually enabled — a block with Max Rate (/s)=0 (the
+                # default) must keep working with engine=None, exactly as
+                # every existing evaluate()-with-no-engine test expects.
+                now_ms = self._get_time_ms(engine)
+                if self._last_value is not None and self._last_measurement_time_ms is not None:
+                    dt_ms = now_ms - self._last_measurement_time_ms
+                    if dt_ms > 0:  # §2.2: guard divide-by-zero; skip this scan's check
+                        rate = abs(fval - self._last_value) / (dt_ms / 1000.0)
+                        rate_fault = rate > max_rate
+                self._last_measurement_time_ms = now_ms
 
             stuck_scans = int(self.properties.get("Stuck Scans", 0))
             if stuck_scans > 0:

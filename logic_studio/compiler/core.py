@@ -60,6 +60,18 @@ class Compiler:
         validator = Validator(compile_view)
         validator.run(self.errors, self.warnings)
 
+        # fix/safety-block-semantics §2.4: Validator just read (and, if
+        # present, warned about) each analog.quality block's one-shot
+        # "_max_rate_migration_notice" — but it saw an ISOLATED CLONE
+        # (expand_project() clones every top-level block; see base.py's
+        # clone()), so clearing the key there never reaches the live
+        # project block. Cleared here, on self.project.blocks itself,
+        # right after Validator's one chance to see it — this is what
+        # actually makes the notice fire on the first compile only, not
+        # every compile for the rest of the session.
+        for block in self.project.blocks:
+            block.simulation_state.pop("_max_rate_migration_notice", None)
+
         if self.errors:
             self.status = "COMPILE_FAILED"
             return None # Abort on validation errors

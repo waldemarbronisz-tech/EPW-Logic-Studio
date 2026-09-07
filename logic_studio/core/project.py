@@ -20,7 +20,7 @@ class _HistoryEntry:
 # Bump when the on-disk .epwlogic schema changes in a way that requires migration.
 # Every bump needs a matching _migrate_vN_to_v(N+1)(data) function registered in
 # _MIGRATIONS below — see AUDIT_REPORT.md §2 "Wersjonowanie schematów".
-EPWLOGIC_SCHEMA_VERSION = 8
+EPWLOGIC_SCHEMA_VERSION = 9
 
 
 def _migrate_v1_to_v2(data: dict) -> dict:
@@ -200,9 +200,46 @@ def _migrate_v7_to_v8(data: dict) -> dict:
     return data
 
 
+def _migrate_v8_to_v9(data: dict) -> dict:
+    """v8 -> v9 (fix/safety-block-semantics §2.4): analog.quality's "Max
+    Rate" property (max change PER SCAN) is renamed "Max Rate (/s)" (max
+    change per SECOND) — the old property silently changed physical
+    meaning whenever `cycle_time_ms` (a project-wide setting unrelated to
+    any individual safety threshold) was edited: "5 units per scan" means
+    a completely different real-world rate at a 100ms cycle than at a
+    50ms one. Every analog.quality block with a non-zero old "Max Rate"
+    is converted: new = old * 1000 / cycle_time_ms — the SAME physical
+    (per-second) threshold the project already had, so compiled/exported
+    behavior is unchanged by this migration. Each conversion is flagged
+    via a transient "_legacy_max_rate_migration" marker (same one-shot
+    pattern as "_legacy_force_state" in _migrate_v1_to_v2 above),
+    consumed once by Project.deserialize() below and surfaced by
+    Validator as a compiler warning on the first compile after loading —
+    the raw number on screen changed even though what it MEANS didn't,
+    and an engineer should see that, not just trust the migration
+    silently got it right."""
+    settings = data.setdefault("settings", {})
+    cycle_time_ms = settings.get("cycle_time_ms", 100) or 100
+    for b_data in data.get("blocks", []):
+        if b_data.get("type_id") != "analog.quality":
+            continue
+        properties = b_data.get("properties")
+        if not isinstance(properties, dict):
+            continue
+        old_rate = properties.pop("Max Rate", None)
+        if old_rate:
+            new_rate = float(old_rate) * 1000.0 / float(cycle_time_ms)
+            properties["Max Rate (/s)"] = new_rate
+            b_data["_legacy_max_rate_migration"] = {"old": float(old_rate), "new": new_rate}
+        else:
+            properties.setdefault("Max Rate (/s)", 0.0)
+    data["schema_version"] = 9
+    return data
+
+
 # Keyed by the version a migration upgrades FROM. Project.deserialize() walks
 # this sequentially — apply the migration for the file's current version,
-# re-check, repeat — so a v1 file goes through v1->v2->...->v7->v8 in one load.
+# re-check, repeat — so a v1 file goes through v1->v2->...->v8->v9 in one load.
 _MIGRATIONS = {
     1: _migrate_v1_to_v2,
     2: _migrate_v2_to_v3,
@@ -211,6 +248,7 @@ _MIGRATIONS = {
     5: _migrate_v5_to_v6,
     6: _migrate_v6_to_v7,
     7: _migrate_v7_to_v8,
+    8: _migrate_v8_to_v9,
 }
 
 
@@ -497,6 +535,21 @@ class Project:
             legacy_force = b_data.pop("_legacy_force_state", None)
             if legacy_force:
                 block.simulation_state["force_state"] = legacy_force
+
+            # fix/safety-block-semantics §2.4: same one-shot marker pattern
+            # as _legacy_force_state above, via simulation_state — safe
+            # here because ExecutionEngine.start()/stop() only ever clear
+            # simulation_state on the COMPILED PROGRAM's own isolated block
+            # clones (self.program.blocks), never on the live project's
+            # blocks this loop is building. clone() (base.py) already
+            # copies simulation_state onto the isolated instance
+            # Compiler.compile() hands to Validator, so no separate
+            # carry-over mechanism is needed for this to survive
+            # compilation the same way _legacy_force_state's own entry
+            # already does.
+            legacy_max_rate = b_data.pop("_legacy_max_rate_migration", None)
+            if legacy_max_rate:
+                block.simulation_state["_max_rate_migration_notice"] = legacy_max_rate
 
             # feat/wire-modes-and-labels §0.1: restore every SERIALIZED_
             # FIELDS value (uuid, connections, disabled, safety_relevant,

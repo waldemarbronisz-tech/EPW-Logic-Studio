@@ -151,6 +151,24 @@ class Validator:
                         "na realnym torze pomiarowym (szum ostatniego bitu przetwornika). "
                         "Ustaw Stuck Tolerance."
                     )
+                # §2.4: one-shot notice right after a v8->v9 schema
+                # migration converted this block's old per-scan "Max Rate"
+                # into the new per-second property. Lives in
+                # simulation_state, same mechanism as _legacy_force_state
+                # (core/project.py). NOTE: `block` here is an ISOLATED
+                # CLONE (core/macros.py's expand_project() clones every
+                # top-level block for compile-time isolation — see
+                # base.py's clone()), so deleting the key HERE only clears
+                # the clone's own copy; Compiler.compile() clears the same
+                # key on the live project's own blocks right after this
+                # runs, which is what actually makes it fire once.
+                migration = block.simulation_state.get("_max_rate_migration_notice")
+                if migration:
+                    old_rate, new_rate = migration["old"], migration["new"]
+                    warnings.append(
+                        f"[{self._block_ref(block)}] Max Rate przeliczono przy migracji projektu: "
+                        f"{old_rate:g}/skan -> {new_rate:g}/s (ta sama fizyczna szybkość zmiany, nowa jednostka)."
+                    )
             elif block.type_id == "const.time":
                 raw = block.properties.get("Time (ms)", 1000)
                 try:
