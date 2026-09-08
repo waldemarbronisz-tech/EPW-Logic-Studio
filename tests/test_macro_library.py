@@ -249,3 +249,50 @@ def test_import_bundle_leaves_a_dangling_reference_dangling():
     dangling_type_id = imported["blocks"][0]["type_id"]
     assert dangling_type_id == "macro.does-not-exist-anywhere"
     assert get_definition(target, macro_def_id(dangling_type_id)) is None
+
+
+# ---- audit/systematic-sweep §1: field survival through export/import ------
+# This path (a macro definition's own block/pin data through
+# export_definition()/save_to_file()/load_from_file()/import_bundle()) had
+# never been checked field-by-field before this audit -- every other
+# state-transfer path in this project (serialize/clone/clipboard/state_diff)
+# already has one. Verified safe BY CONSTRUCTION (export/import operate on
+# the whole already-serialized block/pin dicts via copy.deepcopy(), never
+# hand-picking individual fields the way the six known historical bugs all
+# involved), but "safe by construction" is exactly the kind of claim this
+# audit's own rule is to verify by EXECUTION, not trust by reading -- this
+# is that verification, kept as a permanent regression test.
+
+def test_non_default_block_and_pin_fields_survive_export_import_round_trip(tmp_path):
+    gate = AndGate()
+    gate.enabled = False
+    gate.color = "#ABCDEF"
+    gate.execution_priority = 7
+    gate.properties["Tag"] = "MacroInnerTag"
+    gate.outputs[0].safety_relevant = True
+    gate.inputs[0].disabled = False  # AND allows disabling inputs; left False deliberately, see below
+    gate.inputs[1].disabled = True
+
+    source = Project()
+    definition = {"name": "Flags", "blocks": [gate.serialize()], "input_pins": [], "output_pins": []}
+    def_id = new_def_id()
+    set_definition(source, def_id, definition)
+
+    path = str(tmp_path / "flags.epwmacro")
+    save_to_file(source, def_id, path)
+    bundle = load_from_file(path)
+
+    target = Project()
+    new_id = import_bundle(target, bundle)
+    imported_block = get_definition(target, new_id)["blocks"][0]
+
+    assert imported_block["enabled"] is False
+    assert imported_block["color"] == "#ABCDEF"
+    assert imported_block["execution_priority"] == 7
+    assert imported_block["properties"]["Tag"] == "MacroInnerTag"
+    assert imported_block["outputs"][0]["safety_relevant"] is True
+    assert imported_block["inputs"][0]["disabled"] is False
+    assert imported_block["inputs"][1]["disabled"] is True
+    # uuid is preserved verbatim -- macro definitions are keyed by pin uuid
+    # for GraphBuilder purposes (see core/macros.py's own note on this).
+    assert imported_block["uuid"] == gate.serialize()["uuid"]

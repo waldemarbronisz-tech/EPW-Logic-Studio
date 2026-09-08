@@ -185,6 +185,18 @@ def test_checksum_protects_every_field(field):
 
     assert verify_checksum(tampered) is False, f"Tampering with '{field}' was not detected"
 
+def test_checksum_fields_covers_every_exported_key():
+    """audit/systematic-sweep §5.5 — the meta-level guardian this contract
+    never had: CHECKSUM_FIELDS must name EXACTLY every key Exporter.export()
+    actually returns, minus "checksum" itself (self-referential). Without
+    this, a future field added to the payload (the same shape of bug as the
+    project's other six known instances) would silently ride along
+    unprotected instead of failing a test immediately — CHECKSUM_FIELDS
+    already happens to cover everything today (contains_disabled_blocks
+    included), but nothing previously asserted that stays true."""
+    data = _exported_data_with_populated_fields()
+    assert set(data.keys()) - {"checksum"} == set(CHECKSUM_FIELDS)
+
 def test_export_checksum_protects_analog_points():
     """§1.4: modifying an analog point's definition in the exported dict
     (e.g. its "min") must be caught by verify_checksum(), even though no
