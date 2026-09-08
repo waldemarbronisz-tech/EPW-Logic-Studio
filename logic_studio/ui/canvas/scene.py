@@ -156,7 +156,26 @@ class LogicScene(QGraphicsScene):
         origin_x = min(b.x for b in blocks)
         origin_y = min(b.y for b in blocks)
 
-        self.clipboard_data = {"blocks": blocks_data, "origin": (origin_x, origin_y)}
+        # feat/wire-labels §2.4: a Wire record (core/wire.py — created
+        # only for a wire carrying a label and/or a free end, see that
+        # module's own docstring) is copied when every REAL end it has
+        # lands inside the selection — a free end always travels with it
+        # (it's a coordinate, not tied to any block); a real end outside
+        # the selection makes the whole record ineligible, the same
+        # "silently drop what doesn't fully fit" rule already applied to
+        # pin_data["connections"] above.
+        window = self.views()[0].window() if self.views() else None
+        project = getattr(window, 'project', None)
+        wires_data = []
+        if project is not None:
+            for wire in project.wires:
+                if wire.source_pin is not None and wire.source_pin not in selected_pin_uuids:
+                    continue
+                if wire.dest_pin is not None and wire.dest_pin not in selected_pin_uuids:
+                    continue
+                wires_data.append(wire.serialize())
+
+        self.clipboard_data = {"blocks": blocks_data, "origin": (origin_x, origin_y), "wires": wires_data}
         self._paste_cascade = 0
         self.clipboard_changed.emit()
         return True
@@ -287,6 +306,38 @@ class LogicScene(QGraphicsScene):
         for block in new_blocks:
             for pin in block.inputs + block.outputs:
                 pin.connections = [uuid_map[c] for c in pin.connections if c in uuid_map]
+
+        # feat/wire-labels §2.4: Wire records travel with the same
+        # uuid_map remap as pin connections above, and the same
+        # delta_x/delta_y offset as block positions — copy_selected_
+        # items() already limited every wire here to ends inside the
+        # selection, so a source_pin/dest_pin missing from uuid_map would
+        # be a bug in that filtering, not an expected case; skip it
+        # defensively rather than paste a dangling reference.
+        from logic_studio.core.wire import Wire
+        import uuid as uuid_module
+        for w_data in self.clipboard_data.get("wires", []):
+            new_wire = Wire.deserialize(w_data)
+            new_wire.uuid = str(uuid_module.uuid4())
+            if new_wire.source_pin is not None:
+                if new_wire.source_pin not in uuid_map:
+                    continue
+                new_wire.source_pin = uuid_map[new_wire.source_pin]
+            if new_wire.dest_pin is not None:
+                if new_wire.dest_pin not in uuid_map:
+                    continue
+                new_wire.dest_pin = uuid_map[new_wire.dest_pin]
+            if new_wire.free_end_source is not None:
+                new_wire.free_end_source = {
+                    "x": new_wire.free_end_source["x"] + delta_x,
+                    "y": new_wire.free_end_source["y"] + delta_y,
+                }
+            if new_wire.free_end_dest is not None:
+                new_wire.free_end_dest = {
+                    "x": new_wire.free_end_dest["x"] + delta_x,
+                    "y": new_wire.free_end_dest["y"] + delta_y,
+                }
+            project.add_wire(new_wire)
 
         self._warn_about_duplicate_output_addresses(new_blocks, project, window)
 

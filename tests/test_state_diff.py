@@ -5,12 +5,17 @@ Project.serialize() produces).
 from logic_studio.core.state_diff import diff_project_state, apply_project_diff
 
 
-def _state(blocks, settings=None):
+def _state(blocks, settings=None, wires=None):
     return {
         "format": "EPW_LOGIC",
         "schema_version": 5,
         "settings": settings or {"name": "P", "ela_devices": ["ELA01"]},
         "blocks": blocks,
+        # feat/wire-labels §2: part of Project.serialize()'s shape now,
+        # same uuid-keyed diffing as "blocks" (see _diff_uuid_list()) --
+        # empty by default so every existing test here (none of which
+        # care about wires specifically) keeps working unchanged.
+        "wires": wires or [],
     }
 
 
@@ -106,6 +111,7 @@ def test_apply_does_not_mutate_base():
     base_copy = {
         "format": base["format"], "schema_version": base["schema_version"],
         "settings": dict(base["settings"]), "blocks": [dict(b) for b in base["blocks"]],
+        "wires": list(base["wires"]),
     }
     apply_project_diff(base, diff)
     assert base == base_copy
@@ -117,3 +123,55 @@ def test_format_and_schema_version_carried_through():
     result = apply_project_diff(base, diff)
     assert result["format"] == "EPW_LOGIC"
     assert result["schema_version"] == 5
+
+
+# ---- feat/wire-labels §2: "wires" diffed exactly like "blocks" -----------
+
+def _wire(uuid, **extra):
+    d = {"uuid": uuid, "source_pin": "p1", "dest_pin": "p2", "label": ""}
+    d.update(extra)
+    return d
+
+def test_round_trip_wire_added():
+    base = _state([], wires=[])
+    target = _state([], wires=[_wire("w1")])
+    diff = diff_project_state(base, target)
+    assert apply_project_diff(base, diff) == target
+    assert diff["wires"]["set"] == {"w1": _wire("w1")}
+
+def test_round_trip_wire_label_changed():
+    base = _state([], wires=[_wire("w1", label="")])
+    target = _state([], wires=[_wire("w1", label="Blokada ZS")])
+    diff = diff_project_state(base, target)
+    assert apply_project_diff(base, diff) == target
+    assert list(diff["wires"]["set"].keys()) == ["w1"]
+
+def test_round_trip_wire_removed():
+    base = _state([], wires=[_wire("w1"), _wire("w2")])
+    target = _state([], wires=[_wire("w1")])
+    diff = diff_project_state(base, target)
+    assert apply_project_diff(base, diff) == target
+    assert diff["wires"]["remove"] == ["w2"]
+
+def test_unchanged_wires_produce_no_order_list():
+    base = _state([], wires=[_wire("w1"), _wire("w2")])
+    target = _state([_block("a")], wires=[_wire("w1"), _wire("w2")])  # only a block changed
+    diff = diff_project_state(base, target)
+    assert diff["wires"]["order"] is None
+    assert diff["wires"]["set"] == {}
+    assert diff["wires"]["remove"] == []
+    assert apply_project_diff(base, diff) == target
+
+def test_apply_project_diff_degrades_gracefully_when_wires_key_is_absent():
+    """A diff computed by an OLDER in-memory version of this code (before
+    feat/wire-labels existed) has no "wires" key at all -- must fall back
+    to base's own wires rather than KeyError. Never happens for a SAVED
+    file (Project.deserialize()'s migration chain always adds "wires"
+    first), only a hypothetical stale in-process undo/redo diff."""
+    base = _state([], wires=[_wire("w1")])
+    target = _state([_block("a")], wires=[_wire("w1")])
+    diff = diff_project_state(base, target)
+    del diff["wires"]
+    result = apply_project_diff(base, diff)
+    assert result["wires"] == [_wire("w1")]
+    assert result["blocks"] == [_block("a")]

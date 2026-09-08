@@ -24,37 +24,56 @@ the SIZE OF EACH EDIT rather than the size of the whole project.
 """
 
 
-def diff_project_state(base: dict, target: dict) -> dict:
-    """`base` and `target` are both full Project.serialize()-shaped
-    dicts. Blocks are matched by `uuid` (present on every block dict,
-    see BaseLogicBlock.SERIALIZED_FIELDS) rather than by list position,
-    so an insertion/removal in the middle of the list never makes
-    everything after it look "changed". Settings are diffed per top-
-    level key (`analog_points`, `internal_bits`, `io_labels`,
-    `ela_devices`, `ada_devices`, `short_id_counters`, ...) — whichever
-    of those actually differ, whole-value, not deeper than that; they
-    don't scale with block count the way `blocks` does, so there's no
-    matching payoff in diffing inside them."""
-    base_blocks = {b["uuid"]: b for b in base.get("blocks", [])}
-    target_blocks = {b["uuid"]: b for b in target.get("blocks", [])}
+def _diff_uuid_list(base_list: list, target_list: list) -> dict:
+    """Shared by `blocks` and `wires` (feat/wire-labels §2 — Wire records
+    are schematic content, a sibling of blocks, so they get the identical
+    treatment): matched by `uuid` rather than list position, so an
+    insertion/removal in the middle never makes everything after it look
+    "changed"; `order` is stored explicitly only when it actually
+    differs from base, since editing/moving an EXISTING entry (the
+    overwhelming common case) never reorders the list at all."""
+    base_by_uuid = {item["uuid"]: item for item in base_list}
+    target_by_uuid = {item["uuid"]: item for item in target_list}
 
     changed_or_added = {
-        uuid: block
-        for uuid, block in target_blocks.items()
-        if base_blocks.get(uuid) != block
+        uid: item
+        for uid, item in target_by_uuid.items()
+        if base_by_uuid.get(uid) != item
     }
-    removed = [uuid for uuid in base_blocks if uuid not in target_blocks]
+    removed = [uid for uid in base_by_uuid if uid not in target_by_uuid]
 
-    # The overwhelming common case is editing/moving an EXISTING block --
-    # no add/remove/reorder at all -- in which case target's list order is
-    # identical to base's and there's no need to store a second full list
-    # of every uuid in the project just to say so; apply_project_diff()
-    # falls back to base's own order when this is None. Only an actual
-    # add/remove/reorder (comparatively rare) pays for an explicit list.
-    target_order = [b["uuid"] for b in target.get("blocks", [])]
-    base_order = [b["uuid"] for b in base.get("blocks", [])]
+    target_order = [item["uuid"] for item in target_list]
+    base_order = [item["uuid"] for item in base_list]
     order = None if target_order == base_order else target_order
 
+    return {"order": order, "set": changed_or_added, "remove": removed}
+
+
+def _apply_uuid_list_diff(base_list: list, diff: dict) -> list:
+    by_uuid = {item["uuid"]: item for item in base_list}
+    order = diff["order"]
+    if order is None:
+        # Unchanged from base -- see _diff_uuid_list()'s comment on why
+        # this is the common case and worth not paying list-sized storage
+        # for on every single-entry edit.
+        order = [item["uuid"] for item in base_list]
+    for uid in diff["remove"]:
+        by_uuid.pop(uid, None)
+    by_uuid.update(diff["set"])
+    return [by_uuid[uid] for uid in order]
+
+
+def diff_project_state(base: dict, target: dict) -> dict:
+    """`base` and `target` are both full Project.serialize()-shaped
+    dicts. Blocks and wires are each matched by `uuid` (present on every
+    block dict, see BaseLogicBlock.SERIALIZED_FIELDS; and on every wire
+    dict, see core/wire.py's Wire.SERIALIZED_FIELDS) via
+    `_diff_uuid_list()`. Settings are diffed per top-level key
+    (`analog_points`, `internal_bits`, `io_labels`, `ela_devices`,
+    `ada_devices`, `short_id_counters`, ...) — whichever of those
+    actually differ, whole-value, not deeper than that; they don't scale
+    with block count the way `blocks`/`wires` do, so there's no matching
+    payoff in diffing inside them."""
     base_settings = base.get("settings", {})
     target_settings = target.get("settings", {})
     changed_settings = {
@@ -67,11 +86,8 @@ def diff_project_state(base: dict, target: dict) -> dict:
     return {
         "format": target.get("format"),
         "schema_version": target.get("schema_version"),
-        "blocks": {
-            "order": order,
-            "set": changed_or_added,
-            "remove": removed,
-        },
+        "blocks": _diff_uuid_list(base.get("blocks", []), target.get("blocks", [])),
+        "wires": _diff_uuid_list(base.get("wires", []), target.get("wires", [])),
         "settings": {"set": changed_settings, "unset": unset_settings},
     }
 
@@ -81,17 +97,15 @@ def apply_project_diff(base: dict, diff: dict) -> dict:
     was computed against. `base` must be the same dict that was passed as
     `base` when the diff was produced -- this function has no way to
     detect a mismatched base, it will simply produce the wrong result."""
-    base_blocks = {b["uuid"]: b for b in base.get("blocks", [])}
-    order = diff["blocks"]["order"]
-    if order is None:
-        # Unchanged from base -- see diff_project_state()'s comment on why
-        # this is the common case and worth not paying list-sized storage
-        # for on every single-block edit.
-        order = [b["uuid"] for b in base.get("blocks", [])]
-    for uuid in diff["blocks"]["remove"]:
-        base_blocks.pop(uuid, None)
-    base_blocks.update(diff["blocks"]["set"])
-    blocks = [base_blocks[uuid] for uuid in order]
+    blocks = _apply_uuid_list_diff(base.get("blocks", []), diff["blocks"])
+    # "wires" is absent from a diff computed before feat/wire-labels
+    # existed (an undo/redo stack entry pushed by an OLDER version of
+    # this running process — never a saved FILE, which always goes
+    # through Project.deserialize()'s own migration chain instead) --
+    # falls back to base's own wires, i.e. "unchanged", the same
+    # degrade-gracefully reasoning as `order`'s None case above.
+    wires_diff = diff.get("wires")
+    wires = base.get("wires", []) if wires_diff is None else _apply_uuid_list_diff(base.get("wires", []), wires_diff)
 
     settings = dict(base.get("settings", {}))
     for key in diff["settings"]["unset"]:
@@ -103,4 +117,5 @@ def apply_project_diff(base: dict, diff: dict) -> dict:
         "schema_version": diff.get("schema_version", base.get("schema_version")),
         "settings": settings,
         "blocks": blocks,
+        "wires": wires,
     }

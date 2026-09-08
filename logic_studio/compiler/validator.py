@@ -1,3 +1,16 @@
+def _block_owning_pin(pin_uuid, blocks):
+    """feat/wire-labels §2.5: the block that owns the pin named
+    `pin_uuid` (input or output, either direction) — used to name the
+    block a free-end wire is still attached to. Distinct from
+    `_direct_source_block()` below, which looks up a specific input's
+    SOURCE by INDEX, not an arbitrary pin by its own uuid."""
+    for block in blocks:
+        for pin in block.inputs + block.outputs:
+            if pin.uuid == pin_uuid:
+                return block
+    return None
+
+
 def _direct_source_block(block, input_index, blocks):
     """fix/safety-block-semantics §4: see compiler/core.py's identical
     helper for the full rationale — duplicated here rather than imported
@@ -398,3 +411,18 @@ class Validator:
                         f"[{ref}] Więcej niż jeden parametr powiązany z tą samą właściwością "
                         f"'{property_name}': {', '.join(names)} — wygrywa ostatnie podstawienie."
                     )
+
+        # feat/wire-labels §2.5: a free end with no label is a normal
+        # PENDING state while a wire is being drawn or a label is about
+        # to be typed in — a warning, not an error, naming whichever
+        # block the wire is still actually attached to. (§5.1's stronger
+        # checks — a labeled node with no source, or more than one — are
+        # a §3/§5 concern once labels can merge nodes at all; nothing to
+        # check yet for a Wire with no label.)
+        for wire in getattr(self.project, 'wires', []):
+            if wire.label or not wire.has_free_end():
+                continue
+            attached_pin = wire.source_pin if wire.source_pin is not None else wire.dest_pin
+            attached_block = _block_owning_pin(attached_pin, blocks) if attached_pin else None
+            ref = self._block_ref(attached_block) if attached_block else "?"
+            warnings.append(f"[{ref}] Niedokończony przewód (wolny koniec bez etykiety).")
