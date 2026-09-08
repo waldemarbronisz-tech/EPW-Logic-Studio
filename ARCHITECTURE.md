@@ -2444,3 +2444,173 @@ sama zasada co `input.ai`'s trzymanie ostatniej dobrej wartości.
 zarejestrowanym typem bloku — pilnuje tego trwale: nowy blok
 zostawiający wyjście jako `None` nie przejdzie zestawu testów od razu,
 zamiast cicho trafić do produkcji.
+
+## 28. System pomocy (feat/help-system)
+
+### 28.1 Podział: treść generowana kontra pisana ręcznie
+
+Program nie miał żadnej pomocy poza pojedynczą pozycją "O programie" w
+menu Help. Ten projekt ma udokumentowaną historię rozjeżdżania się
+dokumentacji z kodem (REPORT.md utknął na ósmej fazie przy osiemnastu
+wykonanych gałęziach; migawka w AUDIT_REPORT.md podawała 27 testów, gdy
+było ich już blisko 30 razy więcej; jedno miejsce REPORT.md twierdziło,
+że sześć kategorii biblioteki istnieje, sto dwadzieścia linii niżej —
+że zostały usunięte) — ręcznie pisana pomoc opisująca 69 typów bloków
+zestarzałaby się po dwóch PR-ach dokładnie tak samo.
+
+**Zasada nadrzędna**: treść opisująca bloki (nazwy, piny, właściwości,
+wartości domyślne) jest GENEROWANA z rejestru bloków w chwili otwarcia
+pomocy — nigdy zapisana na dysku jako plik do ręcznej edycji. Ręcznie
+pisane są WYŁĄCZNIE teksty, których w kodzie nie ma i być nie może:
+pojęcia łatwe do pomylenia (§28.4) i poradniki zadaniowe (§28.5).
+
+**Nowy blok wymaga wypełnionego opisu bloku, pinów i właściwości —
+pomoc powstaje z tego automatycznie i nie wymaga osobnej pracy.**
+`BaseLogicBlock` (`blocks/base.py`) ma trzy class-level słowniki:
+`PIN_DESCRIPTIONS`, `PROPERTY_DESCRIPTIONS`, `PROPERTY_UNITS` —
+mirror istniejącego już wcześniej `PROPERTY_TOOLTIPS` — scalane przez
+całe MRO klasy (`_merged_class_dict()`), więc rodzina bloków
+współdzielących nazwy pinów (bramki logiczne: "In1".."In4"/"Out";
+komparatory: Hysteresis/T On/T Off z `HysteresisDelayMixin`) opisuje
+je RAZ, w jednym miejscu, zamiast w każdej podklasie osobno. Celowo
+class-level, nie pole instancji `Pin`/serializowana właściwość — to,
+co pin/właściwość ZNACZY, jest faktem o TYPIE bloku, identycznym dla
+każdej instancji, nigdy nie edytowanym per-projekt, więc nie ma powodu
+wchodzić w `SERIALIZED_FIELDS` ani wymuszać migracji schematu.
+
+### 28.2 `core/block_catalog.py` — generowany katalog bloków
+
+`generate_catalog()` zwraca `{kategoria: [wpis, ...]}` dla każdego
+zarejestrowanego typu w `BlockRegistry`, budowane z jednorazowej,
+tymczasowej instancji (`describe_block_type()`) — dokładnie ten sam
+wzorzec co `ui/panels/element_preview.py`'s `show_type_id()` już
+stosuje dla zaznaczenia w drzewie biblioteki. Wpis makrobloku
+(`macro_instance.py`, celowo NIE zarejestrowany przez
+`@BlockRegistry.register` — jego piny zależą od PROJEKTU, nie od
+stałego typu) jest jawnie pomijany; katalogowany jest tylko stały,
+zarejestrowany inwentarz.
+
+`block_entry_markdown()`/`category_index_markdown()` renderują wpis do
+Markdown, konsumowane przez `core/help_content.py` jako temat "wirtualny"
+(patrz §28.3) — strona, którą widzi użytkownik, jest identyczna
+treściowo z tym, co zwraca generator, nie osobno przepisywana.
+`export_catalog_markdown()` (§28.6, menu "Eksportuj katalog bloków...")
+składa cały katalog w jeden dokument, do uzgodnień/dokumentacji
+projektowej.
+
+**Test strażniczy** (`tests/test_block_catalog.py`, sparametryzowany po
+każdym zarejestrowanym typie): niepusty opis bloku (0 pustych — patrz
+§28.7) i niepusty opis KAŻDEGO pinu tego typu. Nowy blok bez
+wypełnionych opisów pada tu natychmiast.
+
+### 28.3 `core/help_content.py` — format przejęty z EPW-OS
+
+§1.2 znalazło gotowy, sprawdzony format w repozytorium EPW-OS
+(`epw_os/core/help_content.py` + `epw_os/help/<język>/*.md` + jeden
+`toc.json` na język, definiujący drzewo rozdział/temat i hasła
+indeksu) — przejęty tutaj wprost, zamiast projektowania drugiego.
+Jedyna różnica: rolę języka podstawowego/zapasowego pełni polski, nie
+angielski (ten program nie ma żadnej warstwy i18n — każdy string w UI
+jest po polsku).
+
+`HelpContentStore` rozróżnia trzy rodzaje identyfikatora tematu:
+zwykły (`"welcome"`, `"concept_labels"`...) czytany z
+`help/<język>/<id>.md`; `"block:<type_id>"` i `"category:<nazwa>"`,
+generowane na bieżąco z `core/block_catalog.py`; `"shortcuts"`,
+generowany z `core/shortcuts.py` (§28.4). Wywołujący nie musi wiedzieć,
+który to rodzaj — `load_topic_markdown()` zwraca zawsze gotowy Markdown,
+nigdy nie rzuca wyjątku (nieznany temat → uczciwy placeholder).
+
+**Schemat odsyłaczy**: `help:<id>` (jeden dwukropek, BEZ `//`) — nie
+`help://<id>`, jak w EPW-OS. Identyfikator bloku zawiera własny
+dwukropek (`block:logic.and`), a `QUrl` interpretuje wszystko po `//`
+jako authority (host[:port]) — `help://block:logic.and` wychodzi
+NIEPRAWIDŁOWE (parser portu dławi się na "logic.and"), zweryfikowane
+wprost na `QUrl` przed wyborem formatu. Forma bez `//` trafia w całości
+do `url.path()`, dwukropki włącznie, bez dwuznaczności.
+
+### 28.4 `core/shortcuts.py` — tabela skrótów generowana z kodu
+
+Tabela skrótów klawiszowych (temat "shortcuts") jest generowana
+przeszukując `ast`-em RZECZYWISTE wywołania `self._make_action(...)` w
+`ui/main_window.py`, nie przepisywana ręcznie — skrót zmieniony w
+kodzie zmienia się w pomocy automatycznie, bo funkcja czyta plik
+źródłowy na żywo przy każdym wywołaniu. Celowo `ast` na pliku źródłowym,
+nie introspekcja żywych obiektów `QAction` na działającym `MainWindow`
+— zostaje bezstanowe (bez `PySide6`, testowalne bez `QApplication`,
+identycznie jak `block_catalog.py`) i łapie KAŻDE wywołanie
+`_make_action()` bezwarunkowo, nie tylko te, przez które akurat
+przeszedł dany przebieg testu.
+
+### 28.5 Treść pisana ręcznie (`logic_studio/help/<pl|en>/*.md`)
+
+Sześć tematów "Pojęcia" (etykiety/znaczniki/bity urządzenia, zaślepka/
+wolny koniec/etykieta, cykl skanu i z⁻¹, jakość sygnału analogowego,
+makrobloki i parametry, bloki wyłączone i wymuszenia) i pięć
+"Poradniki" (pierwszy schemat, przeniesienie sygnału, symulacja,
+kompilacja/eksport, makrobloki), plus wprowadzenie i "O programie" —
+zwykłe pliki Markdown, wzajemnie połączone odsyłaczami `help:<id>`.
+
+**Ważna uwaga o rzetelności treści**: pierwotne założenie tego zadania
+zakładało, że etykiety przewodów już scalają dwa przewody o tej samej
+etykiecie w jeden węzeł sieci. W chwili pisania tej pomocy **to jeszcze
+nieprawda** — `compiler/graph.py` nie ma żadnej obsługi `Wire.label`,
+a `compiler/validator.py`'s własny komentarz mówi wprost, że scalanie
+etykiet w węzły to "§3/§5 concern once labels can merge nodes at all".
+Temat "Etykiety, znaczniki i bity urządzenia" opisuje to WPROST jako
+planowaną, jeszcze niezaimplementowaną część mechanizmu, a poradnik
+"Jak przenieść sygnał w inne miejsce schematu" jako DZIAŁAJĄCY dziś
+sposób opisuje znacznik (bit wewnętrzny), nie etykietę — napisanie
+etykiety jako już działającej byłoby dokładnie tym rodzajem rozjazdu
+dokumentacji z kodem, któremu ta cała funkcja ma zapobiegać.
+
+**`logic_studio/help/en/`**: identyczny zestaw identyfikatorów tematów
+co `pl/` (pilnowane testem, §28.7), treść po polsku z komentarzem
+`<!-- TODO: translate to English -->` na początku każdego pliku —
+zgodnie z zadaniem: nie tłumaczone maszynowo/samodzielnie, żeby nie
+wprowadzić tłumaczenia gorszego niż jego brak.
+
+### 28.6 `ui/help_window.py` — okno w stylu Windows 98 Help
+
+Niemodalne, ponownie używane okno (kolejne F1/kliknięcia menu
+NIE tworzą nowego okna — `MainWindow._get_help_window()` trzyma jedną
+instancję, więc historia wstecz/dalej przetrwa) z zakładkami Spis
+treści/Indeks/Szukaj po lewej i `QTextBrowser.setMarkdown()` po prawej
+— bez nowej zależności, dokładnie ten sam mechanizm renderowania co
+EPW-OS. Rozdział "Katalog bloków" w drzewie ma dodatkowy poziom
+zagnieżdżenia (kategoria → typ bloku) budowany z płaskiej listy
+`block_catalog_chapter()` zwraca, znakowanej `_is_category`/`_category`
+— pozostałe rozdziały (ręcznie pisane) są płaskie, jak w EPW-OS.
+Geometria okna zapamiętywana w `QSettings`, z zabezpieczeniem: geometria
+odtworzona spoza rozsądnego zakresu (0-rozmiarowa albo absurdalnie duża
+— np. po zmianie rozdzielczości ekranu) wraca do domyślnego rozmiaru
+zamiast zostawić okno niewidoczne/nieużywalne.
+
+### 28.7 Pomoc kontekstowa (F1) i wpięcie w menu
+
+`MainWindow._context_help_topic()`: dokładnie JEDEN zaznaczony blok na
+kanwie → jego własna strona katalogu; w trybie edycji makra → pojęcie
+makrobloków; symulacja uruchomiona/zapauzowana → poradnik symulacji; w
+przeciwnym razie → strona powitalna. `ui/panels/element_preview.py`
+dostał przycisk "Więcej o tym bloku" (sygnał `more_info_requested`,
+podłączony do `MainWindow.show_help_for_block_type()`) — panel podglądu
+elementu nie importuje samego okna pomocy, tylko zgłasza chęć jego
+pokazania, ten sam podział odpowiedzialności co reszta UI tego projektu.
+
+Menu Help uporządkowane: Pomoc (F1) / Katalog bloków / Skróty
+klawiszowe / Eksportuj katalog bloków... / — / O programie — każda
+pozycja z podpiętym działaniem (usunięto zasadę "puste menu bez
+funkcji" — poprzednio Help miało tylko "O programie").
+
+### 28.8 Diagnoza stanu wyjściowego (§1 zadania)
+
+Przed tym PR: 0 z 69 zarejestrowanych typów bloków miało pusty opis,
+ale 20 miało opis po angielsku (reszta programu jest po polsku) —
+przetłumaczone w kodzie razem z tym PR. `Pin` (`blocks/pin.py`) nie
+miał w ogóle pola opisu — wszystkie 179 pinów (suma po świeżych
+instancjach każdego typu) było kompletnie nieudokumentowanych.
+Dokumentacja właściwości praktycznie nie istniała: jedyny istniejący
+mechanizm, `PROPERTY_TOOLTIPS`, miał dokładnie 1 wpis na 266 slotów
+właściwości w całym rejestrze. Po tym PR: 179/179 pinów i 266/266
+właściwości ma niepusty opis (zweryfikowane bezpośrednią instancjacją
+i odpytaniem każdego typu, nie wyrywkowo).

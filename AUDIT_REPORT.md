@@ -1809,6 +1809,73 @@ bezpiecznej ścieżki, nie regresja). Pełny zestaw: 1414 passed (1380 +
 34 nowych — patrz §8 tej migawki dla pełnego rozbicia). Wszystkie 10
 `examples/*.epwlogic` nadal się otwierają, kompilują i eksportują.
 
+## 42. Nowa funkcja: system pomocy — katalog bloków generowany z kodu, treść pojęciowa pisana ręcznie (branch `feat/help-system`)
+
+**Uwaga o numeracji**: gałąź `fix/qtimer-lifetime` (nieusunięta w chwili
+pisania tego wpisu) również dopisuje własny wpis "42." z tej samej
+bazy `main` — nieunikniony konflikt numeracji przy dwóch równoległych
+gałęziach, do rozwiązania (przenumerowanie jednego z wpisów na 43) przy
+scalaniu drugiego z nich.
+
+Program nie miał żadnej pomocy poza jedną pozycją "O programie" w menu
+Help. Pełny opis mechanizmu w ARCHITECTURE.md §28 — tu diagnoza
+wyjściowa i to, co ten PR faktycznie zmienił.
+
+**Diagnoza (§1 zadania)**: 0/69 zarejestrowanych typów bloków miało
+pusty opis, ale 20/69 miało opis po angielsku mimo że reszta programu
+jest po polsku. `Pin` nie miał w ogóle pola opisu — wszystkie 179
+pinów (suma po świeżych instancjach każdego typu) były kompletnie
+nieudokumentowane. Dokumentacja właściwości praktycznie nie istniała:
+jedyny istniejący mechanizm (`PROPERTY_TOOLTIPS`) miał dokładnie 1
+wpis na 266 slotów właściwości w całym rejestrze. EPW-OS ma już gotowy,
+sprawdzony format pomocy (dwujęzyczny, plikowy, `QTextBrowser.
+setMarkdown()`) — przejęty tu wprost zamiast projektowania drugiego.
+`ui/panels/element_preview.py` już renderował ikonę/piny/właściwości
+zaznaczonego typu — rozszerzony, nie zastąpiony drugim generatorem.
+
+**Naprawione w kodzie**: wszystkie 20 angielskich opisów przetłumaczone;
+`BaseLogicBlock` dostał trzy nowe, class-level, scalane po całym MRO
+słowniki (`PIN_DESCRIPTIONS`/`PROPERTY_DESCRIPTIONS`/`PROPERTY_UNITS`)
+i wszystkie 15 modułów bloków wypełniono opisami — 179/179 pinów i
+266/266 właściwości ma dziś niepusty opis, zweryfikowane bezpośrednią
+instancjacją każdego z 69 zarejestrowanych typów, nie wyrywkowo.
+
+**Nowe moduły**: `core/block_catalog.py` (katalog generowany z
+`BlockRegistry`, nigdy z pliku na dysku — patrz uzasadnienie w
+ARCHITECTURE.md §28.1 odwołujące się do udokumentowanej w tym repo
+historii rozjeżdżania się dokumentacji z kodem), `core/shortcuts.py`
+(tabela skrótów generowana `ast`-em z rzeczywistych wywołań
+`_make_action()` w `ui/main_window.py`), `core/help_content.py`
+(port `HelpContentStore` z EPW-OS, role językowe odwrócone — polski
+jest tu podstawowy i zapasowy), `ui/help_window.py` (okno w stylu
+Windows 98 Help, niemodalne, ponownie używane).
+
+**Znalezisko podczas pisania treści** (nie błąd kodu, ale ważne dla
+rzetelności dokumentacji): pierwotne założenie tego zadania zakładało,
+że etykiety przewodów już scalają dwa przewody o tej samej etykiecie w
+jeden węzeł sieci kompilacji. Weryfikacja `compiler/graph.py`/
+`compiler/validator.py` pokazała, że to jeszcze nieprawda — scalanie
+etykiet jest jawnie odłożone w komentarzu walidatora jako "§3/§5
+concern once labels can merge nodes at all" (gałąź `feat/wire-labels`
+zatrzymała się po sekcji 2, przed zbudowaniem tego mechanizmu). Temat
+pomocy "Etykiety, znaczniki i bity urządzenia" opisuje to wprost jako
+planowaną, jeszcze niezaimplementowaną część mechanizmu, żeby sama
+pomoc nie stała się kolejnym przypadkiem rozjazdu dokumentacji z kodem
+— dokładnie tym, czemu ta funkcja ma zapobiegać.
+
+**Testy**: `tests/test_block_catalog.py` (144, w tym test strażniczy
+sparametryzowany po każdym zarejestrowanym typie — niepusty opis bloku
+i każdego jego pinu), `tests/test_help_content.py` (25 — kompletność
+drzewa treści w obu językach, każdy odsyłacz `help:` wewnętrzny
+rozwiązuje się do istniejącego tematu, ekstraktor skrótów), `tests/
+test_help_window.py` (15 — nawigacja/historia, kontekstowość F1,
+zachowanie geometrii okna z zabezpieczeniem przed nierozsądną wartością,
+każda pozycja menu Help ma podpięte działanie). Pełny zestaw: 1658
+passed (pliki dotknięte przez `pytest-qt` pominięte — to nie jest
+zależność tego projektu, patrz `fix/qtimer-lifetime`'s własny wpis w
+tym dzienniku). Wszystkie 10 `examples/*.epwlogic` nadal się otwierają,
+kompilują i eksportują.
+
 ## Zasada utrzymania tego dokumentu
 
 **Sekcje opisowe (§1-§10)** muszą być odświeżone przy KAŻDYM PR, który
