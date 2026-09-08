@@ -6,7 +6,9 @@ DOC_ALIASES = ["opis", "komentarz", "tekst", "tytuł"]
 
 @BlockRegistry.register
 class TextBlock(BaseLogicBlock):
-    def __init__(self, type_id="doc.text", default_name="Text", category="Dokumentacja", description="Free text for documentation"):
+    PROPERTY_DESCRIPTIONS = {"Text": "Dowolny tekst wyświetlany na schemacie."}
+
+    def __init__(self, type_id="doc.text", default_name="Text", category="Dokumentacja", description="Dowolny tekst na schemacie, bez wpływu na logikę."):
         super().__init__(type_id, default_name, category, description)
         self.aliases = list(DOC_ALIASES)
         self.width = 150
@@ -22,7 +24,9 @@ class TextBlock(BaseLogicBlock):
 
 @BlockRegistry.register
 class NoteBlock(BaseLogicBlock):
-    def __init__(self, type_id="doc.note", default_name="Note", category="Dokumentacja", description="Multiline note"):
+    PROPERTY_DESCRIPTIONS = {"Text": "Wielowierszowa notatka wyświetlana na schemacie."}
+
+    def __init__(self, type_id="doc.note", default_name="Note", category="Dokumentacja", description="Wielowierszowa notatka na schemacie, bez wpływu na logikę."):
         super().__init__(type_id, default_name, category, description)
         self.aliases = list(DOC_ALIASES)
         self.width = 200
@@ -39,7 +43,9 @@ class NoteBlock(BaseLogicBlock):
 
 @BlockRegistry.register
 class SectionTitleBlock(BaseLogicBlock):
-    def __init__(self, type_id="doc.section", default_name="Section Title", category="Dokumentacja", description="Large section title"):
+    PROPERTY_DESCRIPTIONS = {"Text": "Treść nagłówka sekcji."}
+
+    def __init__(self, type_id="doc.section", default_name="Section Title", category="Dokumentacja", description="Duży nagłówek sekcji schematu, bez wpływu na logikę."):
         super().__init__(type_id, default_name, category, description)
         self.aliases = list(DOC_ALIASES)
         self.width = 300
