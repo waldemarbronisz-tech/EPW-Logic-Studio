@@ -396,7 +396,7 @@ class MainWindow(QMainWindow):
         from logic_studio.engine.execution import ExecutionEngine
         from logic_studio.engine.io_provider import SimulationIOProvider
         from logic_studio.engine.time_provider import SystemTimeProvider
-        from PySide6.QtCore import QTimer
+        from logic_studio.ui.qt_lifetime import create_owned_timer
 
         self.project = Project()
         self.io_provider = SimulationIOProvider()
@@ -410,8 +410,12 @@ class MainWindow(QMainWindow):
         self._macro_nav_stack = []
         self.current_macro_def_id = None
 
-        self.sim_timer = QTimer(self)
-        self.sim_timer.timeout.connect(self._on_sim_tick)
+        # fix/qtimer-lifetime: was a bare QTimer(self) — already correctly
+        # parented, so this migration doesn't change behavior, only brings
+        # it under the one sanctioned construction path (see
+        # ui/qt_lifetime.py) so the audit test in
+        # tests/test_qt_timer_lifetime.py doesn't need an exception for it.
+        self.sim_timer = create_owned_timer(self, self._on_sim_tick)
 
         self.current_file = None
         self.is_dirty = False

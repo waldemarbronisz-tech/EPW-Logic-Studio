@@ -22,9 +22,10 @@ from PySide6.QtWidgets import (
     QTreeWidget, QTreeWidgetItem, QAbstractItemView, QHeaderView, QMenu,
     QFileDialog
 )
-from PySide6.QtCore import Qt, QSettings, QTimer, Signal
+from PySide6.QtCore import Qt, QSettings, Signal
 from PySide6.QtGui import QFont, QColor, QBrush, QPixmap, QPainter, QIcon
 
+from logic_studio.ui.qt_lifetime import create_owned_timer
 from logic_studio.core.crossref import (
     build_crossref, find_issues,
     KIND_PHYSICAL_DI, KIND_PHYSICAL_DO, KIND_ANALOG_IN, KIND_ANALOG_OUT,
@@ -127,9 +128,12 @@ class SignalsPanel(QWidget):
         self._issues_by_signal = {}  # signal_id -> Issue (at most one, see crossref.py)
         self._category_items = {}  # label -> top-level _SortableTreeItem
 
-        self._refresh_timer = QTimer(self)
-        self._refresh_timer.setSingleShot(True)
-        self._refresh_timer.timeout.connect(self._rebuild)
+        # fix/qtimer-lifetime: was a bare QTimer(self) — already correctly
+        # parented, so this migration doesn't change behavior, only brings
+        # it under the one sanctioned construction path (see
+        # ui/qt_lifetime.py) so the audit test in
+        # tests/test_qt_timer_lifetime.py doesn't need an exception for it.
+        self._refresh_timer = create_owned_timer(self, self._rebuild, single_shot=True)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
