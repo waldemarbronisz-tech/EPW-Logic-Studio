@@ -4,6 +4,20 @@ from logic_studio.blocks.registry import BlockRegistry
 
 # Helper to support dynamic inputs
 class LogicGateBase(BaseLogicBlock):
+    # feat/help-system: shared by EVERY logic-gate subclass (AND/OR/NAND/
+    # NOR/XOR/XNOR/BUFFER/NOT, 2/3/4-input variants) — pin NAMES are
+    # generic ("In1".."In4"/"Out") and mean the same thing regardless of
+    # which specific gate they belong to, so one shared table here covers
+    # all twelve subclasses via BaseLogicBlock.merged_pin_descriptions()
+    # instead of each repeating it.
+    PIN_DESCRIPTIONS = {
+        "In1": "Pierwsze wejście logiczne bramki.",
+        "In2": "Drugie wejście logiczne bramki.",
+        "In3": "Trzecie wejście logiczne bramki.",
+        "In4": "Czwarte wejście logiczne bramki.",
+        "Out": "Wynik operacji logicznej tej bramki.",
+    }
+
     def __init__(self, type_id, default_name, category, description, default_inputs=2):
         super().__init__(type_id, default_name, category, description)
         self.color = "#00557f" # Industrial deep blue
@@ -26,7 +40,7 @@ class LogicGateBase(BaseLogicBlock):
 
 @BlockRegistry.register
 class AndGate(LogicGateBase):
-    def __init__(self, type_id="logic.and", default_name="AND", category="Bramki logiczne", description="Logical AND operator"):
+    def __init__(self, type_id="logic.and", default_name="AND", category="Bramki logiczne", description="Iloczyn logiczny (AND) dwóch wejść."):
         super().__init__(type_id, default_name, category, description, default_inputs=2)
 
     def evaluate(self, engine=None):
@@ -38,7 +52,7 @@ class AndGate(LogicGateBase):
 
 @BlockRegistry.register
 class And3Gate(LogicGateBase):
-    def __init__(self, type_id="logic.and3", default_name="AND-3", category="Bramki logiczne", description="Logical AND 3 inputs"):
+    def __init__(self, type_id="logic.and3", default_name="AND-3", category="Bramki logiczne", description="Iloczyn logiczny (AND) trzech wejść."):
         super().__init__(type_id, default_name, category, description, default_inputs=3)
 
     def evaluate(self, engine=None):
@@ -50,7 +64,7 @@ class And3Gate(LogicGateBase):
 
 @BlockRegistry.register
 class And4Gate(LogicGateBase):
-    def __init__(self, type_id="logic.and4", default_name="AND-4", category="Bramki logiczne", description="Logical AND 4 inputs"):
+    def __init__(self, type_id="logic.and4", default_name="AND-4", category="Bramki logiczne", description="Iloczyn logiczny (AND) czterech wejść."):
         super().__init__(type_id, default_name, category, description, default_inputs=4)
 
     def evaluate(self, engine=None):
@@ -62,7 +76,7 @@ class And4Gate(LogicGateBase):
 
 @BlockRegistry.register
 class OrGate(LogicGateBase):
-    def __init__(self, type_id="logic.or", default_name="OR", category="Bramki logiczne", description="Logical OR operator"):
+    def __init__(self, type_id="logic.or", default_name="OR", category="Bramki logiczne", description="Suma logiczna (OR) dwóch wejść."):
         super().__init__(type_id, default_name, category, description, default_inputs=2)
 
     def evaluate(self, engine=None):
@@ -74,7 +88,7 @@ class OrGate(LogicGateBase):
 
 @BlockRegistry.register
 class Or3Gate(LogicGateBase):
-    def __init__(self, type_id="logic.or3", default_name="OR-3", category="Bramki logiczne", description="Logical OR 3 inputs"):
+    def __init__(self, type_id="logic.or3", default_name="OR-3", category="Bramki logiczne", description="Suma logiczna (OR) trzech wejść."):
         super().__init__(type_id, default_name, category, description, default_inputs=3)
 
     def evaluate(self, engine=None):
@@ -86,7 +100,7 @@ class Or3Gate(LogicGateBase):
 
 @BlockRegistry.register
 class Or4Gate(LogicGateBase):
-    def __init__(self, type_id="logic.or4", default_name="OR-4", category="Bramki logiczne", description="Logical OR 4 inputs"):
+    def __init__(self, type_id="logic.or4", default_name="OR-4", category="Bramki logiczne", description="Suma logiczna (OR) czterech wejść."):
         super().__init__(type_id, default_name, category, description, default_inputs=4)
 
     def evaluate(self, engine=None):
@@ -98,7 +112,7 @@ class Or4Gate(LogicGateBase):
 
 @BlockRegistry.register
 class NotGate(LogicGateBase):
-    def __init__(self, type_id="logic.not", default_name="NOT", category="Bramki logiczne", description="Logical NOT operator"):
+    def __init__(self, type_id="logic.not", default_name="NOT", category="Bramki logiczne", description="Negacja logiczna (NOT) jednego wejścia."):
         super().__init__(type_id, default_name, category, description, default_inputs=1)
 
     def evaluate(self, engine=None):
@@ -110,7 +124,7 @@ class NotGate(LogicGateBase):
 
 @BlockRegistry.register
 class XorGate(LogicGateBase):
-    def __init__(self, type_id="logic.xor", default_name="XOR", category="Bramki logiczne", description="Logical Exclusive OR"):
+    def __init__(self, type_id="logic.xor", default_name="XOR", category="Bramki logiczne", description="Różnica symetryczna (XOR) — prawda, gdy aktywna nieparzysta liczba wejść."):
         super().__init__(type_id, default_name, category, description, default_inputs=2)
 
     def evaluate(self, engine=None):
@@ -121,7 +135,7 @@ class XorGate(LogicGateBase):
 
 @BlockRegistry.register
 class NandGate(LogicGateBase):
-    def __init__(self, type_id="logic.nand", default_name="NAND", category="Bramki logiczne", description="Logical NAND"):
+    def __init__(self, type_id="logic.nand", default_name="NAND", category="Bramki logiczne", description="Zaprzeczony iloczyn logiczny (NAND) dwóch wejść."):
         super().__init__(type_id, default_name, category, description, default_inputs=2)
 
     def evaluate(self, engine=None):
@@ -133,7 +147,7 @@ class NandGate(LogicGateBase):
 
 @BlockRegistry.register
 class Nand3Gate(LogicGateBase):
-    def __init__(self, type_id="logic.nand3", default_name="NAND-3", category="Bramki logiczne", description="Logical NAND 3 inputs"):
+    def __init__(self, type_id="logic.nand3", default_name="NAND-3", category="Bramki logiczne", description="Zaprzeczony iloczyn logiczny (NAND) trzech wejść."):
         super().__init__(type_id, default_name, category, description, default_inputs=3)
 
     def evaluate(self, engine=None):
@@ -145,7 +159,7 @@ class Nand3Gate(LogicGateBase):
 
 @BlockRegistry.register
 class Nand4Gate(LogicGateBase):
-    def __init__(self, type_id="logic.nand4", default_name="NAND-4", category="Bramki logiczne", description="Logical NAND 4 inputs"):
+    def __init__(self, type_id="logic.nand4", default_name="NAND-4", category="Bramki logiczne", description="Zaprzeczony iloczyn logiczny (NAND) czterech wejść."):
         super().__init__(type_id, default_name, category, description, default_inputs=4)
 
     def evaluate(self, engine=None):
@@ -157,7 +171,7 @@ class Nand4Gate(LogicGateBase):
 
 @BlockRegistry.register
 class NorGate(LogicGateBase):
-    def __init__(self, type_id="logic.nor", default_name="NOR", category="Bramki logiczne", description="Logical NOR"):
+    def __init__(self, type_id="logic.nor", default_name="NOR", category="Bramki logiczne", description="Zaprzeczona suma logiczna (NOR) dwóch wejść."):
         super().__init__(type_id, default_name, category, description, default_inputs=2)
 
     def evaluate(self, engine=None):
@@ -169,7 +183,7 @@ class NorGate(LogicGateBase):
 
 @BlockRegistry.register
 class Nor3Gate(LogicGateBase):
-    def __init__(self, type_id="logic.nor3", default_name="NOR-3", category="Bramki logiczne", description="Logical NOR 3 inputs"):
+    def __init__(self, type_id="logic.nor3", default_name="NOR-3", category="Bramki logiczne", description="Zaprzeczona suma logiczna (NOR) trzech wejść."):
         super().__init__(type_id, default_name, category, description, default_inputs=3)
 
     def evaluate(self, engine=None):
@@ -181,7 +195,7 @@ class Nor3Gate(LogicGateBase):
 
 @BlockRegistry.register
 class Nor4Gate(LogicGateBase):
-    def __init__(self, type_id="logic.nor4", default_name="NOR-4", category="Bramki logiczne", description="Logical NOR 4 inputs"):
+    def __init__(self, type_id="logic.nor4", default_name="NOR-4", category="Bramki logiczne", description="Zaprzeczona suma logiczna (NOR) czterech wejść."):
         super().__init__(type_id, default_name, category, description, default_inputs=4)
 
     def evaluate(self, engine=None):
@@ -193,7 +207,7 @@ class Nor4Gate(LogicGateBase):
 
 @BlockRegistry.register
 class XnorGate(LogicGateBase):
-    def __init__(self, type_id="logic.xnor", default_name="XNOR", category="Bramki logiczne", description="Logical Exclusive NOR"):
+    def __init__(self, type_id="logic.xnor", default_name="XNOR", category="Bramki logiczne", description="Zaprzeczona różnica symetryczna (XNOR) — prawda, gdy aktywna parzysta liczba wejść."):
         super().__init__(type_id, default_name, category, description, default_inputs=2)
 
     def evaluate(self, engine=None):
@@ -202,7 +216,7 @@ class XnorGate(LogicGateBase):
 
 @BlockRegistry.register
 class BufferGate(LogicGateBase):
-    def __init__(self, type_id="logic.buffer", default_name="BUFFER", category="Bramki logiczne", description="Logical BUFFER"):
+    def __init__(self, type_id="logic.buffer", default_name="BUFFER", category="Bramki logiczne", description="Wtórnik logiczny — powtarza stan wejścia na wyjściu, bez zmiany."):
         super().__init__(type_id, default_name, category, description, default_inputs=1)
 
     def evaluate(self, engine=None):

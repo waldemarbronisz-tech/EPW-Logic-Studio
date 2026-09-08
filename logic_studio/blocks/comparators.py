@@ -24,6 +24,16 @@ class HysteresisDelayMixin:
     _debounce() short-circuits straight to it.
     """
 
+    # feat/help-system: shared by every comparator subclass via
+    # BaseLogicBlock._merged_class_dict() walking the full MRO — a mixin
+    # class's own __dict__ is picked up exactly like a base class's.
+    PROPERTY_DESCRIPTIONS = {
+        "Hysteresis": "Pasmo histerezy po stronie wyjścia (Schmitt trigger): gdy wyjście jest już PRAWDA, wartość musi cofnąć się o tyle POZA surowy próg, zanim wyjście wróci na FAŁSZ. 0 = wyłączone (brak histerezy).",
+        "T On (ms)": "Czas, przez jaki wynik (po ewentualnej histerezie) musi utrzymać się jako PRAWDA, zanim wyjście faktycznie przejdzie na PRAWDA. 0 = brak opóźnienia.",
+        "T Off (ms)": "Jak T On (ms), ale dla przejścia z powrotem na FAŁSZ. 0 = brak opóźnienia.",
+    }
+    PROPERTY_UNITS = {"T On (ms)": "ms", "T Off (ms)": "ms"}
+
     def _init_hysteresis_delay(self):
         self.properties["Hysteresis"] = 0.0
         self.properties["T On (ms)"] = 0
@@ -93,6 +103,12 @@ class HysteresisDelayMixin:
 
 
 class ComparatorBase(BaseLogicBlock, HysteresisDelayMixin):
+    PIN_DESCRIPTIONS = {
+        "In1": "Lewy operand porównania.",
+        "In2": "Prawy operand porównania.",
+        "Out": "Wynik porównania In1 z In2 (z uwzględnieniem histerezy/opóźnienia, jeśli skonfigurowane).",
+    }
+
     def __init__(self, type_id, default_name, category, description):
         super().__init__(type_id, default_name, category, description)
         self.color = "#000080" # Classic Navy for comparators
@@ -112,7 +128,7 @@ class ComparatorBase(BaseLogicBlock, HysteresisDelayMixin):
 
 @BlockRegistry.register
 class GreaterBlock(ComparatorBase):
-    def __init__(self, type_id="compare.gt", default_name=">", category="Elementy Analogowe", description="Greater Than"):
+    def __init__(self, type_id="compare.gt", default_name=">", category="Elementy Analogowe", description="Większe niż (>) — prawda, gdy In1 > In2."):
         super().__init__(type_id, default_name, category, description)
 
     def evaluate(self, engine=None):
@@ -123,7 +139,7 @@ class GreaterBlock(ComparatorBase):
 
 @BlockRegistry.register
 class LessBlock(ComparatorBase):
-    def __init__(self, type_id="compare.lt", default_name="<", category="Elementy Analogowe", description="Less Than"):
+    def __init__(self, type_id="compare.lt", default_name="<", category="Elementy Analogowe", description="Mniejsze niż (<) — prawda, gdy In1 < In2."):
         super().__init__(type_id, default_name, category, description)
 
     def evaluate(self, engine=None):
@@ -134,7 +150,7 @@ class LessBlock(ComparatorBase):
 
 @BlockRegistry.register
 class GreaterEqBlock(ComparatorBase):
-    def __init__(self, type_id="compare.gte", default_name=">=", category="Elementy Analogowe", description="Greater Than or Equal"):
+    def __init__(self, type_id="compare.gte", default_name=">=", category="Elementy Analogowe", description="Większe lub równe (>=) — prawda, gdy In1 >= In2."):
         super().__init__(type_id, default_name, category, description)
 
     def evaluate(self, engine=None):
@@ -145,7 +161,7 @@ class GreaterEqBlock(ComparatorBase):
 
 @BlockRegistry.register
 class LessEqBlock(ComparatorBase):
-    def __init__(self, type_id="compare.lte", default_name="<=", category="Elementy Analogowe", description="Less Than or Equal"):
+    def __init__(self, type_id="compare.lte", default_name="<=", category="Elementy Analogowe", description="Mniejsze lub równe (<=) — prawda, gdy In1 <= In2."):
         super().__init__(type_id, default_name, category, description)
 
     def evaluate(self, engine=None):
@@ -156,7 +172,7 @@ class LessEqBlock(ComparatorBase):
 
 @BlockRegistry.register
 class EqualBlock(ComparatorBase):
-    def __init__(self, type_id="compare.eq", default_name="==", category="Elementy Analogowe", description="Equal"):
+    def __init__(self, type_id="compare.eq", default_name="==", category="Elementy Analogowe", description="Równość (==) — prawda, gdy In1 == In2."):
         super().__init__(type_id, default_name, category, description)
 
     def evaluate(self, engine=None):
@@ -169,7 +185,7 @@ class EqualBlock(ComparatorBase):
 
 @BlockRegistry.register
 class NotEqualBlock(ComparatorBase):
-    def __init__(self, type_id="compare.neq", default_name="!=", category="Elementy Analogowe", description="Not Equal"):
+    def __init__(self, type_id="compare.neq", default_name="!=", category="Elementy Analogowe", description="Różność (!=) — prawda, gdy In1 != In2."):
         super().__init__(type_id, default_name, category, description)
 
     def evaluate(self, engine=None):
@@ -183,7 +199,14 @@ class NotEqualBlock(ComparatorBase):
 
 @BlockRegistry.register
 class BetweenBlock(BaseLogicBlock, HysteresisDelayMixin):
-    def __init__(self, type_id="compare.between", default_name="Between", category="Elementy Analogowe", description="Between Limits"):
+    PIN_DESCRIPTIONS = {
+        "Min": "Dolna granica zakresu.",
+        "Val": "Wartość sprawdzana względem zakresu Min..Max.",
+        "Max": "Górna granica zakresu.",
+        "Out": "Prawda, gdy Val mieści się w zakresie Min..Max (z uwzględnieniem histerezy/opóźnienia, jeśli skonfigurowane).",
+    }
+
+    def __init__(self, type_id="compare.between", default_name="Between", category="Elementy Analogowe", description="W zakresie — prawda, gdy Val mieści się między Min i Max."):
         super().__init__(type_id, default_name, category, description)
         self.color = "#000080"
         self.width = 80

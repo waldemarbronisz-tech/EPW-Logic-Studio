@@ -3,6 +3,8 @@ from logic_studio.blocks.pin import Pin
 from logic_studio.blocks.registry import BlockRegistry
 
 class MemoryBase(BaseLogicBlock):
+    PIN_DESCRIPTIONS = {"Q": "Aktualny stan zatrzasku."}
+
     def __init__(self, type_id, default_name, category, description):
         super().__init__(type_id, default_name, category, description)
         self.color = "#808000" # Classic Olive for memory
@@ -19,7 +21,12 @@ class MemoryBase(BaseLogicBlock):
 
 @BlockRegistry.register
 class SR(MemoryBase):
-    def __init__(self, type_id="memory.sr", default_name="SR", category="Przerzutniki", description="Set Dominant Latch"):
+    PIN_DESCRIPTIONS = {
+        "S1": "Wejście ustawiające (Set) — nadrzędne: gdy S1 i R są jednocześnie aktywne, wygrywa Set.",
+        "R": "Wejście kasujące (Reset).",
+    }
+
+    def __init__(self, type_id="memory.sr", default_name="SR", category="Przerzutniki", description="Zatrzask z nadrzędnym ustawianiem (Set dominuje nad Reset)."):
         super().__init__(type_id, default_name, category, description)
         self.aliases = ["przerzutnik", "zatrzask", "pamięć"]
         self.inputs.append(Pin("S1", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
@@ -38,7 +45,12 @@ class SR(MemoryBase):
 
 @BlockRegistry.register
 class RS(MemoryBase):
-    def __init__(self, type_id="memory.rs", default_name="RS", category="Przerzutniki", description="Reset Dominant Latch"):
+    PIN_DESCRIPTIONS = {
+        "R1": "Wejście kasujące (Reset) — nadrzędne: gdy R1 i S są jednocześnie aktywne, wygrywa Reset.",
+        "S": "Wejście ustawiające (Set).",
+    }
+
+    def __init__(self, type_id="memory.rs", default_name="RS", category="Przerzutniki", description="Zatrzask z nadrzędnym kasowaniem (Reset dominuje nad Set)."):
         super().__init__(type_id, default_name, category, description)
         self.aliases = ["przerzutnik", "zatrzask", "pamięć"]
         self.inputs.append(Pin("R1", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))

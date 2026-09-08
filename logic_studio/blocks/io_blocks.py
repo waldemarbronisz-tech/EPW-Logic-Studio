@@ -4,7 +4,12 @@ from logic_studio.blocks.registry import BlockRegistry
 
 @BlockRegistry.register
 class DigitalInputBlock(BaseLogicBlock):
-    def __init__(self, type_id="input.di", default_name="DI", category="Wejścia / Wyjścia", description="Electrical Digital Input (ELA)"):
+    PIN_DESCRIPTIONS = {"State": "Aktualny stan fizycznego wejścia cyfrowego."}
+    PROPERTY_DESCRIPTIONS = {
+        "Address": "Adres fizycznego wejścia cyfrowego (moduł ELA), np. \"ELA01.DI01\".",
+    }
+
+    def __init__(self, type_id="input.di", default_name="DI", category="Wejścia / Wyjścia", description="Fizyczne wejście cyfrowe (moduł ELA)."):
         super().__init__(type_id, default_name, category, description)
         self.color = "#008000" # Classic dark green
         self.width = 100
@@ -37,7 +42,12 @@ class DigitalInputBlock(BaseLogicBlock):
 
 @BlockRegistry.register
 class DigitalOutputBlock(BaseLogicBlock):
-    def __init__(self, type_id="output.do", default_name="DO", category="Wejścia / Wyjścia", description="Automation Digital Output (ADA)"):
+    PIN_DESCRIPTIONS = {"Cmd": "Stan wysyłany na fizyczne wyjście cyfrowe."}
+    PROPERTY_DESCRIPTIONS = {
+        "Address": "Adres fizycznego wyjścia cyfrowego (moduł ADA), np. \"ADA01.DO01\".",
+    }
+
+    def __init__(self, type_id="output.do", default_name="DO", category="Wejścia / Wyjścia", description="Fizyczne wyjście cyfrowe (moduł ADA)."):
         super().__init__(type_id, default_name, category, description)
         self.color = "#800000" # Classic dark red
         self.width = 100
