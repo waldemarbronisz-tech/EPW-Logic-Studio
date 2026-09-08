@@ -2586,6 +2586,18 @@ odtworzona spoza rozsądnego zakresu (0-rozmiarowa albo absurdalnie duża
 — np. po zmianie rozdzielczości ekranu) wraca do domyślnego rozmiaru
 zamiast zostawić okno niewidoczne/nieużywalne.
 
+Podgląd graficzny (§2.1) na stronie bloku jest wklejany TU, w warstwie
+Qt (`HelpWindow._with_block_icon()`), nie w `core/block_catalog.py` —
+ten ostatni zostaje bez-Qt (ten sam podział co reszta `core/`), więc
+faktyczny render `ui/icons.block_icon()` (ta sama funkcja, co drzewo
+biblioteki i podgląd elementu) trafia do Markdownu jako PNG w base64,
+doklejany zaraz pod tytułem. Realna, znaleziona dopiero przy ręcznej
+weryfikacji zrzutem ekranu (`/run`) usterka: `QTextBrowser.
+setMarkdown()` po cichu, bez żadnego ostrzeżenia, pomija obrazek, gdy
+jego tekst alternatywny jest pusty (`![]()`) — dotyczy to też zwykłego
+URL-a http(s), nie tylko `data:` — więc każdy taki odnośnik potrzebuje
+niepustego opisu (`![Ikona bloku](...)`).
+
 ### 28.7 Pomoc kontekstowa (F1) i wpięcie w menu
 
 `MainWindow._context_help_topic()`: dokładnie JEDEN zaznaczony blok na
