@@ -88,6 +88,21 @@ def test_contents_tree_has_a_block_catalog_chapter_with_categories(qsettings):
     assert first_category.childCount() > 0
     win.close()
 
+def test_block_topic_embeds_a_graphical_icon(qsettings):
+    """§2.1: "podgląd graficzny renderowany tym samym kodem co kanwa" --
+    regression test for a real, silent rendering bug found while taking
+    a manual screenshot: Qt's Markdown-to-HTML converter drops an image
+    link whose alt text is empty (`![](data:...)`) with no error at all
+    -- confirmed directly, including for a plain http(s) URL, not just
+    a data: one. A non-block topic must NOT get an image spliced in."""
+    _app()
+    win = HelpWindow(settings=qsettings)
+    win.navigate_to("block:logic.and")
+    assert "<img" in win.viewer.toHtml()
+    win.navigate_to("concept_labels")
+    assert "<img" not in win.viewer.toHtml()
+    win.close()
+
 def test_geometry_is_restored_from_settings(qsettings):
     """Exact pixel dimensions aren't guaranteed to round-trip through
     saveGeometry()/restoreGeometry() on every windowing platform (the

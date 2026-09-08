@@ -20,7 +20,9 @@ colon of its own ("block:logic.and"), and QUrl parses anything after
 on "logic.and"). The scheme-only form puts the whole id in `url.path()`
 unambiguously, colons included.
 """
-from PySide6.QtCore import Qt, QUrl, QSettings
+import base64
+
+from PySide6.QtCore import Qt, QUrl, QSettings, QBuffer, QIODevice
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QTabWidget, QTreeWidget,
     QTreeWidgetItem, QListWidget, QListWidgetItem, QLineEdit, QSplitter,
@@ -29,6 +31,7 @@ from PySide6.QtWidgets import (
 
 from logic_studio.core.help_content import HelpContentStore
 from logic_studio import __version__
+from logic_studio.ui.icons import block_icon
 
 _BLOCK_CATALOG_CHAPTER_ID = "block_catalog"
 
@@ -199,13 +202,49 @@ class HelpWindow(QWidget):
         if not topic_id:
             return
         title = self._store.topic_title(topic_id) or topic_id
-        self.viewer.setMarkdown(self._store.load_topic_markdown(topic_id, version=__version__))
+        markdown = self._store.load_topic_markdown(topic_id, version=__version__)
+        markdown = self._with_block_icon(topic_id, markdown)
+        self.viewer.setMarkdown(markdown)
         self.setWindowTitle(f"Pomoc — {title}")
         if _record_history:
             self._history = self._history[: self._history_index + 1]
             self._history.append(topic_id)
             self._history_index = len(self._history) - 1
         self._update_nav_buttons()
+
+    def _with_block_icon(self, topic_id: str, markdown: str) -> str:
+        """§2.1: "podgląd graficzny renderowany tym samym kodem co kanwa"
+        — core/block_catalog.py stays headless (no PySide6, per this
+        project's own core/UI split), so the actual QIcon is rendered
+        HERE, at the Qt presentation layer, and spliced into the
+        markdown as a data: URI right under the title — the one place
+        in this window a live Qt render (ui/icons.block_icon(), the
+        SAME icon the canvas/library tree use) needs to reach a
+        Markdown document. QTextDocument's built-in image loader
+        resolves a `data:` URI on its own, no extra resource
+        registration needed."""
+        if not topic_id.startswith("block:"):
+            return markdown
+        type_id = topic_id[len("block:"):]
+        icon = block_icon(type_id, size=64)
+        pixmap = icon.pixmap(64, 64)
+        if pixmap.isNull():
+            return markdown
+        buffer = QBuffer()
+        buffer.open(QIODevice.WriteOnly)
+        pixmap.save(buffer, "PNG")
+        b64 = base64.b64encode(buffer.data().data()).decode("ascii")
+        # Non-empty alt text is NOT optional here: Qt's Markdown-to-HTML
+        # converter (setMarkdown()) silently drops an image link whose
+        # alt text is empty (`![](...)`) -- verified directly, including
+        # for an ordinary http(s) URL, not just a data: one -- so this
+        # would otherwise render nothing with no error of any kind.
+        img_line = f"![Ikona bloku](data:image/png;base64,{b64})"
+        # Right after the "# Title" line, before the type_id/category line.
+        lines = markdown.split("\n", 1)
+        if len(lines) == 2:
+            return f"{lines[0]}\n\n{img_line}\n{lines[1]}"
+        return f"{markdown}\n\n{img_line}\n"
 
     def _go_back(self):
         if self._history_index > 0:
