@@ -3,6 +3,8 @@ from logic_studio.blocks.pin import Pin
 from logic_studio.blocks.registry import BlockRegistry
 
 class ConstantBase(BaseLogicBlock):
+    PIN_DESCRIPTIONS = {"Out": "Stała wartość skonfigurowana we właściwościach tego bloku."}
+
     def __init__(self, type_id, default_name, category, description, pin_type):
         super().__init__(type_id, default_name, category, description)
         self.color = "#555555" # Dark grey for constants
@@ -13,7 +15,7 @@ class ConstantBase(BaseLogicBlock):
 
 @BlockRegistry.register
 class TrueConstant(ConstantBase):
-    def __init__(self, type_id="const.true", default_name="TRUE", category="Inne", description="Boolean TRUE"):
+    def __init__(self, type_id="const.true", default_name="TRUE", category="Inne", description="Stała logiczna PRAWDA."):
         super().__init__(type_id, default_name, category, description, Pin.TYPE_BOOLEAN)
 
     def evaluate(self, engine=None):
@@ -21,7 +23,7 @@ class TrueConstant(ConstantBase):
 
 @BlockRegistry.register
 class FalseConstant(ConstantBase):
-    def __init__(self, type_id="const.false", default_name="FALSE", category="Inne", description="Boolean FALSE"):
+    def __init__(self, type_id="const.false", default_name="FALSE", category="Inne", description="Stała logiczna FAŁSZ."):
         super().__init__(type_id, default_name, category, description, Pin.TYPE_BOOLEAN)
 
     def evaluate(self, engine=None):
@@ -29,7 +31,9 @@ class FalseConstant(ConstantBase):
 
 @BlockRegistry.register
 class RealConstant(ConstantBase):
-    def __init__(self, type_id="const.real", default_name="REAL", category="Inne", description="Real Constant"):
+    PROPERTY_DESCRIPTIONS = {"Value": "Wartość liczbowa (zmiennoprzecinkowa) wystawiana na wyjściu Out."}
+
+    def __init__(self, type_id="const.real", default_name="REAL", category="Inne", description="Stała zmiennoprzecinkowa — wartość ustawiana we właściwości Value."):
         super().__init__(type_id, default_name, category, description, Pin.TYPE_FLOAT)
         self.properties["Value"] = 0.0
 
@@ -46,7 +50,9 @@ class RealConstant(ConstantBase):
 
 @BlockRegistry.register
 class IntConstant(ConstantBase):
-    def __init__(self, type_id="const.int", default_name="INT", category="Inne", description="Integer Constant"):
+    PROPERTY_DESCRIPTIONS = {"Value": "Wartość liczbowa (całkowita) wystawiana na wyjściu Out."}
+
+    def __init__(self, type_id="const.int", default_name="INT", category="Inne", description="Stała całkowita — wartość ustawiana we właściwości Value."):
         super().__init__(type_id, default_name, category, description, Pin.TYPE_INTEGER)
         self.properties["Value"] = 0
 
@@ -58,7 +64,10 @@ class IntConstant(ConstantBase):
 
 @BlockRegistry.register
 class TimeConstant(ConstantBase):
-    def __init__(self, type_id="const.time", default_name="TIME", category="Inne", description="Time Constant (ms)"):
+    PROPERTY_DESCRIPTIONS = {"Time (ms)": "Czas w milisekundach wystawiany na wyjściu Out."}
+    PROPERTY_UNITS = {"Time (ms)": "ms"}
+
+    def __init__(self, type_id="const.time", default_name="TIME", category="Inne", description="Stała czasowa w milisekundach — wartość ustawiana we właściwości Time (ms)."):
         super().__init__(type_id, default_name, category, description, Pin.TYPE_INTEGER)
         self.properties["Time (ms)"] = 1000
 
@@ -70,7 +79,9 @@ class TimeConstant(ConstantBase):
 
 @BlockRegistry.register
 class StringConstant(ConstantBase):
-    def __init__(self, type_id="const.string", default_name="STRING", category="Inne", description="String Constant"):
+    PROPERTY_DESCRIPTIONS = {"Text": "Tekst wystawiany na wyjściu Out."}
+
+    def __init__(self, type_id="const.string", default_name="STRING", category="Inne", description="Stała tekstowa — wartość ustawiana we właściwości Text."):
         super().__init__(type_id, default_name, category, description, Pin.TYPE_STRING)
         self.properties["Text"] = ""
 

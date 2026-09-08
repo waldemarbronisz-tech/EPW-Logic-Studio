@@ -1,0 +1,70 @@
+{
+  "chapters": [
+    {
+      "id": "intro",
+      "title": "Wprowadzenie",
+      "topics": [
+        {"id": "welcome", "title": "Witamy w EPW Logic Studio"}
+      ]
+    },
+    {
+      "id": "concepts",
+      "title": "Pojęcia",
+      "topics": [
+        {"id": "concept_labels", "title": "Etykiety, znaczniki i bity urządzenia"},
+        {"id": "concept_stubs", "title": "Zaślepka wejścia, wolny koniec przewodu, etykieta"},
+        {"id": "concept_scan_cycle", "title": "Cykl skanu i opóźnienie o jeden cykl"},
+        {"id": "concept_analog_quality", "title": "Jakość sygnału analogowego"},
+        {"id": "concept_macros", "title": "Makrobloki i parametry"},
+        {"id": "concept_disabled_blocks", "title": "Bloki wyłączone i wymuszenia"}
+      ]
+    },
+    {
+      "id": "guides",
+      "title": "Poradniki",
+      "topics": [
+        {"id": "guide_first_diagram", "title": "Pierwszy schemat: wejście, bramka, wyjście"},
+        {"id": "guide_move_signal", "title": "Jak przenieść sygnał w inne miejsce schematu"},
+        {"id": "guide_simulation", "title": "Jak uruchomić symulację i sprawdzić działanie logiki"},
+        {"id": "guide_compile_export", "title": "Jak skompilować i wyeksportować logikę do EPW-OS"},
+        {"id": "guide_macros", "title": "Jak utworzyć makro i użyć go w kilku polach"}
+      ]
+    },
+    {
+      "id": "shortcuts_chapter",
+      "title": "Skróty klawiszowe",
+      "topics": [
+        {"id": "shortcuts", "title": "Skróty klawiszowe"}
+      ]
+    },
+    {
+      "id": "about_chapter",
+      "title": "O programie",
+      "topics": [
+        {"id": "about", "title": "O programie"}
+      ]
+    }
+  ],
+  "index": [
+    {"term": "etykieta", "topic": "concept_labels"},
+    {"term": "znacznik", "topic": "concept_labels"},
+    {"term": "bit urządzenia", "topic": "concept_labels"},
+    {"term": "zaślepka", "topic": "concept_stubs"},
+    {"term": "wolny koniec przewodu", "topic": "concept_stubs"},
+    {"term": "cykl skanu", "topic": "concept_scan_cycle"},
+    {"term": "opóźnienie o cykl", "topic": "concept_scan_cycle"},
+    {"term": "z-1", "topic": "concept_scan_cycle"},
+    {"term": "jakość sygnału", "topic": "concept_analog_quality"},
+    {"term": "quality", "topic": "concept_analog_quality"},
+    {"term": "stuck tolerance", "topic": "concept_analog_quality"},
+    {"term": "makroblok", "topic": "concept_macros"},
+    {"term": "parametr makra", "topic": "concept_macros"},
+    {"term": "piny graniczne", "topic": "concept_macros"},
+    {"term": "wyłączony blok", "topic": "concept_disabled_blocks"},
+    {"term": "wymuszenie", "topic": "concept_disabled_blocks"},
+    {"term": "force", "topic": "concept_disabled_blocks"},
+    {"term": "symulacja", "topic": "guide_simulation"},
+    {"term": "kompilacja", "topic": "guide_compile_export"},
+    {"term": "eksport", "topic": "guide_compile_export"}
+  ]
+}

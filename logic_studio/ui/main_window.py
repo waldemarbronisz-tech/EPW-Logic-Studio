@@ -192,9 +192,21 @@ class MainWindow(QMainWindow):
 
         # "Window" and "Tools" had no content at all and were removed
         # (AUDIT_REPORT.md §2.3) rather than kept as empty menus.
+        # feat/help-system §6: every item here has an action wired to it
+        # — nothing kept "for later" with no handler.
+        self.act_help = self._make_action("Pomoc", self._show_help, "F1")
+        self.act_help_catalog = self._make_action("Katalog bloków", self._show_block_catalog)
+        self.act_help_shortcuts = self._make_action("Skróty klawiszowe", self._show_shortcuts_help)
+        self.act_export_block_catalog = self._make_action("Eksportuj katalog bloków...", self._export_block_catalog)
         self.act_about = self._make_action("O programie", self._show_about)
         help_menu = menubar.addMenu("Help")
+        help_menu.addAction(self.act_help)
+        help_menu.addAction(self.act_help_catalog)
+        help_menu.addAction(self.act_help_shortcuts)
+        help_menu.addAction(self.act_export_block_catalog)
+        help_menu.addSeparator()
         help_menu.addAction(self.act_about)
+        self._help_window = None
 
     def _setup_toolbar(self):
         self.toolbar = QToolBar("Main Toolbar")
@@ -296,6 +308,8 @@ class MainWindow(QMainWindow):
         self.library_panel = LibraryPanel(settings=self.settings)
         self.element_preview = ElementPreviewPanel(settings=self.settings)
         self.library_panel.selection_changed.connect(lambda tid: self.element_preview.show_type_id(tid))
+        # feat/help-system §5.4
+        self.element_preview.more_info_requested.connect(self.show_help_for_block_type)
 
         library_splitter = QSplitter(Qt.Vertical)
         library_splitter.addWidget(self.library_panel)
@@ -768,6 +782,82 @@ class MainWindow(QMainWindow):
             dialog.apply_to_project()
             self.set_dirty()
             self._refresh_project_dependent_panels()
+
+    # ---- Help (feat/help-system) --------------------------------------------
+
+    def _get_help_window(self):
+        """Reused across repeated F1 presses/menu clicks — a fresh
+        HelpWindow() every time would lose Back/Forward history and pop
+        a new window on top of whatever's already open (§4.1: "okno
+        nienmodalne... dało się z niego korzystać podczas pracy")."""
+        from logic_studio.ui.help_window import HelpWindow
+        if self._help_window is None:
+            self._help_window = HelpWindow(settings=self.settings)
+        return self._help_window
+
+    def _open_help_topic(self, topic_id: str, tab: str = "contents"):
+        window = self._get_help_window()
+        window.select_tab(tab)
+        window.navigate_to(topic_id)
+        window.show()
+        window.raise_()
+        window.activateWindow()
+
+    def _context_help_topic(self) -> str:
+        """§5.1/§5.2: F1 with a block selected on the canvas opens straight
+        to that block's own catalog page; otherwise F1 opens on whatever
+        topic matches the CURRENT context (macro editing / simulation
+        running), falling back to the welcome page."""
+        from logic_studio.ui.canvas.block_item import BlockItem
+        selected_blocks = [i for i in self.scene.selectedItems() if isinstance(i, BlockItem)]
+        if len(selected_blocks) == 1:
+            return f"block:{selected_blocks[0].logic_block.type_id}"
+
+        if self.current_macro_def_id is not None:
+            return "concept_macros"
+
+        from logic_studio.engine.execution import ExecutionState
+        if self.engine.state in (ExecutionState.RUNNING, ExecutionState.PAUSED):
+            return "guide_simulation"
+
+        return "welcome"
+
+    def _show_help(self):
+        """F1 — §5.1/§5.2's context-sensitive entry point."""
+        self._open_help_topic(self._context_help_topic())
+
+    def _show_block_catalog(self):
+        self._open_help_topic("welcome", tab="contents")
+        # Land on Contents with the tree visible rather than a specific
+        # block — an explicit "Katalog bloków" menu click has no single
+        # block in mind the way F1-on-a-selection does.
+
+    def _show_shortcuts_help(self):
+        self._open_help_topic("shortcuts")
+
+    def _export_block_catalog(self):
+        """§2.4: the generator also feeds a standalone export, independent
+        of the interactive help window — useful for coordination
+        meetings/project documentation."""
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+        from logic_studio.core import block_catalog
+
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Eksportuj katalog bloków", "katalog_blokow.md", "Markdown (*.md)"
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(block_catalog.export_catalog_markdown())
+        except OSError as exc:
+            QMessageBox.critical(self, "Eksport nie powiódł się", str(exc))
+
+    def show_help_for_block_type(self, type_id: str):
+        """Called from ElementPreviewPanel's "Więcej o tym bloku" link
+        (§5.4) and available for any other caller that has a type_id
+        on hand but no canvas selection to derive it from."""
+        self._open_help_topic(f"block:{type_id}")
 
     def _show_about(self):
         from PySide6.QtWidgets import QMessageBox

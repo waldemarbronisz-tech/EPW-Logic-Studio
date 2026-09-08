@@ -14,7 +14,10 @@ class SystemBooleanSignalBlock(BaseLogicBlock):
     back-compat; the "Tag"->"Sygnał" property rename is handled by
     Project's v2->v3 migration (core/project.py)."""
 
-    def __init__(self, type_id="system.signal", default_name="Sygnał systemowy", category="Inne", description="System Signal"):
+    PIN_DESCRIPTIONS = {"Out": "Wartość wybranego sygnału systemowego (BOOL lub REAL, zależnie od sygnału)."}
+    PROPERTY_DESCRIPTIONS = {"Sygnał": "Identyfikator sygnału z katalogu sygnałów systemowych (SYS.*)."}
+
+    def __init__(self, type_id="system.signal", default_name="Sygnał systemowy", category="Inne", description="Odczyt sygnału z wbudowanego katalogu sygnałów systemowych (SYS.*)."):
         super().__init__(type_id, default_name, category, description)
 
         self.color = "#800080"  # Purple
@@ -83,7 +86,12 @@ class SystemBooleanSignalBlock(BaseLogicBlock):
 
 @BlockRegistry.register
 class ButtonBlock(BaseLogicBlock):
-    def __init__(self, type_id="system.button", default_name="Przycisk", category="Przyciski", description="Przycisk interfejsu"):
+    PIN_DESCRIPTIONS = {"Out": "Stan przycisku (monostabilny: aktywny tylko podczas naciśnięcia; bistabilny: przełącza się przy każdym naciśnięciu)."}
+    PROPERTY_DESCRIPTIONS = {
+        "Mode": "\"Monostabilny\" — wyjście aktywne tylko podczas naciśnięcia. \"Bistabilny\" — każde naciśnięcie przełącza stan wyjścia.",
+    }
+
+    def __init__(self, type_id="system.button", default_name="Przycisk", category="Przyciski", description="Przycisk interfejsu operatora (HMI)."):
         super().__init__(type_id, default_name, category, description)
         self.color = "#000000"
         self.outputs.append(Pin("Out", Pin.DIR_OUTPUT, Pin.TYPE_BOOLEAN))
@@ -117,6 +125,8 @@ class ButtonBlock(BaseLogicBlock):
 
 @BlockRegistry.register
 class LedBlock(BaseLogicBlock):
+    PIN_DESCRIPTIONS = {"In": "Stan wyświetlany przez diodę sygnalizacyjną."}
+
     def __init__(self, type_id="system.led", default_name="LED", category="LED", description="Dioda sygnalizacyjna"):
         super().__init__(type_id, default_name, category, description)
         self.color = "#000000"
@@ -130,6 +140,12 @@ class LedBlock(BaseLogicBlock):
 
 @BlockRegistry.register
 class UserMessageBlock(BaseLogicBlock):
+    PIN_DESCRIPTIONS = {"In": "Wybiera, który z dwóch komunikatów jest aktualnie wyświetlany."}
+    PROPERTY_DESCRIPTIONS = {
+        "Message 0": "Tekst wyświetlany, gdy wejście In jest fałszywe.",
+        "Message 1": "Tekst wyświetlany, gdy wejście In jest prawdziwe.",
+    }
+
     def __init__(self, type_id="system.message", default_name="Komunikat użytkownika", category="Telemechanika", description="Wiadomość tekstowa dla operatora"):
         super().__init__(type_id, default_name, category, description)
         self.color = "#000000"
@@ -148,6 +164,10 @@ class UserMessageBlock(BaseLogicBlock):
 
 @BlockRegistry.register
 class SignalGeneratorBlock(BaseLogicBlock):
+    PIN_DESCRIPTIONS = {"Out": "Przebieg prostokątny 50% wypełnienia o okresie Period (s)."}
+    PROPERTY_DESCRIPTIONS = {"Period (s)": "Okres przebiegu prostokątnego w sekundach."}
+    PROPERTY_UNITS = {"Period (s)": "s"}
+
     def __init__(self, type_id="system.generator", default_name="Generator sygnału", category="Inne", description="Generator przebiegu prostokątnego"):
         super().__init__(type_id, default_name, category, description)
         self.color = "#000000"
