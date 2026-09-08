@@ -1809,6 +1809,107 @@ bezpiecznej ścieżki, nie regresja). Pełny zestaw: 1414 passed (1380 +
 34 nowych — patrz §8 tej migawki dla pełnego rozbicia). Wszystkie 10
 `examples/*.epwlogic` nadal się otwierają, kompilują i eksportują.
 
+## 42. Cykl życia `QTimer` — siódmy przypadek "elementu dodanego bez objęcia wszystkich ścieżek", i częściowa naprawa §34 (branch `fix/qtimer-lifetime`)
+
+CI padło `Fatal Python error: Aborted` na `tests/test_signals_panel.py::
+test_repeated_requests_coalesce_into_one_rebuild` — dokładnie to
+wystąpienie, na które diagnostyka z §34 (`PYTHONFAULTHANDLER=1`,
+`-v`, log na PR) czekała: crash zależny od losowej kolejności testów
+(`pytest-randomly`), nie od pojedynczego pliku uruchomionego osobno.
+
+**Odtworzenie lokalne**: NIE pada przy `pytest tests/test_signals_panel.py`
+(sam plik) ani przy `pytest tests/ -p no:randomly` (stała, alfabetyczna
+kolejność) — pada wyłącznie pod losową kolejnością CAŁEGO zestawu, i to
+niedeterministycznie (nie za każdym razem, i nie zawsze w tym samym
+teście). Pierwsza próba lokalnej diagnozy była myląca: środowisko
+deweloperskie miało zainstalowany `pytest-qt` jako pozostałość
+niezwiązaną z `requirements.txt` (który go nie wymienia — CI świadomie
+go NIE instaluje, zobacz §34 punkt 3) — z nim zainstalowanym, `tests/
+test_watch_panel.py::test_removing_a_watched_row_closes_its_open_trend_dialog`
+padał DETERMINISTYCZNIE, nawet uruchomiony w pojedynkę, ale okazało się
+to być crashem WYWOŁANYM PRZEZ SAM FAKT zainstalowania `pytest-qt`
+(potwierdzone: identyczny kod, wywołany jako goła funkcja Pythona bez
+`pytest` w ogóle, nie pada nigdy) — czyli fałszywym tropem niezwiązanym
+z prawdziwym problemem CI, dokładnie ten sam wniosek, który skłonił §34
+do usunięcia `pytest-qt` z CI. Dalsza diagnoza z `-p "no:pytest-qt"`
+(odtwarzająca realny zestaw zależności CI) faktycznie odtworzyła crash
+pod losową kolejnością, w RÓŻNYCH testach na różnych uruchomieniach —
+w tym raz dokładnie w `test_repeated_requests_coalesce_into_one_rebuild`,
+CI-owym teście.
+
+**Znaleziony i naprawiony konkretny błąd**: `ui/canvas/navigation.py::
+pulse_highlight()` tworzył goły, bezpański `QTimer()` — jedyny bezpański
+`QTimer` w repozytorium po pełnym audycie (patrz ARCHITECTURE.md §28.3,
+trzy miejsca tworzące `QTimer` w całym `logic_studio/`) — trzymany przy
+życiu wyłącznie jako atrybut Pythona na osobnym `QGraphicsRectItem`
+(nakładce podświetlenia), z `try/except RuntimeError` wokół jego
+callbacku jako jedynym zabezpieczeniem. `tests/test_canvas_navigation.py`
+own `test_jump_to_block_*` testy wywołują domyślną ~1-sekundową animację
+i kończą się natychmiast — zostawiając ten timer tykający w tle przez
+kolejne testy. Naprawione u źródła: nowy moduł `ui/qt_lifetime.py`
+(`create_owned_timer()`) — jedno sankcjonowane miejsce tworzenia
+`QTimer` w całym repozytorium, wymuszające prawdziwego właściciela
+(`QObject`, Qt niszczy timer razem z nim) plus opcjonalny strażnik
+żywotności sprawdzany `shiboken6.isValid()` dla obiektów, których
+właściciel NIE niszczy w tym samym momencie (tu: `overlay`, bo
+`QGraphicsItem` nie jest `QObject` i nigdy nie dostanie rodzica Qt).
+`try/except RuntimeError` w `pulse_highlight()` USUNIĘTY — po naprawie
+u źródła jest martwym kodem, zostawiony maskowałby ósmy przypadek.
+Wszystkie trzy miejsca tworzące `QTimer` w repozytorium
+(`navigation.py`, `signals.py`, `main_window.py`) zmigrowane na
+`create_owned_timer()`, żeby nowy test audytujący
+(`tests/test_qt_timer_lifetime.py`, przeszukujący `ast` każdego pliku
+pod `logic_studio/` w poszukiwaniu `QTimer(...)`/`QTimer.singleShot(...)`
+poza tą jedną, sankcjonowaną funkcją) nie potrzebował dla nich żadnego
+wyjątku.
+
+**Realny błąd znaleziony PRZY BUDOWIE samego mechanizmu**: pierwsza
+wersja `create_owned_timer()` przekazywała `callback` przez domknięcie
+Pythona (wartość zamrożona w momencie wywołania) — inaczej niż
+bezpośrednie `timer.timeout.connect(self.metoda)`, które PySide
+rozwiązuje DYNAMICZNIE po atrybucie przy każdej emisji (zweryfikowane
+wprost na gołym `QObject`/`Signal`). Różnica realnie łamała
+`test_repeated_requests_coalesce_into_one_rebuild`, który podmienia
+`panel._rebuild` opakowaniem liczącym wywołania — ze zamrożonym
+domknięciem timer wywoływałby zawsze ORYGINALNĄ metodę, cicho ignorując
+podmianę (test failował `0 == 1`, nie crashował — złapane i naprawione
+PRZED scaleniem, nie zostawione jako regresja). Naprawione: dla
+callbacku będącego metodą związaną, `create_owned_timer()` rozwiązuje ją
+po nazwie z instancji przy każdym tiku zamiast wołać zamrożoną wartość.
+
+**Świadomie NIE w pełni zamknięte**: powtórzone przebiegi całego
+zestawu w losowej kolejności PO tej naprawie (z zależnościami wiernymi
+CI — `pytest-qt` odinstalowany) nadal, rzadziej niż przed naprawą pod
+tymi samymi warunkami, ale mierzalnie, padają — w różnych, pozornie
+niepowiązanych testach (`test_signals_panel.py`'s inny test debounce,
+oraz nawet nowy, minimalny test z `test_qt_timer_lifetime.py` samego).
+Test kontrolny na kodzie SPRZED tej naprawy (te same warunki: bez
+`pytest-qt`, 5 przebiegów losowych) też pokazał crash w 2 z 5 — czyli
+zjawisko jest STARSZE niż `pulse_highlight()`'s bug i naprawa go NIE
+eliminuje w pełni, tylko zamyka jedną, konkretną, znalezioną instancję.
+Wniosek zgodny z własną niepewnością §34 ("Nie potwierdzone wieloma
+kolejnymi zielonymi uruchomieniami... Jeśli `xvfb-run` okaże się
+potrzebny, to następny krok") — pozostaje przynajmniej jedno inne
+źródło tej samej klasy niestabilności, albo rzeczywista niestabilność
+natywna kombinacji Qt 6.11/PySide6 6.11.2/Python 3.14 pod platformą
+`offscreen`, poza zasięgiem naprawy na poziomie własności obiektów
+Pythona. Pozostawione jako otwarty, śledzony problem — dane empiryczne
+(liczby przebiegów/seedy) w podsumowaniu PR.
+
+Testy: `tests/test_qt_timer_lifetime.py` (nowy, +84: test audytujący
+sparametryzowany po każdym pliku źródłowym, testy jednostkowe
+`create_owned_timer()` — w tym regresja na dynamiczne rozwiązywanie
+metody związanej opisana wyżej — i pięć testów-strażników odtwarzających
+dokładny kształt crashu: timer wciąż tykający, gdy obiekt/scena/okno,
+którego dotyka, zostaje natychmiast zniszczone). `tests/conftest.py`:
+dwie nowe, WSPÓLNE, opcjonalne fixture'y (`qapp`, `qt_cleanup`) — §5.2
+zadania prosiło o jedną wspólną fixture sprzątającą widgety we
+WSZYSTKICH testach tworzących panele/okna; retrofit ~60 istniejących
+plików testowych (każdy ma własny, prawie identyczny `_app()`/`_close()`)
+uznany za osobne, dużo większe zadanie, świadomie odłożone — nowe testy
+w tym PR używają nowych fixture'ów jako przykładu, istniejące pliki
+zostawione bez zmian.
+
 ## Zasada utrzymania tego dokumentu
 
 **Sekcje opisowe (§1-§10)** muszą być odświeżone przy KAŻDYM PR, który

@@ -2444,3 +2444,106 @@ sama zasada co `input.ai`'s trzymanie ostatniej dobrej wartości.
 zarejestrowanym typem bloku — pilnuje tego trwale: nowy blok
 zostawiający wyjście jako `None` nie przejdzie zestawu testów od razu,
 zamiast cicho trafić do produkcji.
+
+## 28. Cykl życia obiektów Qt: `QTimer` (fix/qtimer-lifetime)
+
+### 28.1 Zasada
+
+**Żaden `QTimer` nie może przeżyć obiektu, do którego się odnosi jego
+własny callback.** Nie chodzi tu o styl ani o wygodę — chodzi o to, że
+gdy timer bez właściciela odpali się już PO zniszczeniu obiektu, który
+jego callback dotyka, Qt NIE gwarantuje czystego, przechwytywalnego
+wyjątku Pythona. Czasem tak — `RuntimeError: Internal C++ object already
+deleted`, coś, co `except RuntimeError` faktycznie łapie. Czasem nie —
+proces kończy się `SIGSEGV`/`SIGABRT` na poziomie C++, którego żaden
+`try/except` w Pythonie przechwycić nie może, bo awaria nie jest
+wyjątkiem Pythona w ogóle. **`try/except RuntimeError` wokół
+podejrzanego callbacku maskuje objaw na tych uruchomieniach, na których
+Qt akurat zdecyduje się rzucić czysto — nie usuwa przyczyny, i nie
+pomaga na tych uruchomieniach, na których Qt zdecyduje inaczej.**
+
+Dokładnie to stało się w `ui/canvas/navigation.py::pulse_highlight()`
+(§28.3): bezpański `QTimer()`, trzymany przy życiu wyłącznie jako atrybut
+Pythona na osobnym `QGraphicsRectItem`, z `try/except RuntimeError`
+wokół jego callbacku. Dwa testy nawigacji (`test_jump_to_block_*`,
+`tests/test_canvas_navigation.py`) wywołują domyślną, ~1-sekundową
+animację i kończą się natychmiast, nie czekając na jej zakończenie —
+zostawiając bezpański timer tykający do ~1s w tle, podczas gdy
+uruchamiają się KOLEJNE testy, których obiekty timer w międzyczasie może
+dotknąć.
+
+### 28.2 Mechanizm: `logic_studio/ui/qt_lifetime.create_owned_timer()`
+
+Jedno sankcjonowane miejsce tworzenia `QTimer` w tym repozytorium —
+zamiast punktowej łatki w `pulse_highlight()`, każde miejsce tworzące
+timer w warstwie UI przechodzi przez tę samą funkcję, wymuszającą dwie
+rzeczy naraz:
+
+1. **Właściciel**: `create_owned_timer(owner, callback, ...)` wymaga
+   prawdziwego `QObject` jako `owner` — staje się rodzicem timera w
+   sensie Qt, więc Qt sam zatrzymuje i niszczy timer w chwili zniszczenia
+   `owner`; sygnał `timeout` fizycznie nie może się już odpalić.
+2. **Strażnik żywotności (`guard`)**: dla obiektów, których `owner` NIE
+   niszczy w tym samym momencie co siebie samego — typowo
+   `QGraphicsItem`, który w ogóle nie jest `QObject` i nigdy nie może
+   dostać rodzica Qt (dokładnie przypadek `pulse_highlight()`: naturalnym
+   właścicielem timera jest `QGraphicsScene`, ale to, czego dotyka każdy
+   „tik”, to nakładka podświetlenia — usuwalna pojedynczo, `scene.clear()`
+   włącznie, podczas gdy sama scena żyje dalej) — każdy obiekt przekazany
+   przez `guard` jest sprawdzany `shiboken6.isValid()` PRZED każdym
+   wywołaniem właściwego callbacku. `shiboken6.isValid()` to bezpieczne,
+   udokumentowane sprawdzenie w księgowości shiboken, nie dotyka samej
+   (potencjalnie już zwolnionej) pamięci obiektu C++ — inaczej niż gołe
+   wywołanie metody owinięte w `try/except`.
+
+Callback będący METODĄ ZWIĄZANĄ (`owner.some_method`) jest rozwiązywany
+DYNAMICZNIE po nazwie przy każdym tiku, a nie zamrażany jako wartość w
+domknięciu Pythona — to nie estetyka, to naprawiony podczas budowy tej
+funkcji realny błąd: `tests/test_signals_panel.py::
+test_repeated_requests_coalesce_into_one_rebuild` podmienia
+`panel._rebuild` instrumentującym opakowaniem, by policzyć wywołania —
+zamrożone domknięcie wywoływałoby zawsze ORYGINALNĄ metodę, cicho
+ignorując podmianę.
+
+### 28.3 Trzy miejsca tworzące `QTimer` w repozytorium — stan PRZED i PO
+
+| Miejsce | Właściciel PRZED | Strażnik PRZED | Po migracji do `create_owned_timer()` |
+|---|---|---|---|
+| `ui/canvas/navigation.py::pulse_highlight()` | **Brak** — goły `QTimer()`, żywy tylko przez atrybut Pythona na `overlay` | `try/except RuntimeError` wokół callbacku (usunięty) | `owner=scene`, `guard=(overlay,)` |
+| `ui/panels/signals.py::SignalsPanel._refresh_timer` | `QTimer(self)` — już poprawnie | Brak (niepotrzebny — `self` samo się chroni) | `owner=self`, bez `guard` — migracja bez zmiany zachowania, wyłącznie żeby test audytujący (§28.4) nie potrzebował dla niej wyjątku |
+| `ui/main_window.py::MainWindow.sim_timer` | `QTimer(self)` — już poprawnie | Brak | jw. |
+
+Tylko pierwsze miejsce miało realnego buga; pozostałe dwa migrowano
+wyłącznie po to, by `create_owned_timer()` było JEDYNYM miejscem
+tworzącym `QTimer` w repozytorium — zero wyjątków w teście audytującym.
+
+### 28.4 Test audytujący (`tests/test_qt_timer_lifetime.py`)
+
+Sparametryzowany po KAŻDYM pliku `.py` pod `logic_studio/`, parsujący go
+przez `ast` (nie regex/tekst — żeby *wzmianka* o `QTimer(` w komentarzu
+czy docstringu, tak jak w tym właśnie akapicie, nigdy nie została wzięta
+za realne wywołanie) i szukający bezpośredniego `QTimer(...)` albo
+`QTimer.singleShot(...)` poza `ui/qt_lifetime.py` samym. Lista wyjątków
+istnieje w kodzie testu, dziś pusta — nowy bezpański timer w przyszłości
+wywali ten test od razu, z numerem linii.
+
+### 28.5 Dlaczego NIE naprawiło to całego, obserwowanego zjawiska
+
+Ten sam pattern crashu (`Fatal Python error: Aborted`/`SIGSEGV`, zawsze
+podczas `processEvents()`/`QTest.qWait()`, zawsze zależny od KOLEJNOŚCI
+testów, nigdy od pojedynczego pliku uruchomionego osobno) był już
+odnotowany w dzienniku (§34) jako "nie w pełni potwierdzone" i
+pozostawiony z diagnostyką (`PYTHONFAULTHANDLER=1`) w CI właśnie po to,
+żeby następne wystąpienie dało się dokładnie namierzyć. To PR jest tym
+następnym wystąpieniem. Naprawa z §28.2/§28.3 jest realna i zamyka
+KONKRETNĄ, znalezioną instancję choroby — ale powtórzone uruchomienia
+CAŁEGO zestawu w losowej kolejności PO tej naprawie nadal, choć rzadziej,
+padają, w różnych, pozornie niepowiązanych testach. Wniosek: istnieje
+przynajmniej jedno inne źródło tej samej klasy niestabilności (kolejny
+bezpański obiekt Qt gdzieś jeszcze nieznaleziony, albo rzeczywista
+niestabilność natywna kombinacji Qt 6.11/PySide6 6.11.2/Python 3.14 pod
+platformą `offscreen`, którą CI's własny dziennik §34 już podejrzewał).
+Pełne dane empiryczne (współczynnik crashu PRZED i PO tej naprawie, na
+identycznym zestawie losowań) są w podsumowaniu PR — ten dokument
+notuje wyłącznie, że reguła z §28.1 jest konieczna, ale — jak dotąd
+zmierzone — NIE wystarczająca do pełnego wyeliminowania zjawiska z §34.
