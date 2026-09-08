@@ -2,15 +2,25 @@
 complete isolation from Project/Qt (plain dicts only, exactly the shape
 Project.serialize() produces).
 """
+import copy
+
+import pytest
+
+from logic_studio.core import state_diff
 from logic_studio.core.state_diff import diff_project_state, apply_project_diff
 
 
-def _state(blocks, settings=None):
+def _state(blocks, settings=None, wires=None):
     return {
         "format": "EPW_LOGIC",
         "schema_version": 5,
         "settings": settings or {"name": "P", "ela_devices": ["ELA01"]},
         "blocks": blocks,
+        # feat/wire-labels §2: part of Project.serialize()'s shape now,
+        # same uuid-keyed diffing as "blocks" (see _diff_uuid_list()) --
+        # empty by default so every existing test here (none of which
+        # care about wires specifically) keeps working unchanged.
+        "wires": wires or [],
     }
 
 
@@ -106,6 +116,7 @@ def test_apply_does_not_mutate_base():
     base_copy = {
         "format": base["format"], "schema_version": base["schema_version"],
         "settings": dict(base["settings"]), "blocks": [dict(b) for b in base["blocks"]],
+        "wires": list(base["wires"]),
     }
     apply_project_diff(base, diff)
     assert base == base_copy
@@ -117,3 +128,123 @@ def test_format_and_schema_version_carried_through():
     result = apply_project_diff(base, diff)
     assert result["format"] == "EPW_LOGIC"
     assert result["schema_version"] == 5
+
+
+# ---- feat/wire-labels §2: "wires" diffed exactly like "blocks" -----------
+
+def _wire(uuid, **extra):
+    d = {"uuid": uuid, "source_pin": "p1", "dest_pin": "p2", "label": ""}
+    d.update(extra)
+    return d
+
+def test_round_trip_wire_added():
+    base = _state([], wires=[])
+    target = _state([], wires=[_wire("w1")])
+    diff = diff_project_state(base, target)
+    assert apply_project_diff(base, diff) == target
+    assert diff["wires"]["set"] == {"w1": _wire("w1")}
+
+def test_round_trip_wire_label_changed():
+    base = _state([], wires=[_wire("w1", label="")])
+    target = _state([], wires=[_wire("w1", label="Blokada ZS")])
+    diff = diff_project_state(base, target)
+    assert apply_project_diff(base, diff) == target
+    assert list(diff["wires"]["set"].keys()) == ["w1"]
+
+def test_round_trip_wire_removed():
+    base = _state([], wires=[_wire("w1"), _wire("w2")])
+    target = _state([], wires=[_wire("w1")])
+    diff = diff_project_state(base, target)
+    assert apply_project_diff(base, diff) == target
+    assert diff["wires"]["remove"] == ["w2"]
+
+def test_unchanged_wires_produce_no_order_list():
+    base = _state([], wires=[_wire("w1"), _wire("w2")])
+    target = _state([_block("a")], wires=[_wire("w1"), _wire("w2")])  # only a block changed
+    diff = diff_project_state(base, target)
+    assert diff["wires"]["order"] is None
+    assert diff["wires"]["set"] == {}
+    assert diff["wires"]["remove"] == []
+    assert apply_project_diff(base, diff) == target
+
+def test_apply_project_diff_degrades_gracefully_when_wires_key_is_absent():
+    """A diff computed by an OLDER in-memory version of this code (before
+    feat/wire-labels existed) has no "wires" key at all -- must fall back
+    to base's own wires rather than KeyError. Never happens for a SAVED
+    file (Project.deserialize()'s migration chain always adds "wires"
+    first), only a hypothetical stale in-process undo/redo diff."""
+    base = _state([], wires=[_wire("w1")])
+    target = _state([_block("a")], wires=[_wire("w1")])
+    diff = diff_project_state(base, target)
+    del diff["wires"]
+    result = apply_project_diff(base, diff)
+    assert result["wires"] == [_wire("w1")]
+    assert result["blocks"] == [_block("a")]
+
+
+# ---- feat/wire-labels: the 7th guardian path — state_diff's own coverage --
+# of every top-level key in Project.serialize()'s shape. Six prior
+# occurrences of "a field/key added without updating every path that
+# needs to know about it": Pin.connections (aliased not copied),
+# Pin.disabled (dropped), BaseLogicBlock.visibility/execution_state
+# (serialized but never read back), Pin.safety_relevant (dropped by
+# clone()), and this module's own "wires" key (added alongside
+# core/wire.py, §2) — none of which this file's OWN diffing logic had a
+# test making sure IT stayed current with Project.serialize()'s actual
+# shape. This is that test, plus the per-key round-trip it implies.
+
+def test_meta_every_top_level_serialize_key_is_known_to_state_diff():
+    """If Project.serialize() ever gains an eighth top-level key, this
+    fails immediately, naming exactly what's missing from state_diff.
+    py's three registries — instead of that key silently vanishing on
+    the next undo, the way "wires" would have before §2's own fix."""
+    from logic_studio.core.project import Project
+    actual_keys = set(Project().serialize().keys())
+    assert actual_keys == state_diff.KNOWN_TOP_LEVEL_KEYS
+
+
+def _modify_state(base: dict, key: str) -> dict:
+    """A deep copy of `base` with ONLY `key` changed to a different
+    value — the "guards the guard" recipe test_meta_every_top_level_
+    serialize_key_is_known_to_state_diff() implies: a key added to
+    KNOWN_TOP_LEVEL_KEYS without a matching recipe here fails LOUDLY
+    (the else branch), not silently skipped."""
+    target = copy.deepcopy(base)
+    if key == "format":
+        target["format"] = "EPW_LOGIC_TEST_VALUE"
+    elif key == "schema_version":
+        target["schema_version"] = base["schema_version"] + 1
+    elif key == "blocks":
+        target["blocks"] = target["blocks"] + [_block("new-block-uuid")]
+    elif key == "wires":
+        target["wires"] = target["wires"] + [_wire("new-wire-uuid")]
+    elif key == "settings":
+        target["settings"] = dict(target["settings"], name="Changed Name")
+    else:
+        raise AssertionError(
+            f"no _modify_state() recipe for top-level key {key!r} -- "
+            "add one alongside registering it in state_diff.py"
+        )
+    return target
+
+
+@pytest.mark.parametrize("key", sorted(state_diff.KNOWN_TOP_LEVEL_KEYS))
+def test_state_diff_round_trips_a_change_to_each_top_level_key(key):
+    """For each top-level key of Project.serialize()'s shape in turn:
+    modify ONLY that key, compute the diff, apply it, and confirm the
+    modification survived. Every OTHER key is left completely untouched
+    in `target`, so this also proves the diff for one key doesn't
+    accidentally disturb the others."""
+    base = _state(
+        [_block("a", x=0.0)],
+        settings={"name": "P", "ela_devices": ["ELA01"]},
+        wires=[_wire("w1", label="")],
+    )
+    target = _modify_state(base, key)
+
+    diff = diff_project_state(base, target)
+    result = apply_project_diff(base, diff)
+
+    assert result == target
+    assert result[key] == target[key]
+    assert result[key] != base[key]  # the recipe actually changed something

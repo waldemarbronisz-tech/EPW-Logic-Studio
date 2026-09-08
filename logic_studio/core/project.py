@@ -20,7 +20,7 @@ class _HistoryEntry:
 # Bump when the on-disk .epwlogic schema changes in a way that requires migration.
 # Every bump needs a matching _migrate_vN_to_v(N+1)(data) function registered in
 # _MIGRATIONS below — see AUDIT_REPORT.md §2 "Wersjonowanie schematów".
-EPWLOGIC_SCHEMA_VERSION = 11
+EPWLOGIC_SCHEMA_VERSION = 12
 
 
 def _migrate_v1_to_v2(data: dict) -> dict:
@@ -296,9 +296,28 @@ def _migrate_v10_to_v11(data: dict) -> dict:
     return data
 
 
+def _migrate_v11_to_v12(data: dict) -> dict:
+    """v11 -> v12 (feat/wire-labels §2.3): introduces the top-level
+    "wires" list (core/wire.py) — schematic wire records for a wire
+    carrying a label and/or a free end. Empty migration in the fullest
+    sense: no file older than this feature could have anything to put
+    there (every wire in an existing project has both ends connected and
+    no label, so it needs no Wire record at all — see core/wire.py's own
+    docstring) — but the step still exists, so a v11 file's version
+    number accurately reflects what the CURRENT format supports, the
+    same "an empty migration is not a skipped one" reasoning as every
+    other purely-additive step in this chain (v3->v4, v5->v6, ...).
+    Deliberately at the TOP LEVEL of `data`, not inside `settings` —
+    "wires" is schematic content (Project.wires is a sibling list of
+    Project.blocks), not project configuration."""
+    data.setdefault("wires", [])
+    data["schema_version"] = 12
+    return data
+
+
 # Keyed by the version a migration upgrades FROM. Project.deserialize() walks
 # this sequentially — apply the migration for the file's current version,
-# re-check, repeat — so a v1 file goes through v1->v2->...->v10->v11 in one load.
+# re-check, repeat — so a v1 file goes through v1->v2->...->v11->v12 in one load.
 _MIGRATIONS = {
     1: _migrate_v1_to_v2,
     2: _migrate_v2_to_v3,
@@ -310,6 +329,7 @@ _MIGRATIONS = {
     8: _migrate_v8_to_v9,
     9: _migrate_v9_to_v10,
     10: _migrate_v10_to_v11,
+    11: _migrate_v11_to_v12,
 }
 
 
@@ -318,6 +338,13 @@ class Project:
 
     def __init__(self):
         self.blocks = []
+        # feat/wire-labels §2: schematic wire records, a sibling list of
+        # `blocks` (live Wire objects naming pins by uuid — content, not
+        # configuration) — see core/wire.py's own docstring for why this
+        # is NOT nested under `settings` the way analog_points/
+        # internal_bits/io_labels are, and why it holds a record for only
+        # SOME wires, never every connection in the project.
+        self.wires = []
         self.settings = {
             "name": "New Project",
             "version": "1.0",
@@ -455,6 +482,54 @@ class Project:
         self._stack_push(self.undo_stack, self.serialize())
         return self._stack_pop(self.redo_stack)
 
+    def add_wire(self, wire):
+        """feat/wire-labels §2.1: a Wire with NEITHER end connected (both
+        source_pin and dest_pin None) is invalid — "przewód bez żadnego
+        podłączonego końca jest niedozwolony" — refused here rather than
+        left to some later validation pass, the same "catch it at the
+        single choke point" reasoning as add_block()'s short_id
+        assignment. Returns True if added, False if refused."""
+        if wire.source_pin is None and wire.dest_pin is None:
+            return False
+        if wire not in self.wires:
+            self.wires.append(wire)
+        return True
+
+    def remove_wire(self, wire):
+        if wire in self.wires:
+            self.wires.remove(wire)
+
+    def remove_wire_by_pins(self, source_pin_uuid, dest_pin_uuid):
+        """feat/wire-labels: removes the Wire record (if any) describing
+        EXACTLY this pin pair — the counterpart to Pin.disconnect(),
+        called at every site that disconnects one specific connection
+        (ui/canvas/scene.py's delete_selected_items()/
+        create_macro_from_selection()) so a Wire record never survives
+        the connection it describes. Matches BOTH orderings (source/dest
+        is which end the user happened to click first while drawing —
+        see ui/canvas/wire_item.py's own note on this — not a
+        logical/physical distinction) since a Wire's own source_pin/
+        dest_pin are assigned once, at creation, and the caller
+        disconnecting a pin pair may not know or care which was which."""
+        for wire in list(self.wires):
+            pins = {wire.source_pin, wire.dest_pin}
+            if pins == {source_pin_uuid, dest_pin_uuid}:
+                self.wires.remove(wire)
+
+    def remove_wires_touching_pins(self, pin_uuids) -> list:
+        """feat/wire-labels: removes every Wire record naming ANY of
+        `pin_uuids` on either end — used when a whole BLOCK is deleted
+        (every one of its own pins is about to disappear, so any Wire
+        naming one, including a free-end wire with no on-canvas WireItem
+        to be found by scene.py's own graphics cleanup, is left
+        describing a connection/attachment that no longer exists).
+        Returns the removed wires."""
+        pin_uuids = set(pin_uuids)
+        removed = [w for w in self.wires if w.source_pin in pin_uuids or w.dest_pin in pin_uuids]
+        for w in removed:
+            self.wires.remove(w)
+        return removed
+
     def add_block(self, block):
         if block not in self.blocks:
             # feat/io-labels-and-ids §4.1/§4.2: assign a short_id the FIRST
@@ -481,7 +556,12 @@ class Project:
             "format": "EPW_LOGIC",
             "schema_version": EPWLOGIC_SCHEMA_VERSION,
             "settings": self.settings,
-            "blocks": [b.serialize() for b in self.blocks]
+            "blocks": [b.serialize() for b in self.blocks],
+            # feat/wire-labels §2: schematic wire records — created ONLY
+            # for a wire that carries a label and/or a free end (see
+            # core/wire.py's own docstring for why an ordinary, fully-
+            # connected, unlabeled wire needs no entry here at all).
+            "wires": [w.serialize() for w in self.wires],
         }
 
     def save_to_file(self, filepath: str):
@@ -646,5 +726,12 @@ class Project:
                 "Project references unrecognized block type(s), refusing to load "
                 "and silently drop logic: " + ", ".join(unknown_type_ids)
             )
+
+        # feat/wire-labels §2.2: restored directly (not through add_wire())
+        # — a file predating this feature simply has no "wires" key at
+        # all (migrated to an empty list, §2.3), and any wire a file DOES
+        # carry was, by construction, valid when it was saved.
+        from logic_studio.core.wire import Wire
+        proj.wires = [Wire.deserialize(w) for w in data.get("wires", [])]
 
         return proj

@@ -37,9 +37,16 @@ class _ExpandedProjectView:
     exist at all, the same reasoning that keeps them hardware-agnostic
     (ARCHITECTURE.md §1)."""
 
-    def __init__(self, blocks, settings):
+    def __init__(self, blocks, settings, wires=None):
         self.blocks = blocks
         self.settings = settings
+        # feat/wire-labels §2.5/§5: Validator's free-end/label checks and
+        # (from §5 onward) the label-node-merging step all need the
+        # live project's Wire records too — passed through UNCHANGED
+        # (never macro-expanded; a Wire's pin uuids stay valid against
+        # expanded_blocks because top-level pins keep their uuid through
+        # clone(preserve_uuid=True), see core/macros.py).
+        self.wires = wires if wires is not None else []
 
 
 class Compiler:
@@ -76,7 +83,7 @@ class Compiler:
             self.status = "COMPILE_FAILED"
             return None
 
-        compile_view = _ExpandedProjectView(expanded_blocks, self.project.settings)
+        compile_view = _ExpandedProjectView(expanded_blocks, self.project.settings, wires=self.project.wires)
 
         # 1. Validation Stage
         from logic_studio.compiler.validator import Validator
