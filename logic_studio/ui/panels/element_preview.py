@@ -1,9 +1,9 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget, QTableWidgetItem,
-    QHeaderView, QToolButton
+    QHeaderView, QToolButton, QPushButton
 )
 from PySide6.QtGui import QColor, QBrush
-from PySide6.QtCore import Qt, QSettings
+from PySide6.QtCore import Qt, QSettings, Signal
 
 from logic_studio.ui.icons import block_icon
 
@@ -18,10 +18,18 @@ class ElementPreviewPanel(QWidget):
     catalog). Eliminates the old "drop it on the canvas and click it just to
     see its pins" cycle."""
 
+    # feat/help-system §5.4: emits the selected block's type_id when
+    # "Więcej o tym bloku" is clicked — MainWindow connects this to
+    # show_help_for_block_type() rather than this panel importing
+    # ui/help_window.py itself (this panel has no business knowing HOW
+    # help is shown, only that more of it exists for the current block).
+    more_info_requested = Signal(str)
+
     def __init__(self, parent=None, settings=None):
         super().__init__(parent)
         self.settings = settings if settings is not None else QSettings("BroniszLabs", "EPW Logic Studio")
         self._current_source = None  # "canvas" | "library" | None
+        self._current_type_id = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -73,6 +81,12 @@ class ElementPreviewPanel(QWidget):
         self.props_table.setEditTriggers(QTableWidget.NoEditTriggers)
         content_layout.addWidget(self.props_table)
 
+        self.more_info_btn = QPushButton("Więcej o tym bloku")
+        self.more_info_btn.clicked.connect(
+            lambda: self.more_info_requested.emit(self._current_type_id) if self._current_type_id else None
+        )
+        content_layout.addWidget(self.more_info_btn)
+
         layout.addWidget(self.content)
 
         self._set_empty_state()
@@ -98,12 +112,14 @@ class ElementPreviewPanel(QWidget):
     # ---- Content ------------------------------------------------------------
 
     def _set_empty_state(self):
+        self._current_type_id = None
         self.icon_label.clear()
         self.name_label.setText("Brak zaznaczenia")
         self.type_id_label.setText("")
         self.description_label.setText("")
         self.pins_table.setRowCount(0)
         self.props_table.setRowCount(0)
+        self.more_info_btn.setEnabled(False)
 
     def show_type_id(self, type_id, source="library"):
         """Show a block TYPE by id — used for a library tree selection. No
@@ -133,6 +149,8 @@ class ElementPreviewPanel(QWidget):
             self._set_empty_state()
 
     def _render(self, block, type_id):
+        self._current_type_id = type_id
+        self.more_info_btn.setEnabled(True)
         self.icon_label.setPixmap(block_icon(type_id, size=80).pixmap(80, 80))
         self.name_label.setText(block.display_name)
         self.type_id_label.setText(type_id)
