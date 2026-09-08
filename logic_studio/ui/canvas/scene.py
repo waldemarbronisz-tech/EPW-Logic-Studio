@@ -91,6 +91,14 @@ class LogicScene(QGraphicsScene):
         for item in self.selectedItems():
             if isinstance(item, BlockItem):
                 if project:
+                    # feat/wire-labels: every Wire record naming one of
+                    # this block's OWN pins is removed BEFORE the block
+                    # itself disappears — including a free-end wire
+                    # attached to it, which may have no WireItem on the
+                    # canvas at all (nothing draws one yet) for the
+                    # graphics loop below to find.
+                    pin_uuids = [p.uuid for p in item.logic_block.inputs + item.logic_block.outputs]
+                    project.remove_wires_touching_pins(pin_uuids)
                     project.remove_block(item.logic_block)
 
                 # Delete connected wires to avoid C++ pointer crashes
@@ -110,6 +118,13 @@ class LogicScene(QGraphicsScene):
 
             elif isinstance(item, WireItem):
                 if item.source_port and item.dest_port:
+                    if project:
+                        # feat/wire-labels: remove any Wire record
+                        # describing exactly this pin pair (a
+                        # documentary label on an otherwise-plain,
+                        # fully-connected wire, §3) before disconnecting
+                        # the pins it names.
+                        project.remove_wire_by_pins(item.source_port.pin.uuid, item.dest_port.pin.uuid)
                     item.source_port.pin.disconnect(item.dest_port.pin)
                 self.removeItem(item)
 
@@ -552,6 +567,17 @@ class LogicScene(QGraphicsScene):
         # slot, ready for the crossing rewire below — Pin.connect()'s own
         # single-driver check would otherwise see a stale uuid still
         # sitting there and refuse the new connection outright.
+        # feat/wire-labels: every Wire record naming one of these
+        # blocks' own pins is removed BEFORE the disconnect loop below —
+        # same reasoning as delete_selected_items()'s identical cleanup,
+        # here because macro extraction cuts every one of these
+        # connections just as permanently as an outright block deletion
+        # does (a crossing gets rewired below, but onto the INSTANCE's
+        # own fresh boundary pin, never the extracted block's original
+        # one — the Wire record's pin uuid would be stale either way).
+        pin_uuids = [p.uuid for block in blocks for p in list(block.inputs) + list(block.outputs)]
+        project.remove_wires_touching_pins(pin_uuids)
+
         for block in blocks:
             for pin in list(block.inputs) + list(block.outputs):
                 for other_uuid in list(pin.connections):

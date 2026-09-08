@@ -123,3 +123,56 @@ class Wire:
         new_wire.free_end_dest = dict(self.free_end_dest) if self.free_end_dest else None
         new_wire.label = self.label
         return new_wire
+
+
+def check_wire_pin_consistency(project) -> list:
+    """feat/wire-labels: the two representations of "these two pins are
+    connected" — a fully-connected Wire's (source_pin, dest_pin) pair,
+    and the pins' own Pin.connections lists — must always agree, or a
+    large project's compile will eventually see a Wire describing a
+    connection that doesn't actually exist (or vice versa: a real
+    connection a stale Wire record no longer matches). Checked in BOTH
+    directions per wire, since Pin.connect() is supposed to keep
+    .connections symmetric, but nothing stops a Wire object from being
+    hand-built (a test, or a future UI bug) without actually calling it.
+
+    Returns a list of human-readable violation strings — empty means
+    fully consistent. A free-end Wire (has_free_end() True) is skipped
+    entirely: it names only one real pin, nothing on the other side to
+    cross-reference against.
+
+    This does NOT check the reverse direction wholesale (i.e. "every
+    Pin.connections entry has a matching Wire record") — by design,
+    core/wire.py's own docstring above, the overwhelming majority of
+    connections have NO Wire record at all, and that is correct, not a
+    violation."""
+    pin_by_uuid = {}
+    for block in project.blocks:
+        for pin in block.inputs + block.outputs:
+            pin_by_uuid[pin.uuid] = pin
+
+    violations = []
+    for wire in project.wires:
+        if wire.has_free_end():
+            continue
+
+        source_pin = pin_by_uuid.get(wire.source_pin)
+        dest_pin = pin_by_uuid.get(wire.dest_pin)
+        if source_pin is None:
+            violations.append(f"Wire {wire.uuid}: source_pin {wire.source_pin} names no pin in this project")
+            continue
+        if dest_pin is None:
+            violations.append(f"Wire {wire.uuid}: dest_pin {wire.dest_pin} names no pin in this project")
+            continue
+
+        if wire.dest_pin not in source_pin.connections:
+            violations.append(
+                f"Wire {wire.uuid}: source pin {wire.source_pin} does not list "
+                f"dest pin {wire.dest_pin} in its own connections"
+            )
+        if wire.source_pin not in dest_pin.connections:
+            violations.append(
+                f"Wire {wire.uuid}: dest pin {wire.dest_pin} does not list "
+                f"source pin {wire.source_pin} in its own connections"
+            )
+    return violations

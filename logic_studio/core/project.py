@@ -499,6 +499,37 @@ class Project:
         if wire in self.wires:
             self.wires.remove(wire)
 
+    def remove_wire_by_pins(self, source_pin_uuid, dest_pin_uuid):
+        """feat/wire-labels: removes the Wire record (if any) describing
+        EXACTLY this pin pair — the counterpart to Pin.disconnect(),
+        called at every site that disconnects one specific connection
+        (ui/canvas/scene.py's delete_selected_items()/
+        create_macro_from_selection()) so a Wire record never survives
+        the connection it describes. Matches BOTH orderings (source/dest
+        is which end the user happened to click first while drawing —
+        see ui/canvas/wire_item.py's own note on this — not a
+        logical/physical distinction) since a Wire's own source_pin/
+        dest_pin are assigned once, at creation, and the caller
+        disconnecting a pin pair may not know or care which was which."""
+        for wire in list(self.wires):
+            pins = {wire.source_pin, wire.dest_pin}
+            if pins == {source_pin_uuid, dest_pin_uuid}:
+                self.wires.remove(wire)
+
+    def remove_wires_touching_pins(self, pin_uuids) -> list:
+        """feat/wire-labels: removes every Wire record naming ANY of
+        `pin_uuids` on either end — used when a whole BLOCK is deleted
+        (every one of its own pins is about to disappear, so any Wire
+        naming one, including a free-end wire with no on-canvas WireItem
+        to be found by scene.py's own graphics cleanup, is left
+        describing a connection/attachment that no longer exists).
+        Returns the removed wires."""
+        pin_uuids = set(pin_uuids)
+        removed = [w for w in self.wires if w.source_pin in pin_uuids or w.dest_pin in pin_uuids]
+        for w in removed:
+            self.wires.remove(w)
+        return removed
+
     def add_block(self, block):
         if block not in self.blocks:
             # feat/io-labels-and-ids §4.1/§4.2: assign a short_id the FIRST
