@@ -1,6 +1,6 @@
 import time
 from logic_studio.engine.io_provider import IOProvider, SimulationIOProvider
-from logic_studio.engine.time_provider import TimeProvider, SystemTimeProvider
+from logic_studio.engine.time_provider import TimeProvider
 
 class ExecutionState:
     STOPPED = "STOPPED"

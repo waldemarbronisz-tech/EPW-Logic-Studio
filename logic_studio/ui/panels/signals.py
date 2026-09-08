@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QTreeWidget, QTreeWidgetItem, QAbstractItemView, QHeaderView, QMenu,
     QFileDialog
 )
-from PySide6.QtCore import Qt, QSettings, Signal
+from PySide6.QtCore import Qt, QSettings
 from PySide6.QtGui import QFont, QColor, QBrush, QPixmap, QPainter, QIcon
 
 from logic_studio.ui.qt_lifetime import create_owned_timer

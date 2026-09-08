@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox, QLabel, QLineEdit,
     QSpinBox, QDoubleSpinBox, QComboBox, QPushButton
 )
-from PySide6.QtCore import Qt, QSettings
+from PySide6.QtCore import QSettings
 from logic_studio.core.device_model import DeviceModel
 
 # feat/internal-bits §6.1: SignalPickerDialog opens for these (type_id,

@@ -6,7 +6,7 @@ rect's top-left corner, so the exact same code renders a full-size canvas
 block or a 24x24 tree-view icon. No image files anywhere — this module is it
 (feat/block-rendering-library §5.1).
 """
-from PySide6.QtGui import QPainterPath, QPen, QColor, QFont
+from PySide6.QtGui import QPainterPath, QPen, QColor
 from PySide6.QtCore import Qt, QRectF, QPointF
 
 from logic_studio.ui.canvas import style

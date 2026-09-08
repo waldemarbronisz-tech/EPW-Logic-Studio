@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QGraphicsItem, QStyleOptionGraphicsItem, QMenu
-from PySide6.QtGui import QPainter, QPen, QBrush, QColor, QFont, QFontMetricsF, QCursor
+from PySide6.QtGui import QPainter, QPen, QBrush, QFont, QFontMetricsF, QCursor
 from PySide6.QtCore import Qt, QRectF, QPointF
 
 from logic_studio.ui.canvas import style

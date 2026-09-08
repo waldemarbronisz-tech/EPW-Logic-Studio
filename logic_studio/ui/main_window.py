@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QTabWidget, QStatusBar, QToolBar, QMenuBar, QLabel
+from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QTabWidget, QStatusBar, QToolBar, QLabel
 from PySide6.QtGui import QAction, QKeySequence, QActionGroup
 from PySide6.QtCore import Qt, QSettings
 

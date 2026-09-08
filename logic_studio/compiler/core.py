@@ -1,4 +1,3 @@
-import logging
 
 
 def _direct_source_block(block, input_index, blocks):

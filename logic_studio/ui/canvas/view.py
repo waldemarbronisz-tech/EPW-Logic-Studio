@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QGraphicsView
-from PySide6.QtCore import Qt, QEvent, Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPainter, QWheelEvent, QMouseEvent
 
 class LogicView(QGraphicsView):
