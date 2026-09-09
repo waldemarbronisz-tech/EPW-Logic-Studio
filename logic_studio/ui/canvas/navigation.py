@@ -74,3 +74,31 @@ def jump_to_block(scene, view, block_uuid):
     view.centerOn(item)
     pulse_highlight(scene, item)
     return item
+
+
+def find_pin_owner_item(scene, pin_uuid):
+    """fix/wire-labels-and-project-integrity §A4.5: the BlockItem owning
+    `pin_uuid`, or None — a wire-label's own navigation only ever
+    resolves to a PIN (the other end of a network node), never directly
+    a block uuid the way BlockItem's own duplicate-address navigation
+    already does."""
+    from logic_studio.ui.canvas.block_item import BlockItem
+    from logic_studio.ui.canvas.port_item import PortItem
+    for it in scene.items():
+        if not isinstance(it, BlockItem):
+            continue
+        for child in it.childItems():
+            if isinstance(child, PortItem) and child.pin.uuid == pin_uuid:
+                return it
+    return None
+
+
+def jump_to_pin(scene, view, pin_uuid):
+    """§A4.5: WireItem's own "dwuklik na wolnym końcu z etykietą"
+    navigation — reuses jump_to_block() (same selection/centerOn/
+    pulse_highlight) once the pin has been resolved to its owning
+    block, rather than a second implementation of any of that."""
+    item = find_pin_owner_item(scene, pin_uuid)
+    if item is None:
+        return None
+    return jump_to_block(scene, view, item.logic_block.uuid)

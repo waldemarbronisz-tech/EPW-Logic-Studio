@@ -750,6 +750,18 @@ class LogicScene(QGraphicsScene):
         elif event.key() == Qt.Key_D and event.modifiers() & Qt.ControlModifier:
             self.duplicate_selected_items()
             event.accept()
+        elif event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            # fix/wire-labels-and-project-integrity §A4.5: "zaznaczony
+            # odnośnik i klawisz Enter działa jak dwuklik" — a single
+            # selected free-end WireItem only; anything else falls
+            # through unchanged (no existing Enter behavior to disturb).
+            from logic_studio.ui.canvas.wire_item import WireItem
+            selected = [i for i in self.selectedItems() if isinstance(i, WireItem) and i.fixed_free_end is not None]
+            if len(selected) == 1:
+                selected[0].navigate_to_other_end()
+                event.accept()
+            else:
+                super().keyPressEvent(event)
         else:
             super().keyPressEvent(event)
 

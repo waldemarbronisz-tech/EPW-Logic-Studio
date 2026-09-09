@@ -415,10 +415,15 @@ class Validator:
         # feat/wire-labels §2.5: a free end with no label is a normal
         # PENDING state while a wire is being drawn or a label is about
         # to be typed in — a warning, not an error, naming whichever
-        # block the wire is still actually attached to. (§5.1's stronger
-        # checks — a labeled node with no source, or more than one — are
-        # a §3/§5 concern once labels can merge nodes at all; nothing to
-        # check yet for a Wire with no label.)
+        # block the wire is still actually attached to. fix/wire-labels-
+        # and-project-integrity §A2: kept exactly as a warning even now
+        # that labels merge nodes (compiler/label_merge.py) — an
+        # unlabeled free end names no node to validate yet, so there is
+        # nothing for label_merge.py to check here; this is the only
+        # free-end/label check that stays independent of it. Every
+        # STRONGER check (a labeled node with no source, more than one,
+        # or no receiver) now lives in compiler/label_merge.py instead,
+        # run right after this stage in compiler/core.py.
         for wire in getattr(self.project, 'wires', []):
             if wire.label or not wire.has_free_end():
                 continue

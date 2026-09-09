@@ -85,7 +85,24 @@ class Compiler:
 
         compile_view = _ExpandedProjectView(expanded_blocks, self.project.settings, wires=self.project.wires)
 
-        # 1. Validation Stage
+        # 1. Label-based node merging (fix/wire-labels-and-project-
+        # integrity §A1/§A2) — BEFORE Validator, deliberately: this
+        # connects each label group's single source pin DIRECTLY to
+        # every receiver pin (Pin.connect(), the exact same call a
+        # physically-drawn wire goes through) on compile_view's already-
+        # cloned pins, so by the time Validator's own generic "Input is
+        # unconnected" check runs below, an input fed only through a
+        # label already shows up as connected — exactly as it should,
+        # since from here on GraphBuilder/Exporter/Validator never learn
+        # labels exist at all; they just see Pin.connections, same as
+        # always. Running this AFTER Validator instead would leave every
+        # labeled input wrongly flagged "unconnected" one stage too
+        # early — caught by this PR's own manual verification before
+        # settling on this order.
+        from logic_studio.compiler.label_merge import merge_and_validate_labels
+        merge_and_validate_labels(compile_view, self.errors, self.warnings)
+
+        # 2. Validation Stage
         from logic_studio.compiler.validator import Validator
         validator = Validator(compile_view)
         validator.run(self.errors, self.warnings)
@@ -106,7 +123,7 @@ class Compiler:
             self.status = "COMPILE_FAILED"
             return None # Abort on validation errors
 
-        # 2. Dependency Graph and Execution Order (Topological Sort)
+        # 3. Dependency Graph and Execution Order (Topological Sort)
         from logic_studio.compiler.graph import GraphBuilder
         graph = GraphBuilder(compile_view)
         execution_order = graph.build_and_sort(self.errors)
@@ -115,7 +132,7 @@ class Compiler:
             self.status = "COMPILE_FAILED"
             return None
 
-        # 3. Export Intermediate JSON
+        # 4. Export Intermediate JSON
         self.last_execution_order = execution_order
         self.status = "COMPILED_VALID"
         from logic_studio.compiler.exporter import Exporter
@@ -123,7 +140,7 @@ class Compiler:
         compiled_data = exporter.export()
         self.warnings.extend(exporter.warnings)
 
-        # 4. Generate isolated CompiledProgram for the ExecutionEngine.
+        # 5. Generate isolated CompiledProgram for the ExecutionEngine.
         # Reuses `expanded_blocks` itself rather than expanding a SECOND
         # time: expand_project() already returns fresh clones distinct from
         # self.project.blocks (the isolation the old serialize()/
