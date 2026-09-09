@@ -12,9 +12,11 @@ on:
     branches: [main]
   pull_request:
 
+# fix/trend-dialog-lifetime: `pull-requests: write` dropped along with the
+# "Post failure log to the PR" step below that was its only user — no
+# other step here reads or writes PR state.
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   test:
@@ -49,21 +51,35 @@ jobs:
         # actually needs its fixtures), yet it still hooks into Qt's own
         # plugin/event-loop machinery at import time purely by being
         # installed. Removing a dependency that provides nothing here but
-        # extra surface area for exactly the kind of native crash this CI
-        # is currently hunting.
+        # extra surface area for no benefit. NOTE (fix/trend-dialog-lifetime):
+        # this was originally written while a real crash was still
+        # unexplained, framed as "extra surface area for exactly the kind
+        # of native crash this CI is currently hunting" — that crash is now
+        # root-caused and fixed at its source (a Python reference-cycle bug
+        # in ui/panels/watch.py's trend-dialog lifecycle, unrelated to
+        # pytest-qt; see AUDIT_REPORT.md §43/§44). pytest-qt wasn't the
+        # cause, it just happened to be the most reliable way to trigger
+        # the symptom — its own `processEvents()` call after each test ran
+        # right when the already-buggy code's last reference could vanish.
+        # Left uninstalled anyway since nothing here actually uses it.
         pip install pytest pytest-randomly
     - name: Run Pytest Headless
       env:
         QT_QPA_PLATFORM: offscreen
         # fix/ci-pin-runner-and-pyside6 diagnostic: installs Python's own
-        # signal handler for SIGSEGV/SIGBUS/SIGABRT/SIGFPE/SIGILL — on a
-        # native crash (exactly what's been failing every CI run since
-        # 2026-09-05, AUDIT_REPORT.md §34) it prints the Python-level
-        # stack frame that was executing at the moment of the crash
-        # BEFORE the process dies, straight into this step's own stdout.
-        # Actions' web UI has been refusing to show this repo's raw job
-        # logs without signing in, so this is the only way to actually
-        # see what's crashing rather than guessing from exit codes alone.
+        # signal handler for SIGSEGV/SIGBUS/SIGABRT/SIGFPE/SIGILL — prints
+        # the Python-level stack frame that was executing at the moment of
+        # a native crash BEFORE the process dies, straight into this
+        # step's own stdout. This is exactly what made
+        # fix/trend-dialog-lifetime's diagnosis possible (AUDIT_REPORT.md
+        # §43/§44) — the crash this was originally added for (native,
+        # every CI run since 2026-09-05, AUDIT_REPORT.md §34) is now
+        # root-caused and fixed, but kept unconditionally: it's a generally
+        # useful safety net for the NEXT native crash, not single-use
+        # diagnostic scaffolding for this one. Actions' web UI has been
+        # refusing to show this repo's raw job logs without signing in, so
+        # this is the only way to actually see what's crashing rather than
+        # guessing from exit codes alone.
         PYTHONFAULTHANDLER: 1
         # feat/clipboard-and-align §6: QSettings("BroniszLabs", "EPW Logic
         # Studio") falls back to a native, HOME-rooted config location on
@@ -93,23 +109,13 @@ jobs:
         set -o pipefail
         pytest tests/ -v 2>&1 | tee pytest_output.log
 
-    # fix/ci-pin-runner-and-pyside6 diagnostic: posts the tail of the run
-    # above as a PR comment whenever this job fails — GitHub's own log
-    # viewer has been refusing this repo's raw logs without signing in
-    # even though it's public, so this is how the failure gets seen at
-    # all. Only meaningful on a `pull_request` trigger (the `push`
-    # trigger, main only, has no PR number to comment on); remove once
-    # AUDIT_REPORT.md §34's crash is actually root-caused and fixed —
-    # this is a diagnostic aid, not a permanent feature of this workflow.
-    - name: Post failure log to the PR
-      if: failure() && github.event_name == 'pull_request'
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        {
-          echo '### Pytest Headless — failure log (auto-posted, AUDIT_REPORT.md §34 diagnostic)'
-          echo '```'
-          tail -c 60000 pytest_output.log
-          echo '```'
-        } > pytest_comment.md
-        gh pr comment "${{ github.event.pull_request.number }}" --body-file pytest_comment.md
+    # fix/trend-dialog-lifetime: the "Post failure log to the PR" step that
+    # used to live here is REMOVED, not just edited — its own comment said
+    # exactly when to do that: "remove once AUDIT_REPORT.md §34's crash is
+    # actually root-caused and fixed — this is a diagnostic aid, not a
+    # permanent feature of this workflow." That crash (native, every CI run
+    # since 2026-09-05) is now root-caused and fixed (AUDIT_REPORT.md
+    # §43/§44 resolution) — its own stated removal condition is met. If
+    # GitHub's raw-log-viewer sign-in issue that motivated it recurs for a
+    # different failure, re-add it fresh against whatever's actually
+    # failing then, rather than reviving this one.

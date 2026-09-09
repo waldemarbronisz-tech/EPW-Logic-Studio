@@ -12,6 +12,8 @@ copy of the same widget in a non-modal popup (§ user feedback after the
 first version shipped: the inline strip is necessarily too small to read
 closely at table-row height).
 """
+import weakref
+
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTableWidget,
     QTableWidgetItem, QAbstractItemView, QHeaderView, QDialog, QCheckBox,
@@ -693,7 +695,34 @@ class WatchPanel(QWidget):
         initial_samples = watch.get_history(self.project, kind, signal_id)
 
         dialog = _TrendDialog(kind, signal_id, description, is_boolean, initial_samples, parent=self)
-        dialog.finished.connect(lambda _result, k=key: self._trend_dialogs.pop(k, None))
+        # fix/trend-dialog-lifetime: NOT `lambda _result, k=key: self._trend_dialogs.pop(k, None)`.
+        # A plain closure over `self` is kept alive by `dialog`'s own C++-side
+        # connection object for as long as `dialog`'s C++ object exists —
+        # which, because of WA_DeleteOnClose, is until its DEFERRED
+        # deleteLater() actually runs during a later processEvents() call,
+        # not the moment close() returns. If nothing else is holding this
+        # WatchPanel alive at that moment (its own last reference was
+        # whoever called _on_cell_double_clicked()'s own scope, since gone),
+        # that closure is the panel's LAST reference — so the panel gets
+        # destroyed reentrantly, in the middle of Qt still processing the
+        # dialog's own deferred-deletion event. That reentrant teardown is
+        # what crashed tests/test_watch_panel.py deterministically (see
+        # AUDIT_REPORT.md §44 for the full diagnosis and how it was
+        # isolated). A weakref breaks the chain: the connection's callable
+        # no longer extends the panel's lifetime, so the panel's own
+        # destruction is never entangled with this dialog's deferred
+        # deletion timing — same principle as ui/qt_lifetime.py's
+        # create_owned_timer() guarding a callback against its owner's
+        # lifetime, applied here to a QDialog's own signal connection
+        # instead of a QTimer's tick.
+        panel_ref = weakref.ref(self)
+
+        def _forget_trend_dialog(_result, k=key, ref=panel_ref):
+            panel = ref()
+            if panel is not None:
+                panel._trend_dialogs.pop(k, None)
+
+        dialog.finished.connect(_forget_trend_dialog)
         self._trend_dialogs[key] = dialog
         dialog.show()
 

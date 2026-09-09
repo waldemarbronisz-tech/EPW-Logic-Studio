@@ -1509,7 +1509,13 @@ faktycznie usuwany przy zamknięciu, nie tylko ukrywany), a każde miejsce
 odwołujące się do otwartego popupu jest opakowane w `except RuntimeError`
 — dokładnie ten sam defensywny wzorzec co
 `ui/canvas/navigation.py::pulse_highlight()` dla obiektu Qt zniszczonego
-spod ręki.
+spod ręki. **(fix/trend-dialog-lifetime, patrz §29.6/AUDIT_REPORT.md
+§43-§44):** to opisanie było niekompletne — `WA_DeleteOnClose` samo w
+sobie jest poprawne, ale sposób, w jaki `_on_cell_double_clicked()`
+łączyło `dialog.finished` z powrotem do `self`, przez pewien czas
+przedłużał czas życia CAŁEGO `WatchPanel` do momentu odroczonego
+usunięcia dialogu — realny, znaleziony i naprawiony crash, nie
+teoretyczne ryzyko.
 
 ### 23.3 Świadomie NIE zrobione w tym PR
 
@@ -2742,6 +2748,29 @@ Pełne dane empiryczne (współczynnik crashu PRZED i PO tej naprawie, na
 identycznym zestawie losowań) są w podsumowaniu PR — ten dokument
 notuje wyłącznie, że reguła z §29.1 jest konieczna, ale — jak dotąd
 zmierzone — NIE wystarczająca do pełnego wyeliminowania zjawiska z §34.
+
+### 29.6 Rozstrzygnięcie (branch `fix/trend-dialog-lifetime`)
+
+Obie hipotezy z §29.5 były niepotrzebne. Nie było drugiego, nieznalezionego
+bezpańskiego obiektu Qt tej samej klasy co `pulse_highlight()` (§C1.1
+rozszerzył audyt AST na osiem dodatkowych klas cyklu życia i nie znalazł
+niczego), i nie było "rzeczywistej niestabilności natywnej kombinacji Qt
+6.11/PySide6 6.11.2/Python 3.14". Był jeden, konkretny, w pełni
+wytłumaczalny błąd cyklu życia obiektu Pythona w zupełnie innym pliku
+(`ui/panels/watch.py`, `_TrendDialog`) — domknięcie przekazane do
+`dialog.finished.connect()` trzymało silną referencję z powrotem do
+`WatchPanel`, więc czas życia panelu bywał powiązany z momentem, w którym
+Qt akurat przetwarzało odroczone usunięcie (`WA_DeleteOnClose`) dialogu.
+Gdy nic innego nie trzymało panelu przy życiu, jego ostatnia referencja
+znikała DOKŁADNIE w trakcie przetwarzania tego zdarzenia przez Qt —
+rekurencyjne zniszczenie obiektu w środku obsługi zdarzenia jego własnego
+(byłego) dziecka. Pełna diagnoza, mechanizm i naprawa: AUDIT_REPORT.md
+§43/§44 (sekcje "Rozstrzygnięcie"). To, że objawiało się to w pozornie
+niepowiązanych testach w różnych miejscach losowego przebiegu, tłumaczy
+się samo: crash zależał od tego, KIEDY DOKŁADNIE Python zwolni ostatnią
+referencję do panelu względem tego, kiedy Qt akurat przetwarza kolejkę
+zdarzeń — a to zależy od tego, co jeszcze dzieje się w tym momencie w
+całym procesie, stąd wrażenie "innego testu za każdym razem".
 
 ## 30. Przewody wewnątrz makrobloku — zakres etykiety kończy się na granicy makra (fix/wire-labels-and-project-integrity §B1)
 
