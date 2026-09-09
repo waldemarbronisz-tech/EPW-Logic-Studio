@@ -39,7 +39,13 @@ class MacroInstanceBlock(BaseLogicBlock):
         or is deserializing an old one (see deserialize() below — that
         path builds untyped placeholder pins instead, sized only from the
         instance's OWN saved data, deliberately never consulting the live
-        definition; see its own docstring for why)."""
+        definition; see its own docstring for why).
+
+        fix/safety-and-macro-params §C1.3: also gives this instance one
+        property per current parameter of `definition`, each at its own
+        default — core/macros.py's sync_instance_parameters() (shared
+        with resync_all_instances(), so a freshly-placed instance and a
+        resynced existing one end up with identically-shaped properties)."""
         self.display_name = definition.get("name", self.display_name)
         self.inputs = [
             Pin(p.get("label", p.get("pin_name", "")), Pin.DIR_INPUT, p.get("data_type", Pin.TYPE_BOOLEAN))
@@ -49,6 +55,8 @@ class MacroInstanceBlock(BaseLogicBlock):
             Pin(p.get("label", p.get("pin_name", "")), Pin.DIR_OUTPUT, p.get("data_type", Pin.TYPE_BOOLEAN))
             for p in definition.get("output_pins", [])
         ]
+        from logic_studio.core.macros import sync_instance_parameters
+        sync_instance_parameters(self.properties, definition)
 
     @classmethod
     def deserialize(cls, data: dict):

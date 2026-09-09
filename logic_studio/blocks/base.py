@@ -70,6 +70,71 @@ class BaseLogicBlock:
     # Empty by default; most blocks need none.
     PROPERTY_TOOLTIPS: dict = {}
 
+    # feat/help-system §2.1: static, per-TYPE documentation for pins and
+    # properties — deliberately class-level dicts, NOT a Pin/property
+    # instance field, exactly like PROPERTY_TOOLTIPS above: what a pin or
+    # property MEANS is a fact about the block TYPE, identical for every
+    # instance of it, never edited per-project — putting it on the
+    # instance would mean either repeating the same text in every save
+    # file (SERIALIZED_FIELDS) or a schema migration for something that
+    # never actually varies. Looked up via the merged_*() classmethods
+    # below (NOT direct attribute access), which walk the whole MRO and
+    # merge each class's OWN entries — so a subclass only needs to
+    # declare its OWN pins/properties (LogicGateBase's generic "In1".."In4"/
+    # "Out" here covers every AND/OR/NAND/.../XNOR/BUFFER subclass without
+    # each repeating it) while still inheriting BaseLogicBlock's own
+    # Address/Tag/Comment entries below, rather than a subclass's dict
+    # SHADOWING the base's entirely as plain attribute lookup would.
+    #
+    # tests/test_help_catalog.py's own guardian test requires a non-empty
+    # entry for every pin NAME actually produced by every registered
+    # block's fresh instance — property descriptions/units are part of
+    # the generated catalog (§2.1) too, but not guardian-enforced to the
+    # same degree: not every property is equally worth a sentence (a
+    # handful of internal/legacy properties predate this system and are
+    # visible only in raw project files, never in the property grid).
+    PIN_DESCRIPTIONS: dict = {}
+    PROPERTY_DESCRIPTIONS: dict = {
+        "Address": "Adres sygnału I/O lub identyfikator sieciowy powiązany z tym blokiem — znaczenie zależy od typu bloku; puste, jeśli nieużywane przez ten blok.",
+        "Tag": "Oznaczenie schematowe bloku (np. \"C1\", \"Q_I>1\"), widoczne na eksportowanym schemacie i w komunikatach kompilatora.",
+        "Comment": "Krótki, dowolny opis przeznaczenia TEGO KONKRETNEGO bloku na schemacie — dokumentacja projektowa, nieużywana przez kompilator.",
+    }
+    PROPERTY_UNITS: dict = {}
+
+    @classmethod
+    def _merged_class_dict(cls, attr_name: str) -> dict:
+        """Walks cls.__mro__ from BaseLogicBlock down to the most-derived
+        class, merging each class's OWN entry for `attr_name` (via
+        __dict__, so an INHERITED dict is never double-counted) —
+        letting a subclass add its own pins/properties on top of a
+        shared base's without repeating them, and override a specific
+        entry if it genuinely needs different wording."""
+        merged = {}
+        for klass in reversed(cls.__mro__):
+            merged.update(klass.__dict__.get(attr_name, {}))
+        return merged
+
+    @classmethod
+    def merged_pin_descriptions(cls) -> dict:
+        return cls._merged_class_dict("PIN_DESCRIPTIONS")
+
+    @classmethod
+    def merged_property_descriptions(cls) -> dict:
+        return cls._merged_class_dict("PROPERTY_DESCRIPTIONS")
+
+    @classmethod
+    def merged_property_units(cls) -> dict:
+        return cls._merged_class_dict("PROPERTY_UNITS")
+
+    def pin_description(self, pin_name: str) -> str:
+        return self.merged_pin_descriptions().get(pin_name, "")
+
+    def property_description(self, key: str) -> str:
+        return self.merged_property_descriptions().get(key, "")
+
+    def property_unit(self, key: str) -> str:
+        return self.merged_property_units().get(key, "")
+
     def __init__(self, type_id: str, default_name: str, category: str, description: str = ""):
         self.uuid: str = str(uuid.uuid4())
         # feat/io-labels-and-ids §4: human-readable id ("g12", "i3", ...),
@@ -244,34 +309,39 @@ class BaseLogicBlock:
         # (isolating a CompiledProgram from the UI project), pin UUIDs and their
         # `connections` lists — which reference OTHER pins' UUIDs — are copied
         # verbatim, because GraphBuilder's execution_order is keyed by those UUIDs.
-        # disabled/negated (feat/editor-modes-and-geometry §2/§8) and
-        # safety_relevant (fix/safety-block-semantics §6 — found here while
-        # wiring compiler/validator.py to actually read it: without this,
-        # EVERY compile silently lost the flag on EVERY output pin, since
-        # core/macros.py's expand_project() clones every top-level block
-        # before Validator ever sees it, making the whole warning
-        # inoperative) are configuration of the PIN ITSELF, not tied to a
-        # specific wire — copied unconditionally, unlike uuid/connections
-        # which only make sense to preserve for the isolated-CompiledProgram
-        # case.
-        new_block.inputs = []
-        for p in self.inputs:
-            new_p = Pin(p.name, p.direction, p.data_type)
-            new_p.disabled = p.disabled
-            new_p.safety_relevant = p.safety_relevant
-            if preserve_uuid:
-                new_p.uuid = p.uuid
-                new_p.connections = list(p.connections)
-            new_block.inputs.append(new_p)
+        #
+        # test/clone-field-coverage: every OTHER non-identity Pin.SERIALIZED_
+        # FIELDS entry (disabled, safety_relevant, ...) is configuration of
+        # the pin ITSELF, not tied to a specific wire — copied unconditionally,
+        # unlike uuid/connections which only make sense to preserve for the
+        # isolated-CompiledProgram case. Derived from Pin.SERIALIZED_FIELDS
+        # itself, the same declarative pattern ui/canvas/scene.py's own
+        # paste_clipboard() already uses for its own pin copy (pin_copy_
+        # fields) — NOT hand-enumerated field-by-field the way this used to
+        # be written as two separate loops. That original shape is exactly
+        # what let `disabled` get copied for inputs but not outputs, and
+        # `safety_relevant` (fix/safety-block-semantics §6) get copied for
+        # NEITHER — two independently-written loops, free to drift from each
+        # other exactly like the two hand-written serialize()/deserialize()
+        # enumerations this whole SERIALIZED_FIELDS mechanism was built to
+        # replace. One shared helper now instead of two loops that could
+        # silently stop agreeing again the next time a field is added.
+        clone_pin_fields = tuple(
+            f for f in Pin.SERIALIZED_FIELDS
+            if f not in Pin._IDENTITY_FIELDS and f not in ("uuid", "connections")
+        )
 
-        new_block.outputs = []
-        for p in self.outputs:
+        def _clone_pin(p):
             new_p = Pin(p.name, p.direction, p.data_type)
-            new_p.safety_relevant = p.safety_relevant
+            for field in clone_pin_fields:
+                setattr(new_p, field, getattr(p, field))
             if preserve_uuid:
                 new_p.uuid = p.uuid
                 new_p.connections = list(p.connections)
-            new_block.outputs.append(new_p)
+            return new_p
+
+        new_block.inputs = [_clone_pin(p) for p in self.inputs]
+        new_block.outputs = [_clone_pin(p) for p in self.outputs]
 
         new_block.simulation_state = self.simulation_state.copy()
 

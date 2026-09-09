@@ -1,4 +1,3 @@
-import logging
 
 
 def _direct_source_block(block, input_index, blocks):
@@ -37,9 +36,16 @@ class _ExpandedProjectView:
     exist at all, the same reasoning that keeps them hardware-agnostic
     (ARCHITECTURE.md §1)."""
 
-    def __init__(self, blocks, settings):
+    def __init__(self, blocks, settings, wires=None):
         self.blocks = blocks
         self.settings = settings
+        # feat/wire-labels §2.5/§5: Validator's free-end/label checks and
+        # (from §5 onward) the label-node-merging step all need the
+        # live project's Wire records too — passed through UNCHANGED
+        # (never macro-expanded; a Wire's pin uuids stay valid against
+        # expanded_blocks because top-level pins keep their uuid through
+        # clone(preserve_uuid=True), see core/macros.py).
+        self.wires = wires if wires is not None else []
 
 
 class Compiler:
@@ -70,15 +76,50 @@ class Compiler:
         # exactly like a Validator error, aborting before Validator itself
         # ever sees the project.
         from logic_studio.core import macros
-        expanded_blocks, macro_errors = macros.expand_project(self.project)
+        expanded_blocks, wire_scopes, macro_errors = macros.expand_project(self.project)
         if macro_errors:
             self.errors.extend(macro_errors)
             self.status = "COMPILE_FAILED"
             return None
 
-        compile_view = _ExpandedProjectView(expanded_blocks, self.project.settings)
+        # fix/wire-labels-and-project-integrity §B1.3: `wire_scopes` is
+        # ALREADY split (project-level wires, plus one entry per macro
+        # instance's own internal wires, remapped) — Validator's own
+        # checks (§2.5's free-end/no-label warning) don't care about
+        # scope, so they get the flat union; label-merging below runs
+        # ONCE PER SCOPE instead, precisely so it never does.
+        all_wires = [w for scope in wire_scopes for w in scope]
+        compile_view = _ExpandedProjectView(expanded_blocks, self.project.settings, wires=all_wires)
 
-        # 1. Validation Stage
+        # 1. Label-based node merging (fix/wire-labels-and-project-
+        # integrity §A1/§A2) — BEFORE Validator, deliberately: this
+        # connects each label group's single source pin DIRECTLY to
+        # every receiver pin (Pin.connect(), the exact same call a
+        # physically-drawn wire goes through) on compile_view's already-
+        # cloned pins, so by the time Validator's own generic "Input is
+        # unconnected" check runs below, an input fed only through a
+        # label already shows up as connected — exactly as it should,
+        # since from here on GraphBuilder/Exporter/Validator never learn
+        # labels exist at all; they just see Pin.connections, same as
+        # always. Running this AFTER Validator instead would leave every
+        # labeled input wrongly flagged "unconnected" one stage too
+        # early — caught by this PR's own manual verification before
+        # settling on this order.
+        #
+        # §B1.3: run ONCE PER SCOPE (never on the flattened `all_wires`)
+        # — a label named "X" inside a macro definition must never merge
+        # with a top-level "X", nor with the SAME macro's own "X" in a
+        # different placed instance. Each call only ever sees its own
+        # scope's wires; `expanded_blocks` is passed in full every time
+        # purely for pin lookup (safe: post-expansion pin uuids are
+        # unique per instance, so a scope's own wires can only ever
+        # resolve to pins that are actually its own).
+        from logic_studio.compiler.label_merge import merge_and_validate_labels
+        for wires_in_scope in wire_scopes:
+            scoped_view = _ExpandedProjectView(expanded_blocks, self.project.settings, wires=wires_in_scope)
+            merge_and_validate_labels(scoped_view, self.errors, self.warnings)
+
+        # 2. Validation Stage
         from logic_studio.compiler.validator import Validator
         validator = Validator(compile_view)
         validator.run(self.errors, self.warnings)
@@ -99,7 +140,7 @@ class Compiler:
             self.status = "COMPILE_FAILED"
             return None # Abort on validation errors
 
-        # 2. Dependency Graph and Execution Order (Topological Sort)
+        # 3. Dependency Graph and Execution Order (Topological Sort)
         from logic_studio.compiler.graph import GraphBuilder
         graph = GraphBuilder(compile_view)
         execution_order = graph.build_and_sort(self.errors)
@@ -108,7 +149,7 @@ class Compiler:
             self.status = "COMPILE_FAILED"
             return None
 
-        # 3. Export Intermediate JSON
+        # 4. Export Intermediate JSON
         self.last_execution_order = execution_order
         self.status = "COMPILED_VALID"
         from logic_studio.compiler.exporter import Exporter
@@ -116,7 +157,7 @@ class Compiler:
         compiled_data = exporter.export()
         self.warnings.extend(exporter.warnings)
 
-        # 4. Generate isolated CompiledProgram for the ExecutionEngine.
+        # 5. Generate isolated CompiledProgram for the ExecutionEngine.
         # Reuses `expanded_blocks` itself rather than expanding a SECOND
         # time: expand_project() already returns fresh clones distinct from
         # self.project.blocks (the isolation the old serialize()/

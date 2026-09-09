@@ -9,7 +9,7 @@ switching toolbar display mode never re-renders a pixmap that's already been
 drawn once.
 """
 from PySide6.QtCore import Qt, QRectF, QPointF
-from PySide6.QtGui import QIcon, QPixmap, QPainter, QPen, QBrush, QColor, QPolygonF
+from PySide6.QtGui import QIcon, QPixmap, QPainter, QPen, QColor, QPolygonF
 
 from logic_studio.ui.canvas import style, shapes
 

@@ -1,5 +1,4 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QTabWidget, QTextEdit
-from PySide6.QtGui import QTextCursor
 
 class CompilerOutputPanel(QWidget):
     def __init__(self, parent=None):

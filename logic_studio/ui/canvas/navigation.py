@@ -6,8 +6,10 @@ Free functions, not tied to any particular widget: all they need is the
 scene, the view, and a block uuid.
 """
 from PySide6.QtGui import QPen, QColor
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QGraphicsRectItem
+
+from logic_studio.ui.qt_lifetime import create_owned_timer
 
 
 def find_block_item(scene, block_uuid):
@@ -22,7 +24,22 @@ def pulse_highlight(scene, item, cycles: int = 8, interval_ms: int = 125):
     """§3.1: "podświetla pulsowaniem przez około sekundę" — a temporary
     overlay rectangle flashed on/off `cycles` times (~1s total at the
     default interval), added directly to the scene and removed at the
-    end."""
+    end.
+
+    fix/qtimer-lifetime: this used to build a bare, ownerless QTimer()
+    kept alive only by a Python attribute stashed on `overlay`, guarded
+    by a try/except RuntimeError around the callback. That caught the
+    common case (Qt raising cleanly on a stale wrapper) but not the one
+    that actually took CI down: Qt is not guaranteed to raise a
+    catchable exception when a timer this stale touches a destroyed
+    QGraphicsItem — it can abort the process instead, which no
+    try/except can intercept. create_owned_timer() fixes this at the
+    root: `scene` is a real QObject, so it owns the timer outright
+    (destroyed automatically along with the scene), and `overlay` — a
+    QGraphicsItem, not a QObject, so it can never be a Qt parent — is
+    instead checked with shiboken6.isValid() before every tick via
+    `guard`, covering the scene.clear() case (item gone, scene very
+    much alive) a Qt parent alone cannot."""
     rect = item.sceneBoundingRect().adjusted(-4, -4, 4, 4)
     overlay = QGraphicsRectItem(rect)
     overlay.setPen(QPen(QColor(255, 180, 0), 3))
@@ -30,28 +47,16 @@ def pulse_highlight(scene, item, cycles: int = 8, interval_ms: int = 125):
     overlay.setZValue(1000)
     scene.addItem(overlay)
 
-    timer = QTimer()
     state = {"ticks": 0}
 
     def _toggle():
-        try:
-            state["ticks"] += 1
-            overlay.setVisible(not overlay.isVisible())
-            if state["ticks"] >= cycles:
-                timer.stop()
-                scene.removeItem(overlay)
-        except RuntimeError:
-            # The overlay (or its scene) was already destroyed out from
-            # under this pulse — e.g. the project/window was closed
-            # before the ~1s animation finished. Nothing left to clean
-            # up; just stop ticking.
+        state["ticks"] += 1
+        overlay.setVisible(not overlay.isVisible())
+        if state["ticks"] >= cycles:
             timer.stop()
+            scene.removeItem(overlay)
 
-    timer.timeout.connect(_toggle)
-    # Kept alive on the overlay item itself — nothing else holds a
-    # reference to `timer`, and the overlay stays alive (owned by the
-    # scene) for exactly as long as the timer needs to keep firing.
-    overlay._pulse_timer = timer
+    timer = create_owned_timer(scene, _toggle, guard=(overlay,))
     timer.start(interval_ms)
 
 
@@ -69,3 +74,31 @@ def jump_to_block(scene, view, block_uuid):
     view.centerOn(item)
     pulse_highlight(scene, item)
     return item
+
+
+def find_pin_owner_item(scene, pin_uuid):
+    """fix/wire-labels-and-project-integrity §A4.5: the BlockItem owning
+    `pin_uuid`, or None — a wire-label's own navigation only ever
+    resolves to a PIN (the other end of a network node), never directly
+    a block uuid the way BlockItem's own duplicate-address navigation
+    already does."""
+    from logic_studio.ui.canvas.block_item import BlockItem
+    from logic_studio.ui.canvas.port_item import PortItem
+    for it in scene.items():
+        if not isinstance(it, BlockItem):
+            continue
+        for child in it.childItems():
+            if isinstance(child, PortItem) and child.pin.uuid == pin_uuid:
+                return it
+    return None
+
+
+def jump_to_pin(scene, view, pin_uuid):
+    """§A4.5: WireItem's own "dwuklik na wolnym końcu z etykietą"
+    navigation — reuses jump_to_block() (same selection/centerOn/
+    pulse_highlight) once the pin has been resolved to its owning
+    block, rather than a second implementation of any of that."""
+    item = find_pin_owner_item(scene, pin_uuid)
+    if item is None:
+        return None
+    return jump_to_block(scene, view, item.logic_block.uuid)

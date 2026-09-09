@@ -140,6 +140,65 @@ a project that references an unrecognized block `type_id` — it raises
 `ValueError` naming the missing type(s) rather than silently dropping that
 logic (see AUDIT_REPORT.md §3.3, previous PR).
 
+### 3.3 A model field must survive THREE paths, not one
+
+`Pin.SERIALIZED_FIELDS`/`BaseLogicBlock.SERIALIZED_FIELDS` (feat/wire-
+modes-and-labels §0.1) turned "does this field round-trip through save
+and load" from two independently hand-written enumerations (free to
+silently drift apart) into one declarative list both `serialize()` and
+`deserialize()`/`restore_fields()` walk generically. That fixed the FIRST
+two occurrences of this bug class (`connections` aliased instead of
+copied, `disabled` dropped on load) — but a field added to
+`SERIALIZED_FIELDS` and nowhere else can still go on to get silently
+dropped somewhere ELSE in the codebase, because **save/load is only ONE
+of three independent copy paths a block/pin can travel**:
+
+1. **Save and load** — `serialize()`/`deserialize()`/`restore_fields()`,
+   covered by `SERIALIZED_FIELDS` directly.
+2. **Cloning** — `BaseLogicBlock.clone()`, used every single time a
+   project compiles (`core/macros.py::expand_project()` clones EVERY
+   top-level block to isolate Validator/GraphBuilder/Exporter from the
+   live project, §24.4) and by macro expansion's own internal-block
+   restoration (`_expand_instance()`).
+3. **Copying to the clipboard** — `ui/canvas/scene.py`'s
+   `copy_selected_items()`/`paste_clipboard()` (§15.1), which
+   `duplicate_selected_items()` (Ctrl+D) reuses directly rather than
+   keeping a third, independent implementation.
+
+`safety_relevant` shipped correctly on path 1 and was silently dropped on
+path 2 for a full PR cycle (fix/safety-block-semantics §6 — the
+compiler-level "unused safety-relevant output" warning was inoperative
+for EVERY project until that was found and fixed) — the FOURTH
+occurrence of this bug class, and the reason `test/clone-field-coverage`
+exists: auditing path 2 for that fix turned up a FIFTH, independent
+instance in the SAME pull request's own blind spot — `_expand_instance()`
+restored only a macro-internal pin's `uuid`/`connections` by hand,
+silently dropping `disabled`/`safety_relevant` (and any future field) for
+every block living inside ANY macro definition, on every single compile,
+never caught by the clone() fix at all since a macro-internal block never
+goes through `clone()`.
+
+**The fix in both directions is the same shape**: stop hand-enumerating
+which fields to copy, and derive the list from `SERIALIZED_FIELDS`
+instead — `paste_clipboard()`'s own `pin_copy_fields` already does this
+(and was, on audit, the one path that was safe by construction from the
+start); `clone()`'s two separate input/output loops were refactored to
+share one `_clone_pin()` helper built the same way;
+`_expand_instance()`'s pin restoration now calls `Pin.restore_fields()`
+before minting the fresh per-expansion uuid, instead of hand-copying two
+named fields.
+
+**Rule for every future field added to either SERIALIZED_FIELDS list**:
+it is not "done" once it round-trips through save/load. Confirm it also
+survives `clone()` (both `preserve_uuid` values, both `inputs` and
+`outputs` — the exact shape that let `disabled` differ between the two
+sides once already) and clipboard copy/paste. `tests/test_pin_
+serialization.py`'s parametrized clone-path tests and `tests/test_
+clipboard.py`'s copy/paste ones — both driven off the SAME field lists
+this section names — are what make skipping this check for a new field
+fail loudly instead of shipping quietly broken, the same role the
+save/load round-trip tests already played for the first two occurrences.
+
 ## 4. Stateful Feedback Execution
 Pure combinational logic feedback (e.g. `AND` looped back into itself) is prohibited. However, the compiler explicitly permits feedback if a node along the cycle is flagged with `is_stateful = True` (e.g., `TON`, `RS`, `SR`). This satisfies industrial loop criteria where latency exists through memory buffers.
 
@@ -1948,6 +2007,126 @@ Testy: `tests/test_macros.py` (42), `tests/test_macro_instance.py` (11),
 (14), `tests/test_macro_library.py` (17), `tests/test_library_panel_macro_sharing.py`
 (12) — pełne rozbicie w AUDIT_REPORT.md §8/§30/§31/§32/§35/§36.
 
+### 24.13 Parametry instancji (fix/safety-and-macro-params §C)
+
+**Problem, konkretnie**: nastawy bloków wewnętrznych makra były zapieczone
+w JEGO JEDNEJ, wspólnej definicji — pięć egzemplarzy makra "Blokada
+zwłoczna" (jeden TON w środku) miało pięć razy tę samą zwłokę,
+nie do zmiany bez pięciu osobnych definicji. To odbierało makrom ich
+główne zastosowanie: szablon powtarzalnego fragmentu logiki, który
+między egzemplarzami różni się WŁAŚNIE nastawami (czas, próg, adres...),
+nie topologią.
+
+**Model danych** (`definition["parameters"]`/`["parameter_bindings"]`,
+`core/macros.py`):
+
+    "parameters": [{"name", "display_name", "type", "default", "unit",
+                     "description", "enum_values"}, ...]
+    "parameter_bindings": [{"parameter", "block_uuid", "property_name"}, ...]
+
+`"name"` jest STAŁYM, wewnętrznie generowanym identyfikatorem
+("PARAM_1", ...) — nigdy niepokazywanym inżynierowi i nigdy niezmiennym
+przy edycji; `parameter_bindings` odwołuje się do parametru właśnie przez
+to pole, żeby zmiana `"display_name"` nigdy nie zerwała powiązania od
+strony DEFINICJI. `"display_name"` to nazwa, którą widzi i edytuje
+inżynier, i (świadomie) JEDNOCZEŚNIE klucz właściwości, jaką
+`MacroInstanceBlock` wystawia dla tego parametru na KAŻDEJ instancji —
+zmiana `display_name` zmienia więc też ten klucz na instancjach. To
+DOKŁADNIE ten sam kompromis "zmiana nazwy = usunięcie starej + dodanie
+nowej", jaki `_resync_pin_list()` już akceptuje dla pinów granicznych
+(§24.9) — przyjęty tu z tego samego powodu: osobna, trwała tożsamość
+niezależna od etykiety nie jest warta dodatkowej złożoności schematu przy
+tym, jak rzadko parametr jest przemianowywany, gdy instancje już z niego
+korzystają.
+
+**Odrzucona alternatywa — podmiana tekstowa**: symbol w rodzaju
+`"${T_ZWLOKA}"` wpisany w wartość właściwości i podmieniany tekstowo przy
+rozwijaniu. Odrzucone celowo: wymaga własnego parsera, psuje typowanie
+właściwości (liczba staje się napisem w chwili pojawienia się symbolu w
+jej tekście) i legalna wartość zawierająca nawiasy klamrowe staje się
+pułapką. Jawna tablica powiązań jest jednoznaczna, zachowuje typ każdej
+właściwości i jest trywialnie listowalna/edytowalna z interfejsu (§C2.4)
+bez dotykania samego tekstu właściwości.
+
+**Wartości żyją na INSTANCJI, nie na definicji** — `MacroInstanceBlock`
+dostaje jedną właściwość na parametr (`sync_instance_parameters()`,
+wołane zarówno przez świeżo tworzoną instancję —
+`MacroInstanceBlock.configure()` — jak i przez resync po zmianie
+definicji, więc obie ścieżki dają identycznie ukształtowane właściwości).
+Ta sama funkcja realizuje wszystkie trzy reguły resynchronizacji naraz:
+nowy parametr → instancja dostaje go z wartością domyślną; usunięty
+parametr → jego właściwość znika z instancji; zmieniony typ → wartość
+instancji resetowana do domyślnej, z listą zwracaną do wywołującego
+(patrz niżej — komunikat kompilacji, nie faktyczny błąd walidatora).
+
+**Podstawienie przy kompilacji** (`expand_project()`/`_expand_instance()`)
+— dla każdego powiązania, WARTOŚĆ TEJ KONKRETNEJ INSTANCJI (odczytana z
+jej właściwości pod bieżącym `display_name` parametru) nadpisuje
+właściwość świeżo skopiowanego bloku wewnętrznego. Kolejność: PO
+skopiowaniu bloków definicji, PRZED rekurencyjnym rozwinięciem
+zagnieżdżonych makr — to właśnie ta kolejność (na zewnątrz-do-środka)
+sprawia, że parametr makra ZEWNĘTRZNEGO powiązany z parametrem instancji
+makra WEWNĘTRZNEGO trafia do najgłębszego bloku poprawnie: zanim
+rekurencja rozwinie tę zagnieżdżoną instancję, jej WŁASNA właściwość
+parametru już niesie wartość podstawioną przez zewnętrzne makro.
+`EPW_RUNTIME_LOGIC` nie wymagał ŻADNEJ zmiany — po rozwinięciu nie ma już
+żadnego śladu, że wartość pochodziła z parametru makra, a nie z ręcznie
+wpisanej właściwości (potwierdzone testem
+`test_export_runtime_carries_no_trace_of_macros_or_parameters`).
+
+**Walidacja** (`compiler/validator.py`, na `self.project.settings
+["macro_definitions"]` — rejestrze SAMYM W SOBIE, niezależnie od tego,
+czy akurat istnieje żywa instancja): powiązanie na nieistniejący blok/
+właściwość/parametr → BŁĄD; typ parametru niezgodny z typem właściwości,
+do której jest powiązany → BŁĄD; parametr bez żadnego powiązania →
+OSTRZEŻENIE; dwa parametry powiązane z tą samą właściwością tego samego
+bloku → OSTRZEŻENIE (ostatnie podstawienie wygrywa — legalne, ale
+mylące). Reguła "wartość parametru poza dopuszczalnym zakresem
+właściwości" (np. ujemny czas) nie potrzebowała ANI JEDNEJ linii nowego
+kodu: podstawienie już zaszło, zanim Walidator zobaczy rozwinięty graf,
+więc dowolna kontrola zakresu, jaką dany typ bloku już ma dla tej
+właściwości (`const.time`'s własne "nie może być ujemny", np.), odpala
+się na podstawionej wartości dokładnie tak, jakby wpisano ją ręcznie.
+
+**Komunikat o zresetowanym typie — NATYCHMIASTOWY, nie odroczony do
+kompilacji**: w przeciwieństwie do `analog.quality`'s migracji Max Rate
+(§27.3, jednorazowa notatka w `simulation_state`, odczytywana przy
+pierwszej kompilacji po wczytaniu pliku), instancja makrobloku NIGDY nie
+trafia do widoku, jaki widzi Walidator (`expand_project()` zastępuje ją
+całkowicie jej rozwiniętą zawartością) — notatka w `simulation_state`
+instancji byłaby więc w praktyce cicho gubiona, gdy tylko którykolwiek
+poziom breadcrumbu, w którym instancja żyje, zostanie zatwierdzony
+(`update_definition_blocks()` → `serialize()`, który celowo nigdy nie
+zapisuje `simulation_state`). `resync_all_instances()` zwraca więc od
+razu gotowy do pokazania tekst komunikatu, wyświetlany na pasku stanu w
+momencie samej edycji — funkcjonalny odpowiednik "ostrzeżenia
+kompilacji", tylko niezawodny w tej konkretnej sytuacji zamiast
+opóźniony.
+
+**UI**: panel właściwości bloku WEWNĘTRZNEGO, widziany wewnątrz
+breadcrumbowego widoku edycji makra, dostaje przy każdej właściwości
+przycisk "Powiąż z parametrem..." (`ui/macro_parameter_dialog.py`'s
+`BindParameterDialog`, wzorowany na `SignalPickerDialog`'s własnym "Nowy
+sygnał wewnętrzny..." — wybór istniejącego parametru albo utworzenie
+nowego, z typem WYWIEDZIONYM z bieżącej wartości właściwości, nigdy
+wybieranym ręcznie) — powiązana właściwość zamienia przycisk na "Odłącz
+od parametru" i pokazuje samą nazwę parametru zamiast edytowalnej
+wartości. `MacroPinsDialog` (§24.9) zyskuje drugą zakładkę, "Parametry" —
+tabela Nazwa/Typ/Domyślna/Jednostka/Powiązań, z dodawaniem/usuwaniem/
+zmianą kolejności; usunięcie parametru z istniejącymi powiązaniami żąda
+potwierdzenia i wymienia je. Panel właściwości placowanej INSTANCJI makra
+(poza widokiem edycji, na zwykłym poziomie kanwy) pokazuje każdy
+parametr jako zwykłą, typowaną właściwość w sekcji "Parametry" — jednostka
+i opis z definicji trafiają na tooltip; typ ENUM renderuje się jako lista
+rozwijana jego własnych `enum_values` zamiast zwykłego pola tekstowego.
+
+Testy: `tests/test_macro_parameters.py` (48 — model danych, `sync_
+instance_parameters()`, dwie niezależne instancje z różnymi nastawami
+kompilujące się i działające niezależnie w symulacji, zagnieżdżenie,
+resync przy dodaniu/usunięciu/zmianie typu parametru, round-trip zapisu,
+każda reguła walidacji z osobna, brak śladu w eksporcie runtime, cała
+ścieżka UI wiązania/odwiązywania).
+
 ## 25. Porównanie wersji projektu (`core/project_diff.py`, feat/project-diff)
 
 Trzecia z czterech pozycji wybranych po §30/§31/§34/§35 (po edytowalnych
@@ -2280,7 +2459,447 @@ zarejestrowanym typem bloku — pilnuje tego trwale: nowy blok
 zostawiający wyjście jako `None` nie przejdzie zestawu testów od razu,
 zamiast cicho trafić do produkcji.
 
-## 28. System alarmowy (feat/sswin-signals)
+## 28. System pomocy (feat/help-system)
+
+### 28.1 Podział: treść generowana kontra pisana ręcznie
+
+Program nie miał żadnej pomocy poza pojedynczą pozycją "O programie" w
+menu Help. Ten projekt ma udokumentowaną historię rozjeżdżania się
+dokumentacji z kodem (REPORT.md utknął na ósmej fazie przy osiemnastu
+wykonanych gałęziach; migawka w AUDIT_REPORT.md podawała 27 testów, gdy
+było ich już blisko 30 razy więcej; jedno miejsce REPORT.md twierdziło,
+że sześć kategorii biblioteki istnieje, sto dwadzieścia linii niżej —
+że zostały usunięte) — ręcznie pisana pomoc opisująca 69 typów bloków
+zestarzałaby się po dwóch PR-ach dokładnie tak samo.
+
+**Zasada nadrzędna**: treść opisująca bloki (nazwy, piny, właściwości,
+wartości domyślne) jest GENEROWANA z rejestru bloków w chwili otwarcia
+pomocy — nigdy zapisana na dysku jako plik do ręcznej edycji. Ręcznie
+pisane są WYŁĄCZNIE teksty, których w kodzie nie ma i być nie może:
+pojęcia łatwe do pomylenia (§28.4) i poradniki zadaniowe (§28.5).
+
+**Nowy blok wymaga wypełnionego opisu bloku, pinów i właściwości —
+pomoc powstaje z tego automatycznie i nie wymaga osobnej pracy.**
+`BaseLogicBlock` (`blocks/base.py`) ma trzy class-level słowniki:
+`PIN_DESCRIPTIONS`, `PROPERTY_DESCRIPTIONS`, `PROPERTY_UNITS` —
+mirror istniejącego już wcześniej `PROPERTY_TOOLTIPS` — scalane przez
+całe MRO klasy (`_merged_class_dict()`), więc rodzina bloków
+współdzielących nazwy pinów (bramki logiczne: "In1".."In4"/"Out";
+komparatory: Hysteresis/T On/T Off z `HysteresisDelayMixin`) opisuje
+je RAZ, w jednym miejscu, zamiast w każdej podklasie osobno. Celowo
+class-level, nie pole instancji `Pin`/serializowana właściwość — to,
+co pin/właściwość ZNACZY, jest faktem o TYPIE bloku, identycznym dla
+każdej instancji, nigdy nie edytowanym per-projekt, więc nie ma powodu
+wchodzić w `SERIALIZED_FIELDS` ani wymuszać migracji schematu.
+
+### 28.2 `core/block_catalog.py` — generowany katalog bloków
+
+`generate_catalog()` zwraca `{kategoria: [wpis, ...]}` dla każdego
+zarejestrowanego typu w `BlockRegistry`, budowane z jednorazowej,
+tymczasowej instancji (`describe_block_type()`) — dokładnie ten sam
+wzorzec co `ui/panels/element_preview.py`'s `show_type_id()` już
+stosuje dla zaznaczenia w drzewie biblioteki. Wpis makrobloku
+(`macro_instance.py`, celowo NIE zarejestrowany przez
+`@BlockRegistry.register` — jego piny zależą od PROJEKTU, nie od
+stałego typu) jest jawnie pomijany; katalogowany jest tylko stały,
+zarejestrowany inwentarz.
+
+`block_entry_markdown()`/`category_index_markdown()` renderują wpis do
+Markdown, konsumowane przez `core/help_content.py` jako temat "wirtualny"
+(patrz §28.3) — strona, którą widzi użytkownik, jest identyczna
+treściowo z tym, co zwraca generator, nie osobno przepisywana.
+`export_catalog_markdown()` (§28.6, menu "Eksportuj katalog bloków...")
+składa cały katalog w jeden dokument, do uzgodnień/dokumentacji
+projektowej.
+
+**Test strażniczy** (`tests/test_block_catalog.py`, sparametryzowany po
+każdym zarejestrowanym typie): niepusty opis bloku (0 pustych — patrz
+§28.7) i niepusty opis KAŻDEGO pinu tego typu. Nowy blok bez
+wypełnionych opisów pada tu natychmiast.
+
+### 28.3 `core/help_content.py` — format przejęty z EPW-OS
+
+§1.2 znalazło gotowy, sprawdzony format w repozytorium EPW-OS
+(`epw_os/core/help_content.py` + `epw_os/help/<język>/*.md` + jeden
+`toc.json` na język, definiujący drzewo rozdział/temat i hasła
+indeksu) — przejęty tutaj wprost, zamiast projektowania drugiego.
+Jedyna różnica: rolę języka podstawowego/zapasowego pełni polski, nie
+angielski (ten program nie ma żadnej warstwy i18n — każdy string w UI
+jest po polsku).
+
+`HelpContentStore` rozróżnia trzy rodzaje identyfikatora tematu:
+zwykły (`"welcome"`, `"concept_labels"`...) czytany z
+`help/<język>/<id>.md`; `"block:<type_id>"` i `"category:<nazwa>"`,
+generowane na bieżąco z `core/block_catalog.py`; `"shortcuts"`,
+generowany z `core/shortcuts.py` (§28.4). Wywołujący nie musi wiedzieć,
+który to rodzaj — `load_topic_markdown()` zwraca zawsze gotowy Markdown,
+nigdy nie rzuca wyjątku (nieznany temat → uczciwy placeholder).
+
+**Schemat odsyłaczy**: `help:<id>` (jeden dwukropek, BEZ `//`) — nie
+`help://<id>`, jak w EPW-OS. Identyfikator bloku zawiera własny
+dwukropek (`block:logic.and`), a `QUrl` interpretuje wszystko po `//`
+jako authority (host[:port]) — `help://block:logic.and` wychodzi
+NIEPRAWIDŁOWE (parser portu dławi się na "logic.and"), zweryfikowane
+wprost na `QUrl` przed wyborem formatu. Forma bez `//` trafia w całości
+do `url.path()`, dwukropki włącznie, bez dwuznaczności.
+
+### 28.4 `core/shortcuts.py` — tabela skrótów generowana z kodu
+
+Tabela skrótów klawiszowych (temat "shortcuts") jest generowana
+przeszukując `ast`-em RZECZYWISTE wywołania `self._make_action(...)` w
+`ui/main_window.py`, nie przepisywana ręcznie — skrót zmieniony w
+kodzie zmienia się w pomocy automatycznie, bo funkcja czyta plik
+źródłowy na żywo przy każdym wywołaniu. Celowo `ast` na pliku źródłowym,
+nie introspekcja żywych obiektów `QAction` na działającym `MainWindow`
+— zostaje bezstanowe (bez `PySide6`, testowalne bez `QApplication`,
+identycznie jak `block_catalog.py`) i łapie KAŻDE wywołanie
+`_make_action()` bezwarunkowo, nie tylko te, przez które akurat
+przeszedł dany przebieg testu.
+
+### 28.5 Treść pisana ręcznie (`logic_studio/help/<pl|en>/*.md`)
+
+Sześć tematów "Pojęcia" (etykiety/znaczniki/bity urządzenia, zaślepka/
+wolny koniec/etykieta, cykl skanu i z⁻¹, jakość sygnału analogowego,
+makrobloki i parametry, bloki wyłączone i wymuszenia) i pięć
+"Poradniki" (pierwszy schemat, przeniesienie sygnału, symulacja,
+kompilacja/eksport, makrobloki), plus wprowadzenie i "O programie" —
+zwykłe pliki Markdown, wzajemnie połączone odsyłaczami `help:<id>`.
+
+**Ważna uwaga o rzetelności treści**: pierwotne założenie tego zadania
+zakładało, że etykiety przewodów już scalają dwa przewody o tej samej
+etykiecie w jeden węzeł sieci. W chwili pisania tej pomocy **to jeszcze
+nieprawda** — `compiler/graph.py` nie ma żadnej obsługi `Wire.label`,
+a `compiler/validator.py`'s własny komentarz mówi wprost, że scalanie
+etykiet w węzły to "§3/§5 concern once labels can merge nodes at all".
+Temat "Etykiety, znaczniki i bity urządzenia" opisuje to WPROST jako
+planowaną, jeszcze niezaimplementowaną część mechanizmu, a poradnik
+"Jak przenieść sygnał w inne miejsce schematu" jako DZIAŁAJĄCY dziś
+sposób opisuje znacznik (bit wewnętrzny), nie etykietę — napisanie
+etykiety jako już działającej byłoby dokładnie tym rodzajem rozjazdu
+dokumentacji z kodem, któremu ta cała funkcja ma zapobiegać.
+
+**`logic_studio/help/en/`**: identyczny zestaw identyfikatorów tematów
+co `pl/` (pilnowane testem, §28.7), treść po polsku z komentarzem
+`<!-- TODO: translate to English -->` na początku każdego pliku —
+zgodnie z zadaniem: nie tłumaczone maszynowo/samodzielnie, żeby nie
+wprowadzić tłumaczenia gorszego niż jego brak.
+
+### 28.6 `ui/help_window.py` — okno w stylu Windows 98 Help
+
+Niemodalne, ponownie używane okno (kolejne F1/kliknięcia menu
+NIE tworzą nowego okna — `MainWindow._get_help_window()` trzyma jedną
+instancję, więc historia wstecz/dalej przetrwa) z zakładkami Spis
+treści/Indeks/Szukaj po lewej i `QTextBrowser.setMarkdown()` po prawej
+— bez nowej zależności, dokładnie ten sam mechanizm renderowania co
+EPW-OS. Rozdział "Katalog bloków" w drzewie ma dodatkowy poziom
+zagnieżdżenia (kategoria → typ bloku) budowany z płaskiej listy
+`block_catalog_chapter()` zwraca, znakowanej `_is_category`/`_category`
+— pozostałe rozdziały (ręcznie pisane) są płaskie, jak w EPW-OS.
+Geometria okna zapamiętywana w `QSettings`, z zabezpieczeniem: geometria
+odtworzona spoza rozsądnego zakresu (0-rozmiarowa albo absurdalnie duża
+— np. po zmianie rozdzielczości ekranu) wraca do domyślnego rozmiaru
+zamiast zostawić okno niewidoczne/nieużywalne.
+
+Podgląd graficzny (§2.1) na stronie bloku jest wklejany TU, w warstwie
+Qt (`HelpWindow._with_block_icon()`), nie w `core/block_catalog.py` —
+ten ostatni zostaje bez-Qt (ten sam podział co reszta `core/`), więc
+faktyczny render `ui/icons.block_icon()` (ta sama funkcja, co drzewo
+biblioteki i podgląd elementu) trafia do Markdownu jako PNG w base64,
+doklejany zaraz pod tytułem. Realna, znaleziona dopiero przy ręcznej
+weryfikacji zrzutem ekranu (`/run`) usterka: `QTextBrowser.
+setMarkdown()` po cichu, bez żadnego ostrzeżenia, pomija obrazek, gdy
+jego tekst alternatywny jest pusty (`![]()`) — dotyczy to też zwykłego
+URL-a http(s), nie tylko `data:` — więc każdy taki odnośnik potrzebuje
+niepustego opisu (`![Ikona bloku](...)`).
+
+### 28.7 Pomoc kontekstowa (F1) i wpięcie w menu
+
+`MainWindow._context_help_topic()`: dokładnie JEDEN zaznaczony blok na
+kanwie → jego własna strona katalogu; w trybie edycji makra → pojęcie
+makrobloków; symulacja uruchomiona/zapauzowana → poradnik symulacji; w
+przeciwnym razie → strona powitalna. `ui/panels/element_preview.py`
+dostał przycisk "Więcej o tym bloku" (sygnał `more_info_requested`,
+podłączony do `MainWindow.show_help_for_block_type()`) — panel podglądu
+elementu nie importuje samego okna pomocy, tylko zgłasza chęć jego
+pokazania, ten sam podział odpowiedzialności co reszta UI tego projektu.
+
+Menu Help uporządkowane: Pomoc (F1) / Katalog bloków / Skróty
+klawiszowe / Eksportuj katalog bloków... / — / O programie — każda
+pozycja z podpiętym działaniem (usunięto zasadę "puste menu bez
+funkcji" — poprzednio Help miało tylko "O programie").
+
+### 28.8 Diagnoza stanu wyjściowego (§1 zadania)
+
+Przed tym PR: 0 z 69 zarejestrowanych typów bloków miało pusty opis,
+ale 20 miało opis po angielsku (reszta programu jest po polsku) —
+przetłumaczone w kodzie razem z tym PR. `Pin` (`blocks/pin.py`) nie
+miał w ogóle pola opisu — wszystkie 179 pinów (suma po świeżych
+instancjach każdego typu) było kompletnie nieudokumentowanych.
+Dokumentacja właściwości praktycznie nie istniała: jedyny istniejący
+mechanizm, `PROPERTY_TOOLTIPS`, miał dokładnie 1 wpis na 266 slotów
+właściwości w całym rejestrze. Po tym PR: 179/179 pinów i 266/266
+właściwości ma niepusty opis (zweryfikowane bezpośrednią instancjacją
+i odpytaniem każdego typu, nie wyrywkowo).
+## 29. Cykl życia obiektów Qt: `QTimer` (fix/qtimer-lifetime)
+
+### 29.1 Zasada
+
+**Żaden `QTimer` nie może przeżyć obiektu, do którego się odnosi jego
+własny callback.** Nie chodzi tu o styl ani o wygodę — chodzi o to, że
+gdy timer bez właściciela odpali się już PO zniszczeniu obiektu, który
+jego callback dotyka, Qt NIE gwarantuje czystego, przechwytywalnego
+wyjątku Pythona. Czasem tak — `RuntimeError: Internal C++ object already
+deleted`, coś, co `except RuntimeError` faktycznie łapie. Czasem nie —
+proces kończy się `SIGSEGV`/`SIGABRT` na poziomie C++, którego żaden
+`try/except` w Pythonie przechwycić nie może, bo awaria nie jest
+wyjątkiem Pythona w ogóle. **`try/except RuntimeError` wokół
+podejrzanego callbacku maskuje objaw na tych uruchomieniach, na których
+Qt akurat zdecyduje się rzucić czysto — nie usuwa przyczyny, i nie
+pomaga na tych uruchomieniach, na których Qt zdecyduje inaczej.**
+
+Dokładnie to stało się w `ui/canvas/navigation.py::pulse_highlight()`
+(§29.3): bezpański `QTimer()`, trzymany przy życiu wyłącznie jako atrybut
+Pythona na osobnym `QGraphicsRectItem`, z `try/except RuntimeError`
+wokół jego callbacku. Dwa testy nawigacji (`test_jump_to_block_*`,
+`tests/test_canvas_navigation.py`) wywołują domyślną, ~1-sekundową
+animację i kończą się natychmiast, nie czekając na jej zakończenie —
+zostawiając bezpański timer tykający do ~1s w tle, podczas gdy
+uruchamiają się KOLEJNE testy, których obiekty timer w międzyczasie może
+dotknąć.
+
+### 29.2 Mechanizm: `logic_studio/ui/qt_lifetime.create_owned_timer()`
+
+Jedno sankcjonowane miejsce tworzenia `QTimer` w tym repozytorium —
+zamiast punktowej łatki w `pulse_highlight()`, każde miejsce tworzące
+timer w warstwie UI przechodzi przez tę samą funkcję, wymuszającą dwie
+rzeczy naraz:
+
+1. **Właściciel**: `create_owned_timer(owner, callback, ...)` wymaga
+   prawdziwego `QObject` jako `owner` — staje się rodzicem timera w
+   sensie Qt, więc Qt sam zatrzymuje i niszczy timer w chwili zniszczenia
+   `owner`; sygnał `timeout` fizycznie nie może się już odpalić.
+2. **Strażnik żywotności (`guard`)**: dla obiektów, których `owner` NIE
+   niszczy w tym samym momencie co siebie samego — typowo
+   `QGraphicsItem`, który w ogóle nie jest `QObject` i nigdy nie może
+   dostać rodzica Qt (dokładnie przypadek `pulse_highlight()`: naturalnym
+   właścicielem timera jest `QGraphicsScene`, ale to, czego dotyka każdy
+   „tik”, to nakładka podświetlenia — usuwalna pojedynczo, `scene.clear()`
+   włącznie, podczas gdy sama scena żyje dalej) — każdy obiekt przekazany
+   przez `guard` jest sprawdzany `shiboken6.isValid()` PRZED każdym
+   wywołaniem właściwego callbacku. `shiboken6.isValid()` to bezpieczne,
+   udokumentowane sprawdzenie w księgowości shiboken, nie dotyka samej
+   (potencjalnie już zwolnionej) pamięci obiektu C++ — inaczej niż gołe
+   wywołanie metody owinięte w `try/except`.
+
+Callback będący METODĄ ZWIĄZANĄ (`owner.some_method`) jest rozwiązywany
+DYNAMICZNIE po nazwie przy każdym tiku, a nie zamrażany jako wartość w
+domknięciu Pythona — to nie estetyka, to naprawiony podczas budowy tej
+funkcji realny błąd: `tests/test_signals_panel.py::
+test_repeated_requests_coalesce_into_one_rebuild` podmienia
+`panel._rebuild` instrumentującym opakowaniem, by policzyć wywołania —
+zamrożone domknięcie wywoływałoby zawsze ORYGINALNĄ metodę, cicho
+ignorując podmianę.
+
+### 29.3 Trzy miejsca tworzące `QTimer` w repozytorium — stan PRZED i PO
+
+| Miejsce | Właściciel PRZED | Strażnik PRZED | Po migracji do `create_owned_timer()` |
+|---|---|---|---|
+| `ui/canvas/navigation.py::pulse_highlight()` | **Brak** — goły `QTimer()`, żywy tylko przez atrybut Pythona na `overlay` | `try/except RuntimeError` wokół callbacku (usunięty) | `owner=scene`, `guard=(overlay,)` |
+| `ui/panels/signals.py::SignalsPanel._refresh_timer` | `QTimer(self)` — już poprawnie | Brak (niepotrzebny — `self` samo się chroni) | `owner=self`, bez `guard` — migracja bez zmiany zachowania, wyłącznie żeby test audytujący (§29.4) nie potrzebował dla niej wyjątku |
+| `ui/main_window.py::MainWindow.sim_timer` | `QTimer(self)` — już poprawnie | Brak | jw. |
+
+Tylko pierwsze miejsce miało realnego buga; pozostałe dwa migrowano
+wyłącznie po to, by `create_owned_timer()` było JEDYNYM miejscem
+tworzącym `QTimer` w repozytorium — zero wyjątków w teście audytującym.
+
+### 29.4 Test audytujący (`tests/test_qt_timer_lifetime.py`)
+
+Sparametryzowany po KAŻDYM pliku `.py` pod `logic_studio/`, parsujący go
+przez `ast` (nie regex/tekst — żeby *wzmianka* o `QTimer(` w komentarzu
+czy docstringu, tak jak w tym właśnie akapicie, nigdy nie została wzięta
+za realne wywołanie) i szukający bezpośredniego `QTimer(...)` albo
+`QTimer.singleShot(...)` poza `ui/qt_lifetime.py` samym. Lista wyjątków
+istnieje w kodzie testu, dziś pusta — nowy bezpański timer w przyszłości
+wywali ten test od razu, z numerem linii.
+
+### 29.5 Dlaczego NIE naprawiło to całego, obserwowanego zjawiska
+
+Ten sam pattern crashu (`Fatal Python error: Aborted`/`SIGSEGV`, zawsze
+podczas `processEvents()`/`QTest.qWait()`, zawsze zależny od KOLEJNOŚCI
+testów, nigdy od pojedynczego pliku uruchomionego osobno) był już
+odnotowany w dzienniku (§34) jako "nie w pełni potwierdzone" i
+pozostawiony z diagnostyką (`PYTHONFAULTHANDLER=1`) w CI właśnie po to,
+żeby następne wystąpienie dało się dokładnie namierzyć. To PR jest tym
+następnym wystąpieniem. Naprawa z §29.2/§29.3 jest realna i zamyka
+KONKRETNĄ, znalezioną instancję choroby — ale powtórzone uruchomienia
+CAŁEGO zestawu w losowej kolejności PO tej naprawie nadal, choć rzadziej,
+padają, w różnych, pozornie niepowiązanych testach. Wniosek: istnieje
+przynajmniej jedno inne źródło tej samej klasy niestabilności (kolejny
+bezpański obiekt Qt gdzieś jeszcze nieznaleziony, albo rzeczywista
+niestabilność natywna kombinacji Qt 6.11/PySide6 6.11.2/Python 3.14 pod
+platformą `offscreen`, którą CI's własny dziennik §34 już podejrzewał).
+Pełne dane empiryczne (współczynnik crashu PRZED i PO tej naprawie, na
+identycznym zestawie losowań) są w podsumowaniu PR — ten dokument
+notuje wyłącznie, że reguła z §29.1 jest konieczna, ale — jak dotąd
+zmierzone — NIE wystarczająca do pełnego wyeliminowania zjawiska z §34.
+
+## 30. Przewody wewnątrz makrobloku — zakres etykiety kończy się na granicy makra (fix/wire-labels-and-project-integrity §B1)
+
+### 30.1 Decyzja
+
+**Definicja makrobloku przechowuje własną listę przewodów (`Wire`),
+dokładnie tak jak przechowuje własną listę bloków.** Wejście w widok
+edycji makra (`MainWindow.enter_macro_instance()`) podmienia
+`project.blocks` I `project.wires` razem, w tym samym momencie; wyjście
+(`_navigate_to_breadcrumb_index()`) zatwierdza obie listy z powrotem do
+definicji razem, tą samą ścieżką co dotąd wyłącznie bloki.
+
+**Uzasadnienie**: przewód z etykietą wewnątrz makra opisuje WEWNĘTRZNĄ
+strukturę tego konkretnego makra i nie ma żadnego znaczenia poza nim —
+dokładnie tak samo jak blok wewnątrz tej samej definicji. Rozważana
+alternatywa — przewody istniejące wyłącznie na poziomie projektu,
+nigdy wewnątrz definicji makra — została odrzucona: oznaczałaby, że
+etykieta nadana wewnątrz makra PRZECIEKA na zewnątrz, do schematu
+nadrzędnego, i że DWIE RÓŻNE, niezależnie postawione instancje tego
+samego makra dzieliłyby jeden węzeł sieci tylko dlatego, że twórca
+definicji nazwał coś tak samo w obu miejscach wewnątrz niej. To byłoby
+niepoprawne — instancja makra ma być czarną skrzynką, nie oknem, przez
+które nazwy wewnętrznych sygnałów wyciekają na zewnątrz.
+
+Konsekwencja przy kompilacji (`core/macros.py::expand_project()`,
+`compiler/label_merge.py`): każda placowana instancja makra dostaje
+WŁASNY, osobny "zakres etykiet" (`wire_scopes` — lista list `Wire`,
+jedna na poziom projektu plus jedna na każdą faktycznie rozwiniętą
+instancję) — scalanie węzłów po etykiecie (§29 nie, patrz raczej PR
+`fix/wire-labels-and-project-integrity` część A) uruchamiane jest
+OSOBNO dla każdego zakresu, nigdy na spłaszczonej liście wszystkich
+przewodów naraz. Etykieta "X" wewnątrz Instancji A nigdy nie zobaczy
+etykiety "X" wewnątrz Instancji B tej samej definicji, ani etykiety "X"
+na poziomie projektu — dokładnie jak zmienna lokalna w dowolnym języku
+programowania ze statycznym zasięgiem blokowym.
+
+### 30.2 Ósmy przypadek: `_copy_definition()` jako własna, niezależna lista dozwolonych kluczy
+
+Przy weryfikacji tej zmiany znaleziono realny błąd, zanim trafił do
+testów: `core/macros.py::_copy_definition()` — funkcja, przez którą
+KAŻDY odczyt i zapis definicji makra (`get_definition()`/
+`set_definition()`/`get_definitions()`) faktycznie przechodzi — jest
+WŁASNĄ, ręcznie wypisaną listą dozwolonych kluczy (`"name"`, `"blocks"`,
+`"input_pins"`, `"output_pins"`, `"parameters"`, `"parameter_bindings"`),
+niezależną od jakiejkolwiek innej deklaracji w projekcie. Dodanie klucza
+`"wires"` do samej definicji nie wystarczyło — `_copy_definition()` po
+prostu go nie znała, więc każdy zapis znikał cicho przy najbliższym
+odczycie. To ÓSMY, z rzędu, przypadek dokładnie tej samej klasy błędu
+("element dodany do modelu, którego jedna ze ścieżek nie zna") — patrz
+§B2 podsumowania tego PR dla mechanizmu na poziomie CAŁEGO projektu
+(`PROJECT_ELEMENTS`, `core/project.py`), który miał to złapać wcześniej,
+ale nie objął jeszcze tego DRUGIEGO poziomu zagnieżdżenia (elementy
+WEWNĄTRZ jednej definicji makra) — zapisane tu jako świadome
+ograniczenie tego PR-a, nie przeoczenie: naprawiono konkretny znaleziony
+przypadek, mechanizm ogólny na tym poziomie zagnieżdżenia zostaje do
+rozważenia przy kolejnym takim znalezisku.
+
+## 31. Etykiety przewodów: semantyka scalania węzłów (fix/wire-labels-and-project-integrity §A)
+
+### 31.1 Zasada
+
+Dwa przewody noszące tę samą etykietę (porównanie BEZ uwzględniania
+wielkości liter — "Blokada ZS" i "blokada zs" to JEDEN węzeł; etykieta
+złożona z samych spacji liczy się jako brak etykiety) są JEDNYM I TYM
+SAMYM węzłem sieci logicznej, niezależnie od tego, gdzie fizycznie leżą
+na schemacie. Realizowane w `compiler/label_merge.py`, wywoływanym
+przez `Compiler.compile()` PRZED walidatorem (kolejność zweryfikowana
+ręcznie — odwrotna kolejność zostawiała każde oznakowane wejście
+błędnie oflagowane jako "niepodłączone" o jeden etap za wcześnie):
+grupa przewodów o tej samej etykiecie ma dokładnie jeden pin wyjściowy
+(źródło) i dowolną liczbę pinów wejściowych (odbiorniki, wielu naraz —
+to legalne i jest najczęstszym praktycznym zastosowaniem etykiety:
+jeden sygnał czytany w pięciu miejscach schematu); mechanizm łączy je
+BEZPOŚREDNIM wywołaniem `Pin.connect()` — dokładnie tym samym, którego
+używa fizycznie narysowany przewód — na sklonowanych pinach widoku
+kompilacji, nigdy na żywych pinach projektu. Dzięki temu projekt z
+etykietą i identyczny projekt z przewodem prowadzonym wprost dają
+IDENTYCZNY `execution_order` i identyczny wynik symulacji — sprawdzone
+bezpośrednim testem (`tests/test_label_merge.py`), nie założone.
+
+Typ danych węzła jest DZIEDZICZONY z pinu wyjściowego — `Pin.connect()`
+odrzuca połączenie niezgodnego typu dokładnie tak samo, jak zrobiłby to
+dla fizycznego przewodu, z komunikatem nazywającym etykietę.
+
+### 31.2 Zasięg etykiety kończy się na granicy makrobloku
+
+Etykieta wewnątrz definicji makrobloku jest WŁASNYM, ODDZIELNYM
+zasięgiem — nigdy nie scala się z etykietą o tej samej nazwie na
+poziomie projektu, ani z etykietą o tej samej nazwie w INNEJ placowanej
+instancji tej samej definicji. Zob. §30.1 dla pełnego uzasadnienia tej
+decyzji (przewód wewnątrz makra opisuje jego wewnętrzną strukturę,
+tak jak blok) i §30 ogólnie dla mechanizmu (`wire_scopes`,
+`core/macros.py::expand_project()`).
+
+### 31.3 Różnica względem znaczników (`M.*`/wewnętrznych sygnałów)
+
+Ten projekt ma DWA różne mechanizmy przenoszenia sygnału w inne miejsce
+schematu bez fizycznego przewodu, i łatwo je pomylić:
+
+| | Etykieta przewodu (`Wire.label`) | Znacznik wewnętrzny (`M.*`/`MW.*`, `virtual.input`/`virtual.output`) |
+|---|---|---|
+| Mechanizm | Bezpośrednia krawędź grafu wykonania (`Pin.connect()`) | Zapis/odczyt osobnej komórki pamięci, BEZ bezpośredniej krawędzi między blokiem piszącym a czytającym |
+| Opóźnienie o cykl | **Nigdy** — węzeł uczestniczy w tym samym sortowaniu topologicznym co zwykły przewód, więc kolejność wykonania zawsze gwarantuje świeżą wartość | **Możliwe** — jeśli blok piszący wypadnie w kolejności wykonania PO bloku czytającym w tym samym skanie, odczyt dostaje wartość SPRZED zapisu (ostrzeżenie kompilatora: "Odczyt w bloku wyprzedza zapis") |
+| Zasięg | Kończy się na granicy makrobloku (§31.2) | Globalny w całym projekcie (rejestr `internal_bits` w `project.settings`) |
+| Do czego służy | Skrót rysunkowy — TEN SAM sygnał, inne miejsce na schemacie | Nowy, nazwany sygnał wewnętrzny — świadomie osobny byt, persystentny między skanami |
+
+**Wybór**: etykieta, gdy chodzi wyłącznie o czytelność schematu (za
+długi przewód, sygnał potrzebny w kilku miejscach) i opóźnienie o cykl
+jest niedopuszczalne; znacznik, gdy potrzebna jest nazwana, globalna
+zmienna stanu (retencja między skanami, zamierzone opóźnienie, użycie w
+wielu miejscach BEZ założenia "to jeden i ten sam przewód").
+
+### 31.4 Trzy mechanizmy łatwe do pomylenia: zaślepka, wolny koniec, etykieta
+
+| | Zaślepka wejścia (`Pin.disabled`) | Wolny koniec przewodu (`Wire.has_free_end()`) | Etykieta (`Wire.label`) |
+|---|---|---|---|
+| Co to jest | Wejście świadomie WYŁĄCZONE z `evaluate()` bloku | Przewód z jednym końcem bez podłączonego pinu | Nazwa scalająca węzły (może współistnieć z każdym z powyższych) |
+| Reprezentuje węzeł sieci? | **Nie — brak węzła** | Sam w sobie: nie (dopóki nieoznakowany) | Tak — to WŁAŚNIE etykieta tworzy/rozszerza węzeł |
+| Można oznaczyć etykietą? | **NIE** — nie ma czego scalać, bo nie ma węzła | Tak — to jego główne zastosowanie | (to jest etykieta) |
+| Znacznik na kanwie | Krótki odcinek zakończony poprzeczną kreską (PortItem) | Pogrubiona nazwa + pionowa kreska + znacznik X na przewodzie (bez etykiety: samo "niedokończony przewód", ostrzeżenie) | Tekst nad przewodem (połączenie pełne) albo nad wolnym końcem (jw.) |
+
+Wprost: **zaślepki NIE DA SIĘ oznaczyć etykietą**, ponieważ etykieta
+łączy węzły sieci, a zaślepka to świadomy BRAK węzła — nie ma nic do
+połączenia. Próba nadania etykiety zaślepionemu wejściu nie ma sensu na
+poziomie modelu danych (`Wire` wymaga realnego pinu na przynajmniej
+jednym końcu, `Pin.disabled` i tak wyklucza je z `evaluate()`) i nie
+jest oferowana w interfejsie.
+
+## 32. Elementy najwyższego poziomu projektu (fix/wire-labels-and-project-integrity §B2)
+
+`core/project.py::PROJECT_ELEMENTS = ("blocks", "wires", "settings")`
+— jedna deklaracja, wyprowadzona z rejestrów `core/state_diff.py`
+(`UUID_LIST_KEYS + DICT_KEYS`), nie duplikowana ręcznie. Każda funkcja
+przenosząca lub kopiująca zawartość projektu musi mieć udokumentowaną,
+przetestowaną odpowiedź dla KAŻDEGO z tych trzech elementów — nawet gdy
+poprawną odpowiedzią jest "świadomie pominięte" (np. `settings` nigdy
+nie jest podmieniane przy wejściu/wyjściu z edycji makra — zob. §30).
+`tests/test_project_element_coverage.py` wymusza to dla siedmiu
+ścieżek: serializacji/deserializacji, `state_diff` (undo/redo),
+schowka, rozwijania makr przy kompilacji, wejścia/wyjścia z edycji
+makra, eksportu/importu makra, łańcucha migracji schematu.
+
+To ÓSMY znany przypadek klasy błędu "element dodany do modelu, którego
+jedna ze ścieżek nie zna" (poprzednie siedem: `Pin.connections` przez
+referencję, `Pin.disabled` gubione przy wczytaniu, `execution_state`
+serializowane a nieodtwarzane, `safety_relevant` gubione przez
+`clone()`, piąty niezależny przypadek tej samej klasy przy audycie
+`clone()`, `state_diff` czytające tylko "blocks"/"settings" (przed
+dodaniem "wires"), `QTimer` przeżywający właściciela) — tym razem na
+poziomie CAŁEGO PROJEKTU, nie jednego pola jednej klasy:
+`project.wires` istniał od PR-a wprowadzającego etykiety, a
+`core/macros.py` nie wiedział o nim NIC aż do tego PR-a. `PROJECT_ELEMENTS`
++ `tests/test_project_element_coverage.py` to mechanizm mający uczynić
+dziewiąty przypadek niemożliwym do wysłania niezauważonym — zweryfikowany
+empirycznie (dopisanie tymczasowego, atrapowego czwartego elementu do
+`Project.serialize()` natychmiast wysadziło dokładnie jeden test, bez
+kaskady mylących błędów; usunięcie atrapy przywróciło zielony zestaw).
+## 33. System alarmowy (feat/sswin-signals)
 
 Katalog sygnałów systemowych (`core/system_signals_catalog.json`,
 §10/§11) udostępnia od tej gałęzi (`catalog_version` 1.0.0 -> 1.1.0)
@@ -2289,7 +2908,7 @@ logika wcześniej nie widziała w ogóle — cztery nowe kategorie prefiksu
 `SSWIN.`: `SSWIN.STATE` (stan dozoru), `SSWIN.ALARM`, `SSWIN.OUT`
 (sygnalizatory) i `SSWIN.CMD` (komendy).
 
-### 28.1 Część stała i część dynamiczna
+### 33.1 Część stała i część dynamiczna
 
 Udostępniona tu jest WYŁĄCZNIE część STAŁA tego podsystemu — sygnały,
 których zbiór jest taki sam w każdym projekcie, niezależnie od
@@ -2311,7 +2930,7 @@ zachowują dzisiejsze, ZBIORCZE znaczenie (`SSWIN.ARMED` = którakolwiek
 strefa uzbrojona) — stan per-strefa doszedłby jako osobny wymiar
 (`SSWIN.Z<n>.*`), nie przez zmianę znaczenia istniejących sygnałów.
 
-### 28.2 Prefiks `SSWIN.` a `ALM.`
+### 33.2 Prefiks `SSWIN.` a `ALM.`
 
 `ALM.` (bloki `alarm.definition`, jeśli/gdy powstaną — na dziś: warunek
 alarmowy wyliczony przez logikę projektu i kwitowany przez operatora) i
@@ -2326,7 +2945,7 @@ własny warunek logiki, czy w stan urządzenia. Rozróżnienie nazewnicze
 eliminuje tę pomyłkę u źródła, zamiast liczyć na to, że opis w drzewie
 zawsze zostanie doczytany.
 
-### 28.3 Sygnalizatory (`SSWIN.OUT`) — wyłącznie do odczytu
+### 33.3 Sygnalizatory (`SSWIN.OUT`) — wyłącznie do odczytu
 
 `SSWIN.SIREN_ACTIVE`/`STROBE_ACTIVE`/`SIREN_TIME_LEFT` mówią logice, CZY
 sygnalizator jest aktywny — nie dają jej możliwości nim WYSTEROWAĆ.
@@ -2337,7 +2956,7 @@ gdyby logika mogła bezpośrednio sterować syreną, dwa niezależne
 mechanizmy (harmonogram EPW-OS i dowolna logika użytkownika) mogłyby
 rywalizować o to samo wyjście fizyczne.
 
-### 28.4 `SSWIN.CMD_SILENCE` a `SSWIN.CMD_RESET`
+### 33.4 `SSWIN.CMD_SILENCE` a `SSWIN.CMD_RESET`
 
 Rozdzielone celowo, mimo że w wielu prostych scenariuszach uruchamiane
 razem: `CMD_SILENCE` wycisza sygnalizator BEZ kasowania `SSWIN.
@@ -2347,7 +2966,7 @@ kogokolwiek w pobliżu, nie tylko uprawnionego operatora) usuwałoby ślad
 zdarzenia, zanim ktokolwiek zdążyłby je obejrzeć — dokładnie tę
 sytuację, do której `ALARM_MEMORY` w ogóle istnieje.
 
-### 28.5 Zapis: `system.signal_out` i pierwsze sygnały `source == "logic"`
+### 33.5 Zapis: `system.signal_out` i pierwsze sygnały `source == "logic"`
 
 `SSWIN.CMD_*` to pierwsza kategoria katalogu z `"source": "logic"` —
 zapisywana przez logikę, nie przez urządzenie. Nowy blok
@@ -2400,7 +3019,7 @@ gdzie kolumna "Zapisuje" musi pokazać `short_id` bloku piszącego (albo
 "—", jeśli jeszcze żaden nie pisze) zamiast fałszywie sugerować, że
 sygnał pochodzi z urządzenia.
 
-### 28.6 Wersjonowanie katalogu — `1.0.0` -> `1.1.0`, pierwszy realny bump
+### 33.6 Wersjonowanie katalogu — `1.0.0` -> `1.1.0`, pierwszy realny bump
 
 Zasady same w sobie już opisane ogólnie w §11 (MINOR dla dodania,
 MAJOR dla usunięcia/zmiany znaczenia, PATCH dla samego tekstu) — ta
@@ -2424,12 +3043,12 @@ wyeksportowanej z `catalog_version` `1.1.0` (mógłby trafić na
 należą do EPW-OS, Logic Studio tylko dostarcza numer, z którym da się ją
 podjąć.
 
-### 28.7 Świadomie poza zakresem
+### 33.7 Świadomie poza zakresem
 
 Sygnały poszczególnych linii dozorowych (`SSWIN.L<n>.*`) i mechanizm ich
-importu z konfiguracji EPW-OS (§28.1) — osobny PR. Sterowanie
-sygnalizatorem bezpośrednio z logiki (§28.3) — świadomie niedostępne,
-nie "jeszcze niezrobione". Podział na strefy (§28.1's uwaga na koniec).
+importu z konfiguracji EPW-OS (§33.1) — osobny PR. Sterowanie
+sygnalizatorem bezpośrednio z logiki (§33.3) — świadomie niedostępne,
+nie "jeszcze niezrobione". Podział na strefy (§33.1's uwaga na koniec).
 
 Testy: `tests/test_sswin_signals.py` (32 — poprawność katalogu, kierunek
 zapisu, dwóch piszących, poziom dostępu, eksport, zgodność wsteczna,

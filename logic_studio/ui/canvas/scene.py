@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QGraphicsScene
-from PySide6.QtGui import QPen, QColor, QCursor
+from PySide6.QtGui import QPen, QCursor
 from PySide6.QtCore import Qt, QLineF, QPointF, Signal
 
 from logic_studio.ui.canvas import style
@@ -91,6 +91,14 @@ class LogicScene(QGraphicsScene):
         for item in self.selectedItems():
             if isinstance(item, BlockItem):
                 if project:
+                    # feat/wire-labels: every Wire record naming one of
+                    # this block's OWN pins is removed BEFORE the block
+                    # itself disappears — including a free-end wire
+                    # attached to it, which may have no WireItem on the
+                    # canvas at all (nothing draws one yet) for the
+                    # graphics loop below to find.
+                    pin_uuids = [p.uuid for p in item.logic_block.inputs + item.logic_block.outputs]
+                    project.remove_wires_touching_pins(pin_uuids)
                     project.remove_block(item.logic_block)
 
                 # Delete connected wires to avoid C++ pointer crashes
@@ -110,6 +118,13 @@ class LogicScene(QGraphicsScene):
 
             elif isinstance(item, WireItem):
                 if item.source_port and item.dest_port:
+                    if project:
+                        # feat/wire-labels: remove any Wire record
+                        # describing exactly this pin pair (a
+                        # documentary label on an otherwise-plain,
+                        # fully-connected wire, §3) before disconnecting
+                        # the pins it names.
+                        project.remove_wire_by_pins(item.source_port.pin.uuid, item.dest_port.pin.uuid)
                     item.source_port.pin.disconnect(item.dest_port.pin)
                 self.removeItem(item)
 
@@ -156,7 +171,26 @@ class LogicScene(QGraphicsScene):
         origin_x = min(b.x for b in blocks)
         origin_y = min(b.y for b in blocks)
 
-        self.clipboard_data = {"blocks": blocks_data, "origin": (origin_x, origin_y)}
+        # feat/wire-labels §2.4: a Wire record (core/wire.py — created
+        # only for a wire carrying a label and/or a free end, see that
+        # module's own docstring) is copied when every REAL end it has
+        # lands inside the selection — a free end always travels with it
+        # (it's a coordinate, not tied to any block); a real end outside
+        # the selection makes the whole record ineligible, the same
+        # "silently drop what doesn't fully fit" rule already applied to
+        # pin_data["connections"] above.
+        window = self.views()[0].window() if self.views() else None
+        project = getattr(window, 'project', None)
+        wires_data = []
+        if project is not None:
+            for wire in project.wires:
+                if wire.source_pin is not None and wire.source_pin not in selected_pin_uuids:
+                    continue
+                if wire.dest_pin is not None and wire.dest_pin not in selected_pin_uuids:
+                    continue
+                wires_data.append(wire.serialize())
+
+        self.clipboard_data = {"blocks": blocks_data, "origin": (origin_x, origin_y), "wires": wires_data}
         self._paste_cascade = 0
         self.clipboard_changed.emit()
         return True
@@ -287,6 +321,38 @@ class LogicScene(QGraphicsScene):
         for block in new_blocks:
             for pin in block.inputs + block.outputs:
                 pin.connections = [uuid_map[c] for c in pin.connections if c in uuid_map]
+
+        # feat/wire-labels §2.4: Wire records travel with the same
+        # uuid_map remap as pin connections above, and the same
+        # delta_x/delta_y offset as block positions — copy_selected_
+        # items() already limited every wire here to ends inside the
+        # selection, so a source_pin/dest_pin missing from uuid_map would
+        # be a bug in that filtering, not an expected case; skip it
+        # defensively rather than paste a dangling reference.
+        from logic_studio.core.wire import Wire
+        import uuid as uuid_module
+        for w_data in self.clipboard_data.get("wires", []):
+            new_wire = Wire.deserialize(w_data)
+            new_wire.uuid = str(uuid_module.uuid4())
+            if new_wire.source_pin is not None:
+                if new_wire.source_pin not in uuid_map:
+                    continue
+                new_wire.source_pin = uuid_map[new_wire.source_pin]
+            if new_wire.dest_pin is not None:
+                if new_wire.dest_pin not in uuid_map:
+                    continue
+                new_wire.dest_pin = uuid_map[new_wire.dest_pin]
+            if new_wire.free_end_source is not None:
+                new_wire.free_end_source = {
+                    "x": new_wire.free_end_source["x"] + delta_x,
+                    "y": new_wire.free_end_source["y"] + delta_y,
+                }
+            if new_wire.free_end_dest is not None:
+                new_wire.free_end_dest = {
+                    "x": new_wire.free_end_dest["x"] + delta_x,
+                    "y": new_wire.free_end_dest["y"] + delta_y,
+                }
+            project.add_wire(new_wire)
 
         self._warn_about_duplicate_output_addresses(new_blocks, project, window)
 
@@ -478,7 +544,7 @@ class LogicScene(QGraphicsScene):
         if not blocks:
             return False
 
-        definition, crossings = macros_module.build_definition(name, blocks)
+        definition, crossings = macros_module.build_definition(name, blocks, wires=project.wires)
         origin_x = min(b.x for b in blocks)
         origin_y = min(b.y for b in blocks)
 
@@ -501,6 +567,17 @@ class LogicScene(QGraphicsScene):
         # slot, ready for the crossing rewire below — Pin.connect()'s own
         # single-driver check would otherwise see a stale uuid still
         # sitting there and refuse the new connection outright.
+        # feat/wire-labels: every Wire record naming one of these
+        # blocks' own pins is removed BEFORE the disconnect loop below —
+        # same reasoning as delete_selected_items()'s identical cleanup,
+        # here because macro extraction cuts every one of these
+        # connections just as permanently as an outright block deletion
+        # does (a crossing gets rewired below, but onto the INSTANCE's
+        # own fresh boundary pin, never the extracted block's original
+        # one — the Wire record's pin uuid would be stale either way).
+        pin_uuids = [p.uuid for block in blocks for p in list(block.inputs) + list(block.outputs)]
+        project.remove_wires_touching_pins(pin_uuids)
+
         for block in blocks:
             for pin in list(block.inputs) + list(block.outputs):
                 for other_uuid in list(pin.connections):
@@ -673,6 +750,18 @@ class LogicScene(QGraphicsScene):
         elif event.key() == Qt.Key_D and event.modifiers() & Qt.ControlModifier:
             self.duplicate_selected_items()
             event.accept()
+        elif event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            # fix/wire-labels-and-project-integrity §A4.5: "zaznaczony
+            # odnośnik i klawisz Enter działa jak dwuklik" — a single
+            # selected free-end WireItem only; anything else falls
+            # through unchanged (no existing Enter behavior to disturb).
+            from logic_studio.ui.canvas.wire_item import WireItem
+            selected = [i for i in self.selectedItems() if isinstance(i, WireItem) and i.fixed_free_end is not None]
+            if len(selected) == 1:
+                selected[0].navigate_to_other_end()
+                event.accept()
+            else:
+                super().keyPressEvent(event)
         else:
             super().keyPressEvent(event)
 

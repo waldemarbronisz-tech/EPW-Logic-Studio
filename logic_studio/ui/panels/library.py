@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (
     QPushButton, QMenu, QFileDialog, QMessageBox,
 )
 from PySide6.QtGui import QDrag
-from PySide6.QtCore import Qt, QMimeData, QSettings, QPoint, Signal
+from PySide6.QtCore import Qt, QMimeData, QSettings, Signal
 
 from logic_studio.ui.icons import block_icon
 

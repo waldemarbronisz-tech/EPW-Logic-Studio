@@ -172,13 +172,131 @@ def test_block_enabled_survives_roundtrip():
     assert p2.blocks[0].enabled is False
     assert not hasattr(p2.blocks[0], 'visibility')
 
+# ---- Level 3: BaseLogicBlock.clone() — the THIRD copy path -----------------
+# test/clone-field-coverage: this class of bug has now bitten FOUR times —
+# Pin.connections aliased not copied, Pin.disabled dropped on load,
+# BaseLogicBlock.visibility/execution_state serialized-but-never-restored
+# (all three above), and Pin.safety_relevant never copied by clone() at all
+# (fix/safety-block-semantics §6, the ad-hoc regression tests right below
+# this section). clone() is not a hypothetical path: core/macros.py's
+# expand_project() clones EVERY top-level block on EVERY single compile to
+# isolate Validator/GraphBuilder/Exporter from the live project — a field
+# clone() drops is a field the COMPILER can never see, no matter how
+# faithfully serialize()/deserialize() treat it (the round-trip tests
+# above would stay green regardless). This is that same audit, extended to
+# the clone() path — Level 1/2 above cover save+load, this covers cloning;
+# ARCHITECTURE.md's own "Serializacja" section names a THIRD path on top of
+# these two: copying to the clipboard (test_clipboard.py's own
+# test_pin_field_survives_copy_paste below).
+#
+# clone() builds inputs/outputs as two SEPARATE loops (base.py) — exactly
+# the shape that already let disabled/safety_relevant drift from each
+# other once; parametrizing over BOTH `inputs` and `outputs` here is what
+# actually catches that, not just "some pin, somewhere".
+
+# uuid/connections are INTENTIONALLY reset unless preserve_uuid=True
+# (base.py's own §4.2 comment: a pasted/duplicated block must get a fresh
+# identity) — only meaningfully "preserved" under that flag.
+CLONE_IDENTITY_RESET_FIELDS = ("uuid", "connections")
+# Every other non-identity Pin field is configuration of the pin ITSELF,
+# not tied to a specific wire — must survive clone() regardless of
+# preserve_uuid, on both inputs and outputs.
+CLONE_ALWAYS_FIELDS = tuple(
+    f for f in PROJECT_LEVEL_FIELDS if f not in CLONE_IDENTITY_RESET_FIELDS
+)
+
+def test_clone_field_partition_covers_every_project_level_field():
+    """Guards the guard: a field falling through the cracks of this
+    partition (neither CLONE_ALWAYS_FIELDS nor CLONE_IDENTITY_RESET_FIELDS)
+    would silently never be checked at all by either parametrized test
+    below."""
+    assert set(CLONE_ALWAYS_FIELDS) | set(CLONE_IDENTITY_RESET_FIELDS) == set(PROJECT_LEVEL_FIELDS)
+
+@pytest.mark.parametrize("side", ["inputs", "outputs"])
+@pytest.mark.parametrize("preserve_uuid", [False, True])
+@pytest.mark.parametrize("field", CLONE_ALWAYS_FIELDS)
+def test_pin_field_survives_clone_on_both_sides_regardless_of_preserve_uuid(field, preserve_uuid, side):
+    gate = AndGate()
+    pin = getattr(gate, side)[0]
+    setattr(pin, field, NON_DEFAULT_VALUES[field])
+
+    clone = gate.clone(preserve_uuid=preserve_uuid)
+    cloned_pin = getattr(clone, side)[0]
+
+    assert getattr(cloned_pin, field) == NON_DEFAULT_VALUES[field]
+
+@pytest.mark.parametrize("side", ["inputs", "outputs"])
+@pytest.mark.parametrize("field", CLONE_IDENTITY_RESET_FIELDS)
+def test_pin_identity_field_survives_clone_only_with_preserve_uuid(field, side):
+    gate = AndGate()
+    pin = getattr(gate, side)[0]
+    setattr(pin, field, NON_DEFAULT_VALUES[field])
+
+    preserved = gate.clone(preserve_uuid=True)
+    assert getattr(getattr(preserved, side)[0], field) == NON_DEFAULT_VALUES[field]
+
+    fresh = gate.clone(preserve_uuid=False)
+    assert getattr(getattr(fresh, side)[0], field) != NON_DEFAULT_VALUES[field]  # deliberately reset
+
+
+# ---- BaseLogicBlock's OWN fields through clone() ---------------------------
+
+BLOCK_NON_DEFAULT_VALUES = {
+    "uuid": "22222222-2222-2222-2222-222222222222",
+    "short_id": "g99",
+    "display_name": "CustomBlockName",
+    "execution_priority": 42,
+    "color": "#ABCDEF",
+    "enabled": False,
+}
+
+def test_every_block_field_has_a_non_default_clone_test_value():
+    from logic_studio.blocks.base import BaseLogicBlock
+    assert set(BaseLogicBlock.SERIALIZED_FIELDS) == set(BLOCK_NON_DEFAULT_VALUES.keys())
+
+# short_id is deliberately ALWAYS blanked by clone() (base.py's own §4.2
+# comment) — a pasted/duplicated/compiled-clone block must never collide
+# with the id its source already has, regardless of preserve_uuid.
+BLOCK_CLONE_ALWAYS_FIELDS = ("display_name", "execution_priority", "color", "enabled")
+
+def test_block_clone_field_partition_covers_every_serialized_field():
+    from logic_studio.blocks.base import BaseLogicBlock
+    assert set(BLOCK_CLONE_ALWAYS_FIELDS) | {"uuid", "short_id"} == set(BaseLogicBlock.SERIALIZED_FIELDS)
+
+@pytest.mark.parametrize("preserve_uuid", [False, True])
+@pytest.mark.parametrize("field", BLOCK_CLONE_ALWAYS_FIELDS)
+def test_block_field_survives_clone_regardless_of_preserve_uuid(field, preserve_uuid):
+    gate = AndGate()
+    setattr(gate, field, BLOCK_NON_DEFAULT_VALUES[field])
+    clone = gate.clone(preserve_uuid=preserve_uuid)
+    assert getattr(clone, field) == BLOCK_NON_DEFAULT_VALUES[field]
+
+def test_block_uuid_survives_clone_only_with_preserve_uuid():
+    gate = AndGate()
+    gate.uuid = BLOCK_NON_DEFAULT_VALUES["uuid"]
+
+    preserved = gate.clone(preserve_uuid=True)
+    assert preserved.uuid == BLOCK_NON_DEFAULT_VALUES["uuid"]
+
+    fresh = gate.clone(preserve_uuid=False)
+    assert fresh.uuid != BLOCK_NON_DEFAULT_VALUES["uuid"]
+
+def test_block_short_id_is_always_blanked_by_clone_regardless_of_preserve_uuid():
+    """Regression-shaped, not just parametrized: short_id is the one
+    SERIALIZED_FIELDS entry clone() must NEVER copy, under either flag —
+    worth its own explicit assertion, not just "not in ALWAYS_FIELDS"."""
+    gate = AndGate()
+    gate.short_id = BLOCK_NON_DEFAULT_VALUES["short_id"]
+
+    assert gate.clone(preserve_uuid=True).short_id == ""
+    assert gate.clone(preserve_uuid=False).short_id == ""
+
+
 # ---- fix/safety-block-semantics §6: safety_relevant must survive clone() -
-# clone() is not a hypothetical path -- core/macros.py's expand_project()
-# clones EVERY top-level block on EVERY compile to isolate Validator/
-# GraphBuilder/Exporter from the live project. Before this fix, clone()
-# rebuilt every pin from scratch without copying safety_relevant, so the
-# compiler-level §6.2 warning was silently inoperative for ANY block,
-# regardless of what the live pin actually had.
+# Kept as explicit, named regressions alongside the parametrized coverage
+# above — this is the bug that started this whole audit; a reader tracing
+# "why does this test exist" shouldn't have to reverse-engineer it purely
+# from a parametrize table.
 
 def test_clone_preserves_safety_relevant_on_output_pins():
     from logic_studio.blocks.analog_io import AnalogInputBlock

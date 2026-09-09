@@ -3,6 +3,10 @@ from logic_studio.blocks.pin import Pin
 from logic_studio.blocks.registry import BlockRegistry
 
 class CounterBase(BaseLogicBlock):
+    PROPERTY_DESCRIPTIONS = {
+        "Preset": "Wartość docelowa/początkowa licznika, używana gdy wejście PV nie jest podłączone.",
+    }
+
     def __init__(self, type_id, default_name, category, description):
         super().__init__(type_id, default_name, category, description)
         self.color = "#008080" # Classic Teal (similar to Timers)
@@ -29,7 +33,15 @@ class CounterBase(BaseLogicBlock):
 
 @BlockRegistry.register
 class CTU(CounterBase):
-    def __init__(self, type_id="counter.ctu", default_name="CTU", category="Liczniki", description="Count Up"):
+    PIN_DESCRIPTIONS = {
+        "CU": "Zbocze narastające na tym wejściu zwiększa licznik o 1.",
+        "R": "Kasuje licznik do zera (nadrzędne wobec CU).",
+        "PV": "Wartość docelowa — jeśli podłączona, nadpisuje właściwość Preset.",
+        "Q": "Prawda, gdy CV osiągnął lub przekroczył wartość docelową.",
+        "CV": "Bieżąca wartość licznika.",
+    }
+
+    def __init__(self, type_id="counter.ctu", default_name="CTU", category="Liczniki", description="Licznik zliczający w górę do wartości docelowej."):
         super().__init__(type_id, default_name, category, description)
         self.aliases = ["licznik"]
         self.inputs.append(Pin("CU", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
@@ -58,7 +70,15 @@ class CTU(CounterBase):
 
 @BlockRegistry.register
 class CTD(CounterBase):
-    def __init__(self, type_id="counter.ctd", default_name="CTD", category="Liczniki", description="Count Down"):
+    PIN_DESCRIPTIONS = {
+        "CD": "Zbocze narastające na tym wejściu zmniejsza licznik o 1.",
+        "LD": "Ładuje licznik wartością PV (nadrzędne wobec CD).",
+        "PV": "Wartość ładowana przez LD — jeśli podłączona, nadpisuje właściwość Preset.",
+        "Q": "Prawda, gdy CV osiągnął lub zszedł poniżej zera.",
+        "CV": "Bieżąca wartość licznika.",
+    }
+
+    def __init__(self, type_id="counter.ctd", default_name="CTD", category="Liczniki", description="Licznik zliczający w dół od wartości początkowej."):
         super().__init__(type_id, default_name, category, description)
         self.aliases = ["licznik"]
         self.inputs.append(Pin("CD", Pin.DIR_INPUT, Pin.TYPE_BOOLEAN))
@@ -87,7 +107,18 @@ class CTD(CounterBase):
 
 @BlockRegistry.register
 class CTUD(CounterBase):
-    def __init__(self, type_id="counter.ctud", default_name="CTUD", category="Liczniki", description="Count Up Down"):
+    PIN_DESCRIPTIONS = {
+        "CU": "Zbocze narastające na tym wejściu zwiększa licznik o 1.",
+        "CD": "Zbocze narastające na tym wejściu zmniejsza licznik o 1.",
+        "R": "Kasuje licznik do zera (nadrzędne wobec CU/CD/LD).",
+        "LD": "Ładuje licznik wartością PV (nadrzędne wobec CU/CD, podrzędne wobec R).",
+        "PV": "Wartość ładowana przez LD i próg dla QU — jeśli podłączona, nadpisuje właściwość Preset.",
+        "QU": "Prawda, gdy CV osiągnął lub przekroczył PV.",
+        "QD": "Prawda, gdy CV osiągnął lub zszedł poniżej zera.",
+        "CV": "Bieżąca wartość licznika.",
+    }
+
+    def __init__(self, type_id="counter.ctud", default_name="CTUD", category="Liczniki", description="Licznik dwukierunkowy, zliczający w górę i w dół."):
         super().__init__(type_id, default_name, category, description)
         self.aliases = ["licznik"]
         self.height = 140

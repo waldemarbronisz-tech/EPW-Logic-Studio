@@ -4,6 +4,17 @@ from logic_studio.blocks.registry import BlockRegistry
 import time
 
 class TimerBase(BaseLogicBlock):
+    PIN_DESCRIPTIONS = {
+        "IN": "Wejście uruchamiające/warunkujące odliczanie czasu.",
+        "PT": "Nastawa czasu w milisekundach — jeśli podłączona, nadpisuje właściwość Preset (ms).",
+        "Q": "Wyjście czasowe timera (znaczenie zależy od typu — TON/TOF/TP).",
+        "ET": "Czas, jaki upłynął od uruchomienia bieżącego odliczania, w milisekundach.",
+    }
+    PROPERTY_DESCRIPTIONS = {
+        "Preset (ms)": "Domyślna nastawa czasu w milisekundach, używana gdy wejście PT nie jest podłączone.",
+    }
+    PROPERTY_UNITS = {"Preset (ms)": "ms"}
+
     def __init__(self, type_id, default_name, category, description):
         super().__init__(type_id, default_name, category, description)
         self.color = "#008080" # Classic Teal for timers
@@ -41,7 +52,7 @@ class TimerBase(BaseLogicBlock):
 
 @BlockRegistry.register
 class TON(TimerBase):
-    def __init__(self, type_id="timer.ton", default_name="TON", category="Timery", description="Timer On Delay"):
+    def __init__(self, type_id="timer.ton", default_name="TON", category="Timery", description="Opóźnienie załączenia (TON) — Q włącza się PT po tym, jak IN stanie się prawdą; wyłącza się natychmiast, gdy IN wróci do fałszu."):
         super().__init__(type_id, default_name, category, description)
         self.aliases = ["opóźnienie załączenia", "zwłoka"]
 
@@ -67,7 +78,7 @@ class TON(TimerBase):
 
 @BlockRegistry.register
 class TOF(TimerBase):
-    def __init__(self, type_id="timer.tof", default_name="TOF", category="Timery", description="Timer Off Delay"):
+    def __init__(self, type_id="timer.tof", default_name="TOF", category="Timery", description="Opóźnienie wyłączenia (TOF) — Q włącza się natychmiast z IN, ale wyłącza się dopiero PT po tym, jak IN wróci do fałszu."):
         super().__init__(type_id, default_name, category, description)
         self.aliases = ["opóźnienie wyłączenia"]
         self._q_state = False
@@ -116,7 +127,7 @@ class TOF(TimerBase):
 
 @BlockRegistry.register
 class TP(TimerBase):
-    def __init__(self, type_id="timer.tp", default_name="TP", category="Timery", description="Pulse Timer"):
+    def __init__(self, type_id="timer.tp", default_name="TP", category="Timery", description="Impuls czasowy (TP) — zbocze narastające na IN wyzwala impuls Q o stałej długości PT, niezależnie od dalszego zachowania IN."):
         super().__init__(type_id, default_name, category, description)
         self.aliases = ["impuls", "monostabilny"]
 

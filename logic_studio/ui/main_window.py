@@ -1,6 +1,6 @@
-from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QTabWidget, QStatusBar, QToolBar, QMenuBar, QLabel
+from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QTabWidget, QStatusBar, QToolBar, QLabel
 from PySide6.QtGui import QAction, QKeySequence, QActionGroup
-from PySide6.QtCore import Qt, QSettings
+from PySide6.QtCore import Qt, QSettings, QPointF
 
 from logic_studio.ui.canvas.scene import LogicScene
 from logic_studio.ui.canvas.view import LogicView
@@ -192,9 +192,21 @@ class MainWindow(QMainWindow):
 
         # "Window" and "Tools" had no content at all and were removed
         # (AUDIT_REPORT.md §2.3) rather than kept as empty menus.
+        # feat/help-system §6: every item here has an action wired to it
+        # — nothing kept "for later" with no handler.
+        self.act_help = self._make_action("Pomoc", self._show_help, "F1")
+        self.act_help_catalog = self._make_action("Katalog bloków", self._show_block_catalog)
+        self.act_help_shortcuts = self._make_action("Skróty klawiszowe", self._show_shortcuts_help)
+        self.act_export_block_catalog = self._make_action("Eksportuj katalog bloków...", self._export_block_catalog)
         self.act_about = self._make_action("O programie", self._show_about)
         help_menu = menubar.addMenu("Help")
+        help_menu.addAction(self.act_help)
+        help_menu.addAction(self.act_help_catalog)
+        help_menu.addAction(self.act_help_shortcuts)
+        help_menu.addAction(self.act_export_block_catalog)
+        help_menu.addSeparator()
         help_menu.addAction(self.act_about)
+        self._help_window = None
 
     def _setup_toolbar(self):
         self.toolbar = QToolBar("Main Toolbar")
@@ -296,6 +308,8 @@ class MainWindow(QMainWindow):
         self.library_panel = LibraryPanel(settings=self.settings)
         self.element_preview = ElementPreviewPanel(settings=self.settings)
         self.library_panel.selection_changed.connect(lambda tid: self.element_preview.show_type_id(tid))
+        # feat/help-system §5.4
+        self.element_preview.more_info_requested.connect(self.show_help_for_block_type)
 
         library_splitter = QSplitter(Qt.Vertical)
         library_splitter.addWidget(self.library_panel)
@@ -307,9 +321,16 @@ class MainWindow(QMainWindow):
         # Device Explorer — kept as self.left_tabs (not a local variable)
         # so the block context menu (§4) can switch to it programmatically.
         self.signals_panel = SignalsPanel(settings=self.settings)
+        # fix/wire-labels-and-project-integrity §A5: fourth left tab,
+        # QTabWidget already supports it with no restructuring —
+        # every network node compiler/label_merge.py can resolve, in
+        # one table.
+        from logic_studio.ui.panels.labels import LabelsPanel
+        self.labels_panel = LabelsPanel(settings=self.settings)
         left_tabs.addTab(library_splitter, "Library")
         left_tabs.addTab(self.device_panel, "Device Explorer")
         left_tabs.addTab(self.signals_panel, "Sygnały")
+        left_tabs.addTab(self.labels_panel, "Etykiety")
         self.left_tabs = left_tabs
 
         # feat/signal-watch: pinned signals for continuous monitoring during
@@ -382,7 +403,7 @@ class MainWindow(QMainWindow):
         from logic_studio.engine.execution import ExecutionEngine
         from logic_studio.engine.io_provider import SimulationIOProvider
         from logic_studio.engine.time_provider import SystemTimeProvider
-        from PySide6.QtCore import QTimer
+        from logic_studio.ui.qt_lifetime import create_owned_timer
 
         self.project = Project()
         self.io_provider = SimulationIOProvider()
@@ -396,8 +417,12 @@ class MainWindow(QMainWindow):
         self._macro_nav_stack = []
         self.current_macro_def_id = None
 
-        self.sim_timer = QTimer(self)
-        self.sim_timer.timeout.connect(self._on_sim_tick)
+        # fix/qtimer-lifetime: was a bare QTimer(self) — already correctly
+        # parented, so this migration doesn't change behavior, only brings
+        # it under the one sanctioned construction path (see
+        # ui/qt_lifetime.py) so the audit test in
+        # tests/test_qt_timer_lifetime.py doesn't need an exception for it.
+        self.sim_timer = create_owned_timer(self, self._on_sim_tick)
 
         self.current_file = None
         self.is_dirty = False
@@ -459,6 +484,12 @@ class MainWindow(QMainWindow):
         # the first one after a clean state — request_refresh() itself is
         # what debounces a burst of these into one actual rebuild.
         self.signals_panel.request_refresh()
+        # fix/wire-labels-and-project-integrity §A5: same reasoning as
+        # signals_panel above — a label can be added/renamed/removed by
+        # any edit, not just the wire-context-menu actions that call
+        # window._reconstruct_scene() (and thus already show the CANVAS
+        # side immediately) — this keeps the panel's own table current.
+        self.labels_panel.request_refresh()
         self._update_disabled_blocks_status()
 
     def _refresh_project_dependent_panels(self):
@@ -479,6 +510,11 @@ class MainWindow(QMainWindow):
         # macro_definitions (a per-project registry, unlike every other
         # category, which is a fixed BlockRegistry class list).
         self.library_panel.set_project(self.project)
+        # fix/wire-labels-and-project-integrity §A5: same coverage as
+        # signals_panel above — load/undo/redo swap the whole project,
+        # this rebuilds the labels table from its (possibly different)
+        # wires list.
+        self.labels_panel.set_project(self.project)
         self._update_disabled_blocks_status()
 
     # ---- feat/macro-blocks: breadcrumb navigation "into" a macro ------------
@@ -512,11 +548,25 @@ class MainWindow(QMainWindow):
                 f"Definicja odwołuje się do nieznanych typów bloków: {', '.join(unknown_type_ids)}"
             )
             return
+        # fix/wire-labels-and-project-integrity §B1.2: project.wires is
+        # swapped IN LOCKSTEP with project.blocks now — before this, it
+        # stayed pointed at the top-level project's own list for the
+        # whole time a macro was being edited, which made
+        # check_wire_pin_consistency() false-positive on every top-level
+        # Wire (its pins simply weren't in the swapped project.blocks
+        # any more) and silently dropped/misplaced any Wire drawn while
+        # inside the macro's own view (§9.4 of the audit that found this).
+        wires = macros_module.instantiate_definition_wires(definition)
 
         self.stop_simulation()
-        self._macro_nav_stack.append({"def_id": self.current_macro_def_id, "blocks": self.project.blocks})
+        self._macro_nav_stack.append({
+            "def_id": self.current_macro_def_id,
+            "blocks": self.project.blocks,
+            "wires": self.project.wires,
+        })
         self.current_macro_def_id = def_id
         self.project.blocks = blocks
+        self.project.wires = wires
         self.scene.clear()
         self._reconstruct_scene()
         self._refresh_project_dependent_panels()
@@ -524,19 +574,24 @@ class MainWindow(QMainWindow):
 
     def _navigate_to_breadcrumb_index(self, index: int):
         """Exits levels one at a time (innermost first, each one COMMITTED
-        back into its own definition via update_definition_blocks() before
-        being popped) until the nav stack matches `index` — the position
-        clicked in the breadcrumb trail. A no-op if `index` is already the
-        current level (BreadcrumbBar never actually emits this for the
-        last/current entry, but nothing here should depend on that)."""
+        back into its own definition via update_definition_blocks()/
+        update_definition_wires() before being popped) until the nav
+        stack matches `index` — the position clicked in the breadcrumb
+        trail. A no-op if `index` is already the current level
+        (BreadcrumbBar never actually emits this for the last/current
+        entry, but nothing here should depend on that)."""
         from logic_studio.core import macros as macros_module
 
         while len(self._macro_nav_stack) > index:
             if self.current_macro_def_id is not None:
                 macros_module.update_definition_blocks(self.project, self.current_macro_def_id, self.project.blocks)
+                # fix/wire-labels-and-project-integrity §B1.2: committed
+                # in the SAME breath as blocks, never left behind.
+                macros_module.update_definition_wires(self.project, self.current_macro_def_id, self.project.wires)
             parent = self._macro_nav_stack.pop()
             self.current_macro_def_id = parent["def_id"]
             self.project.blocks = parent["blocks"]
+            self.project.wires = parent["wires"]
 
         self.scene.clear()
         self._reconstruct_scene()
@@ -625,17 +680,21 @@ class MainWindow(QMainWindow):
         self.set_dirty()
         return macros_module.get_definition(self.project, def_id)
 
-    def _resync_macro_instances(self, def_id: str) -> None:
-        """Rebuilds the pins of every placed instance of `def_id` —
-        anywhere in the project, live or nested inside another macro's own
-        stored definition — to match its (just-changed) boundary shape.
-        `live_block_lists` is assembled here from what MainWindow alone
-        knows about (the current view plus every stashed ancestor level);
-        core/macros.py's resync_all_instances() itself has no notion of a
-        "nav stack" at all, by design (ARCHITECTURE.md §24.10)."""
+    def _resync_macro_instances(self, def_id: str) -> list:
+        """Rebuilds the pins AND parameter-backed properties of every
+        placed instance of `def_id` — anywhere in the project, live or
+        nested inside another macro's own stored definition — to match
+        its (just-changed) shape. `live_block_lists` is assembled here
+        from what MainWindow alone knows about (the current view plus
+        every stashed ancestor level); core/macros.py's
+        resync_all_instances() itself has no notion of a "nav stack" at
+        all, by design (ARCHITECTURE.md §24.10). Returns whatever
+        ready-to-show parameter-type-reset warnings that resync produced
+        (fix/safety-and-macro-params §C1.4) — [] for a plain pin resync,
+        which never produces any."""
         from logic_studio.core import macros as macros_module
         live_block_lists = [self.project.blocks] + [entry["blocks"] for entry in self._macro_nav_stack]
-        macros_module.resync_all_instances(self.project, def_id, live_block_lists)
+        return macros_module.resync_all_instances(self.project, def_id, live_block_lists)
 
     def _open_macro_pins_dialog(self) -> None:
         """"Piny makrobloku..." (BreadcrumbBar) — a no-op if somehow
@@ -650,8 +709,54 @@ class MainWindow(QMainWindow):
         definition = get_definition(self.project, def_id)
         if definition is None:
             return
-        dialog = MacroPinsDialog(definition, self._remove_macro_pin, parent=self)
+        dialog = MacroPinsDialog(definition, self._remove_macro_pin, parent=self, on_parameter_change=self._on_macro_parameter_change)
         dialog.exec()
+
+    # ---- fix/safety-and-macro-params §C2.4: MacroPinsDialog's "Parametry" tab
+
+    def _on_macro_parameter_change(self, action: str, **kwargs):
+        """Single dispatcher for every parameter-tab mutation
+        (MacroPinsDialog's own `on_parameter_change`) — mirrors
+        _remove_macro_pin()'s shape: push_state()/set_dirty()/resync,
+        then return the fresh definition (or None on failure) for the
+        dialog to redraw itself from. A parameter type change
+        specifically doesn't reach here at all today — §C2.4 offers no
+        "edit an existing parameter's type" action, only add/remove/
+        reorder (a type mismatch instead arises from re-BINDING a
+        property of a different type, handled entirely in
+        property_grid.py's own flow) — kept as its own branch anyway so
+        adding that action later is a one-line dispatch, not a new
+        method."""
+        def_id = self.current_macro_def_id
+        if def_id is None:
+            return None
+        from logic_studio.core import macros as macros_module
+
+        self.project.push_state()
+
+        if action == "add":
+            ok = macros_module.add_parameter(
+                self.project, def_id, kwargs["display_name"], kwargs["type"], kwargs["default"],
+                unit=kwargs.get("unit", ""), description=kwargs.get("description", ""),
+                enum_values=kwargs.get("enum_values"),
+            ) is not None
+        elif action == "remove":
+            ok = macros_module.remove_parameter(self.project, def_id, kwargs["param_name"])
+        elif action == "reorder":
+            ok = macros_module.reorder_parameters(self.project, def_id, kwargs["new_order"])
+        elif action == "update":
+            ok = macros_module.update_parameter(self.project, def_id, kwargs["param_name"], **kwargs.get("fields", {}))
+        else:
+            ok = False
+
+        if not ok:
+            return None
+
+        self.set_dirty()
+        notices = self._resync_macro_instances(def_id)
+        if notices:
+            self.statusBar().showMessage(" | ".join(notices), 8000)
+        return macros_module.get_definition(self.project, def_id)
 
     def _update_disabled_blocks_status(self):
         """feat/clipboard-and-align §4.3: "Wyłączone bloki: N" in the
@@ -714,6 +819,82 @@ class MainWindow(QMainWindow):
             dialog.apply_to_project()
             self.set_dirty()
             self._refresh_project_dependent_panels()
+
+    # ---- Help (feat/help-system) --------------------------------------------
+
+    def _get_help_window(self):
+        """Reused across repeated F1 presses/menu clicks — a fresh
+        HelpWindow() every time would lose Back/Forward history and pop
+        a new window on top of whatever's already open (§4.1: "okno
+        nienmodalne... dało się z niego korzystać podczas pracy")."""
+        from logic_studio.ui.help_window import HelpWindow
+        if self._help_window is None:
+            self._help_window = HelpWindow(settings=self.settings)
+        return self._help_window
+
+    def _open_help_topic(self, topic_id: str, tab: str = "contents"):
+        window = self._get_help_window()
+        window.select_tab(tab)
+        window.navigate_to(topic_id)
+        window.show()
+        window.raise_()
+        window.activateWindow()
+
+    def _context_help_topic(self) -> str:
+        """§5.1/§5.2: F1 with a block selected on the canvas opens straight
+        to that block's own catalog page; otherwise F1 opens on whatever
+        topic matches the CURRENT context (macro editing / simulation
+        running), falling back to the welcome page."""
+        from logic_studio.ui.canvas.block_item import BlockItem
+        selected_blocks = [i for i in self.scene.selectedItems() if isinstance(i, BlockItem)]
+        if len(selected_blocks) == 1:
+            return f"block:{selected_blocks[0].logic_block.type_id}"
+
+        if self.current_macro_def_id is not None:
+            return "concept_macros"
+
+        from logic_studio.engine.execution import ExecutionState
+        if self.engine.state in (ExecutionState.RUNNING, ExecutionState.PAUSED):
+            return "guide_simulation"
+
+        return "welcome"
+
+    def _show_help(self):
+        """F1 — §5.1/§5.2's context-sensitive entry point."""
+        self._open_help_topic(self._context_help_topic())
+
+    def _show_block_catalog(self):
+        self._open_help_topic("welcome", tab="contents")
+        # Land on Contents with the tree visible rather than a specific
+        # block — an explicit "Katalog bloków" menu click has no single
+        # block in mind the way F1-on-a-selection does.
+
+    def _show_shortcuts_help(self):
+        self._open_help_topic("shortcuts")
+
+    def _export_block_catalog(self):
+        """§2.4: the generator also feeds a standalone export, independent
+        of the interactive help window — useful for coordination
+        meetings/project documentation."""
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+        from logic_studio.core import block_catalog
+
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Eksportuj katalog bloków", "katalog_blokow.md", "Markdown (*.md)"
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(block_catalog.export_catalog_markdown())
+        except OSError as exc:
+            QMessageBox.critical(self, "Eksport nie powiódł się", str(exc))
+
+    def show_help_for_block_type(self, type_id: str):
+        """Called from ElementPreviewPanel's "Więcej o tym bloku" link
+        (§5.4) and available for any other caller that has a type_id
+        on hand but no canvas selection to derive it from."""
+        self._open_help_topic(f"block:{type_id}")
 
     def _show_about(self):
         from PySide6.QtWidgets import QMessageBox
@@ -936,12 +1117,40 @@ class MainWindow(QMainWindow):
     def _reconstruct_scene(self):
         from logic_studio.ui.canvas.block_item import BlockItem
         from logic_studio.ui.canvas.wire_item import WireItem
+        from logic_studio.ui.canvas.port_item import PortItem
+        from logic_studio.compiler.label_merge import describe_label_groups
 
         block_items = {}
         for block in self.project.blocks:
             item = BlockItem(block)
             self.scene.addItem(item)
             block_items[block.uuid] = item
+
+        pin_to_port = {}
+        for block in self.project.blocks:
+            item = block_items.get(block.uuid)
+            if not item:
+                continue
+            for child in item.childItems():
+                if isinstance(child, PortItem):
+                    pin_to_port[child.pin.uuid] = child
+
+        # fix/wire-labels-and-project-integrity §A4: one pass over every
+        # label group up front — never recomputed per-wire or inside
+        # paint() (label_merge.py's own docstring on why).
+        label_summary = describe_label_groups(self.project.wires, self.project.blocks)
+
+        def _label_info_for(label: str):
+            return label_summary.get(label.strip().lower()) if label else None
+
+        # A Wire record naming a FULLY-CONNECTED pin pair (§4.1) attaches
+        # its label to the WireItem the physical-connection loop below
+        # already builds — indexed by pin pair up front rather than
+        # searched per-item.
+        wire_by_pin_pair = {}
+        for wire in self.project.wires:
+            if wire.is_fully_connected():
+                wire_by_pin_pair[frozenset((wire.source_pin, wire.dest_pin))] = wire
 
         for block in self.project.blocks:
             item = block_items.get(block.uuid)
@@ -953,20 +1162,32 @@ class MainWindow(QMainWindow):
                         if not dest_item: continue
                         for in_pin in dest_block.inputs:
                             if in_pin.uuid == conn_uuid:
-                                source_port = None
-                                dest_port = None
-                                from logic_studio.ui.canvas.port_item import PortItem
-                                for child in item.childItems():
-                                    if isinstance(child, PortItem) and child.pin.uuid == out_pin.uuid:
-                                        source_port = child
-                                        break
-                                for child in dest_item.childItems():
-                                    if isinstance(child, PortItem) and child.pin.uuid == in_pin.uuid:
-                                        dest_port = child
-                                        break
+                                source_port = pin_to_port.get(out_pin.uuid)
+                                dest_port = pin_to_port.get(in_pin.uuid)
                                 if source_port and dest_port:
-                                    wire = WireItem(source_port, dest_port)
-                                    self.scene.addItem(wire)
+                                    labeled_wire = wire_by_pin_pair.get(frozenset((out_pin.uuid, in_pin.uuid)))
+                                    info = _label_info_for(labeled_wire.label) if labeled_wire else None
+                                    wire_item = WireItem(source_port, dest_port, wire=labeled_wire, label_info=info)
+                                    self.scene.addItem(wire_item)
+
+        # §A4.2: free-end wires get their OWN WireItem, anchored at
+        # whichever end is real, with a FIXED (not cursor-following)
+        # far end — see WireItem's own note on fixed_free_end vs.
+        # temp_end_point.
+        for wire in self.project.wires:
+            if not wire.has_free_end():
+                continue
+            anchor_pin_uuid = wire.source_pin if wire.source_pin is not None else wire.dest_pin
+            free_pos = wire.free_end_dest if wire.source_pin is not None else wire.free_end_source
+            anchor_port = pin_to_port.get(anchor_pin_uuid)
+            if anchor_port is None or free_pos is None:
+                continue  # dangling reference — nothing to draw
+            info = _label_info_for(wire.label)
+            free_item = WireItem(
+                anchor_port, dest_port=None, wire=wire,
+                fixed_free_end=QPointF(free_pos["x"], free_pos["y"]), label_info=info,
+            )
+            self.scene.addItem(free_item)
 
     def _new_project(self):
         if not self.check_dirty_prompt():
@@ -1206,7 +1427,11 @@ class MainWindow(QMainWindow):
         selected = self.scene.selectedItems()
         from logic_studio.ui.canvas.block_item import BlockItem
         if selected and isinstance(selected[0], BlockItem):
-            self.property_panel.load_block_properties(selected[0].logic_block, self.project)
+            # fix/safety-and-macro-params §C2.1: threads through which
+            # macro (if any) is currently open in breadcrumb edit view —
+            # None at the top level, which is every existing call site's
+            # unchanged behavior (a default parameter, not a new one).
+            self.property_panel.load_block_properties(selected[0].logic_block, self.project, self.current_macro_def_id)
             self.lbl_selected.setText(f"Selected: {selected[0].logic_block.display_name}")
             self.element_preview.show_block_instance(selected[0].logic_block)
         else:
