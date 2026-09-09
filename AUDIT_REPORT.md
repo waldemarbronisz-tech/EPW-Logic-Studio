@@ -1983,6 +1983,27 @@ uznany za osobne, dużo większe zadanie, świadomie odłożone — nowe testy
 w tym PR używają nowych fixture'ów jako przykładu, istniejące pliki
 zostawione bez zmian.
 
+### Rozstrzygnięcie (branch `fix/trend-dialog-lifetime`, patrz §44 Część C)
+
+**Akapit wyżej o `pytest-qt`/`test_watch_panel.py` był BŁĘDNY.** Napisano
+tam, że deterministyczny crash `test_removing_a_watched_row_closes_its_
+open_trend_dialog` pod zainstalowanym `pytest-qt` to "fałszywy trop
+niezwiązany z prawdziwym problemem CI" — bo identyczny kod jako goła
+funkcja Pythona (bez `pytest` w ogóle) nigdy nie pada. To rozumowanie
+pomyliło "wymaga konkretnego wyzwalacza, żeby się ujawnić" z "nie jest
+prawdziwym błędem". Pełne śledztwo w `fix/trend-dialog-lifetime`
+(zlecone po tym, jak niezależna weryfikacja pokazała, że pozostałe "dwa
+niestabilne pliki" z tej samej listy — `test_canvas_navigation.py`,
+`test_signals_panel.py` — w ogóle nie odtwarzają się dziś, ani osobno,
+ani w komplecie) znalazło PRAWDZIWY błąd w `ui/panels/watch.py`, i
+`pytest-qt`'s `processEvents()` po każdym teście był tylko tym, co akurat
+najbardziej niezawodnie go ujawniało — nie jego przyczyną. Diagnoza
+i naprawa opisane w §44 Część C, rozstrzygnięcie. **Wcześniejsza
+hipoteza z tego paragrafu ("rzeczywista niestabilność natywna kombinacji
+Qt 6.11/PySide6 6.11.2/Python 3.14") była niepotrzebna — przyczyna była
+zwykłym, w pełni wytłumaczalnym błędem cyklu życia obiektu Pythona, nie
+niestabilnością platformy.**
+
 ## 44. Etykiety przewodów dokończone, ósmy przypadek "elementu bez pokrycia ścieżek" na poziomie CAŁEGO projektu, i CI wciąż niestabilne pod losową kolejnością (branch `fix/wire-labels-and-project-integrity`)
 
 Trzy powiązane części, jedna gałąź.
@@ -2120,6 +2141,103 @@ C++ (gdb/WinDbg z symbolami PySide6) zamiast dalszego zgadywania z
 poziomu Pythona — `<cannot get C stack on this system>` w każdym
 dotychczasowym crashu oznacza, że diagnostyka czysto pythonowa
 osiągnęła swój sufit.
+
+### Rozstrzygnięcie (branch `fix/trend-dialog-lifetime`)
+
+Obie kandydatury z akapitu wyżej były błędne. Zamknięte metodą zawężania
+(bisekcja na SAMYM `pytest`, nie na ręcznie pisanym skrypcie — patrz
+niżej), nie zgadywaniem:
+
+1. **Dokładne miejsce.** `tests/test_watch_panel.py::
+   test_removing_a_watched_row_closes_its_open_trend_dialog` (oraz,
+   naprzemiennie w innych przebiegach, `test_set_project_closes_all_
+   open_trend_dialogs`) — crash NIE w środku ciała testu, tylko PO jego
+   normalnym zakończeniu, wewnątrz `pytestqt.plugin.pytest_runtest_call`'s
+   własnego `app.processEvents()` (ślad Pythona to potwierdza: `result =
+   yield` — czyli ciało testu — już się wykonało, zanim padło). To od razu
+   wykluczyło "błąd w ciele testu" i skierowało śledztwo na przetwarzanie
+   kolejki zdarzeń Qt PO teście.
+2. **Zawężanie.** Ręcznie pisany skrypt odtwarzający dokładnie tę samą
+   sekwencję (otwórz dialog trendu, zamknij przez `_on_remove_clicked()`,
+   `app.processEvents()`) — NIE PADAŁ, nawet z pełną akumulacją 5
+   poprzednich testów i wymuszonym `gc.collect()`. Różnica leżała więc w
+   samym `pytest`, nie w kodzie — zgodnie z instrukcją zadania, to też
+   jest wynik. Bisekcja przez SAM `pytest` (nie przez pisanie coraz to
+   nowych skryptów) na izolowanym, jednozdaniowym teście w osobnym pliku
+   ostatecznie pokazała: crash znika przy `-p "no:pytest-qt"` (poprawna
+   nazwa wtyczki — wcześniejsze `-p no:qt` w tej sesji było pomyłką i
+   dawało fałszywy wynik "nadal pada"), i znika też, gdy `app.
+   processEvents()` jest wołane JAWNIE, przed powrotem z funkcji testu,
+   zamiast przez `pytest-qt` PO nim.
+3. **Cykl życia dialogu.** `_TrendDialog` ma `parent=self` (WatchPanel) —
+   rodzic C++ jest poprawny, żadnego telefonu z zewnątrz. Ale
+   `dialog.finished.connect(lambda _result, k=key: self._trend_dialogs.
+   pop(k, None))` to domknięcie trzymające SILNĄ referencję z powrotem do
+   `self` (WatchPanel) — a PySide trzyma to domknięcie żywe jako część
+   połączenia sygnału po stronie C++ dialogu, PRZEZ CAŁY czas istnienia
+   obiektu C++ dialogu, czyli — przez `Qt.WA_DeleteOnClose` — aż do
+   odroczonego `deleteLater()`, NIE do momentu zwrotu z `close()`. Gdy nic
+   innego nie trzymało panelu przy życiu (dokładnie taki przypadek: lokalna
+   zmienna testu, o zwolnionym zakresie), ostatnia referencja do panelu
+   znikała DOKŁADNIE w trakcie przetwarzania przez Qt odroczonego usunięcia
+   jego własnego (byłego) dziecka — rekurencyjne zniszczenie obiektu w
+   środku obsługi zdarzenia dotyczącego jego własnego poddrzewa. Brak
+   `QTimer` w `ui/panels/watch.py` w ogóle (zweryfikowane greppem) —
+   `create_owned_timer()`/PR #37 nie ma tu zastosowania, to inny mechanizm
+   tej samej rodziny błędów ("obiekt żyje dłużej niż powinien z powodu
+   połączenia sygnału", nie "timer tyka po zniszczeniu właściciela").
+   Hipoteza sprawdzona empirycznie, nie tylko wywnioskowana: dodanie
+   zewnętrznej, silnej referencji do panelu (`_KEEPALIVE.append(panel)`)
+   w skrypcie testowym eliminowało crash mimo identycznego kodu produkcyjnego
+   i identycznego `pytest-qt` — potwierdzając mechanizm wprost.
+4. **Naprawa u źródła**, nie w teście. Dialog trendu zamykany przez
+   użytkownika w działającej aplikacji podlega dokładnie temu samemu
+   mechanizmowi połączenia sygnału — w praktyce nie crashuje tam tylko
+   dlatego, że `MainWindow` trzyma `self.watch_panel` przez cały czas
+   życia aplikacji, więc panel nigdy nie traci swojej ostatniej referencji.
+   To szczęście architektury, nie poprawność kodu — dokładnie taki sam
+   `WatchPanel` skonstruowany bez stałego właściciela (jak w testach, i
+   jak w dowolnym przyszłym miejscu, które mogłoby chcieć otworzyć panel
+   tymczasowo) miałby ten sam problem w prawdziwym użyciu. Naprawione w
+   `ui/panels/watch.py::_on_cell_double_clicked()`: domknięcie
+   podłączone do `dialog.finished` trzyma teraz `weakref.ref(self)`
+   zamiast `self` wprost — połączenie sygnału już nie przedłuża czasu
+   życia panelu, więc jego zniszczenie nigdy nie jest powiązane z
+   momentem odroczonego usunięcia dialogu.
+5. **Potwierdzenie.** Nowy test regresyjny dodany
+   (`test_trend_dialog_finished_connection_does_not_keep_the_panel_alive`
+   — weryfikuje bezpośrednio przez `weakref`, że zwykłe zliczanie
+   referencji, BEZ `gc.collect()`, usuwa panel natychmiast po utracie
+   jego jedynej zewnętrznej referencji; celowo bez `gc.collect()`, bo to
+   by posprzątało też stary, wadliwy cykl referencji i test przechodziłby
+   niezależnie od tego, czy błąd istnieje — zweryfikowane wprost: ten sam
+   test na kodzie SPRZED naprawy realnie PADA). `tests/test_watch_panel.py`
+   osobno, 10× pod pytest-randomly (bez wymuszania stałej kolejności,
+   różne seedy): **10/10 zielono**, 39 testów za każdym razem. Pełny
+   zestaw, 10× w losowej kolejności, BEZ ŻADNYCH wykluczeń: **10/10
+   zielono**, 10 różnych seedów (2072620776, 878356824, 2084235774,
+   3017467613, 1073080473, 3330482636, 3464063843, 1130708065,
+   3380411040, 1879566412) — 1974 passed/1 skipped na pierwszych 7
+   przebiegach (przed dopisaniem testu regresyjnego z tej sesji), 1975
+   passed/1 skipped na ostatnich 3 (po jego dopisaniu, sam plik testowy
+   podmieniony NA ŻYWO w trakcie tej samej serii przebiegów — stąd różnica
+   w liczbie, nie regresja). Zero crashy, exit code 0 za każdym razem, w
+   obu seriach.
+6. **Ślady obejścia usunięte.** §43's własny akapit nazywający
+   `pytest-qt`/`test_watch_panel.py` "fałszywym tropem" — skorygowany w
+   miejscu (patrz koniec §43). `.github/workflows/pytest.yml`: usunięty
+   krok "Post failure log to the PR" (jego własny komentarz warunkował to
+   usunięcie dokładnie tym, co się właśnie stało — "root-caused and fixed"),
+   usunięte powiązane uprawnienie `pull-requests: write`, skorygowane
+   komentarze przy `PYTHONFAULTHANDLER`/instalacji `pytest-qt`, które
+   mówiły o niestabilności w czasie teraźniejszym. `ARCHITECTURE.md` §29.5
+   (hipotezy "inny bezpański QTimer" / "niestabilność natywna platformy")
+   skorygowane nowym §29.6. `AUDIT_SWEEP.md` §9.6 wiersz 7 opatrzony
+   aktualizacją wskazującą na to rozstrzygnięcie, bez przepisywania
+   oryginalnej, historycznej oceny. Żadna z tych trzech rzeczy ("§34's
+   crash jest niepotwierdzone", "pozostaje nieznalezione źródło
+   niestabilności", "`pytest-qt`'s obecność to fałszywy trop") nie jest
+   już prawdziwa.
 
 Zmienione pliki: `logic_studio/compiler/{core,label_merge(nowy),validator}.py`,
 `logic_studio/core/{wire,macros,project}.py`,

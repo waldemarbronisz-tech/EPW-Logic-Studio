@@ -324,6 +324,45 @@ def test_removing_a_watched_row_closes_its_open_trend_dialog(qsettings):
     panel._on_remove_clicked()
     assert panel._trend_dialogs == {}
 
+def test_trend_dialog_finished_connection_does_not_keep_the_panel_alive(qsettings):
+    """fix/trend-dialog-lifetime regression: `dialog.finished` used to be
+    connected to a plain closure over `self` (the WatchPanel) — PySide keeps
+    a connected callable alive as part of the DIALOG's own C++-side
+    connection object for as long as the dialog's C++ object exists, which
+    (WA_DeleteOnClose) is until its DEFERRED deleteLater() actually runs,
+    not the moment close() returns. If the panel had no other referrer at
+    that point (exactly this test's own local `panel`, about to go out of
+    scope), that closure was its LAST reference — so the panel got
+    destroyed reentrantly, in the middle of Qt still processing the
+    dialog's own deferred-deletion event. That's what crashed this file
+    deterministically (see AUDIT_REPORT.md §44 for the full diagnosis).
+    A weakref (the actual fix) means the connection never extends the
+    panel's lifetime: once nothing else references it, plain REFCOUNTING
+    (deliberately no gc.collect() here — that would also clean up the old
+    buggy panel<->dialog reference CYCLE and make this test pass either
+    way, hiding exactly the bug it exists to catch) collects it
+    immediately — verified here directly via a weakref to the panel
+    itself, no crash reproduction needed."""
+    import weakref
+
+    _app()
+    p = Project()
+    watch.add_watch(p, KIND_PHYSICAL_DI, "ELA01.DI01")
+    panel = WatchPanel(settings=qsettings)
+    panel_ref = weakref.ref(panel)
+    panel.set_project(p)
+    panel._on_cell_double_clicked(0, _COL_TREND)
+    assert len(panel._trend_dialogs) == 1
+
+    del panel  # no gc.collect() -- see the docstring above
+    assert panel_ref() is None, (
+        "WatchPanel survived losing its only external reference via plain "
+        "refcounting alone — something (e.g. the trend dialog's `finished` "
+        "connection) is still holding a strong reference back to it, "
+        "forming a cycle only the cyclic GC (not deterministic refcounting) "
+        "would ever collect."
+    )
+
 def test_set_project_closes_all_open_trend_dialogs(qsettings):
     _app()
     p = Project()
