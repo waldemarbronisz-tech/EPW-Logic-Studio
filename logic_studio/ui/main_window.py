@@ -14,6 +14,9 @@ from logic_studio.ui.panels.signals import SignalsPanel
 from logic_studio.ui.panels.watch import WatchPanel
 from logic_studio.ui.panels.breadcrumb import BreadcrumbBar
 from logic_studio.ui.icons import action_icon
+from logic_studio.ui.panel_layout import (
+    LEFT_PANEL_DOCK_WIDTH, CENTER_PANEL_DOCK_WIDTH, RIGHT_PANEL_DOCK_WIDTH,
+)
 
 
 class MainWindow(QMainWindow):
@@ -315,6 +318,12 @@ class MainWindow(QMainWindow):
         library_splitter.addWidget(self.library_panel)
         library_splitter.addWidget(self.element_preview)
         library_splitter.setSizes([600, 200])  # ~3:1 (§6)
+        # test/panel-width-guard: this is the widget actually placed in the
+        # "Library" tab (not self.library_panel alone) — the element-preview
+        # table stacked below it is exactly what forced this splitter's own
+        # minimum width past the left dock's budget once before (see
+        # ui/panel_layout.py's PANEL_DOCK_TARGETS and its docstring).
+        self.library_splitter = library_splitter
 
         self.device_panel = DeviceExplorerPanel()
         # feat/signal-crossref §2.1: new "Sygnały" tab alongside Library/
@@ -396,7 +405,13 @@ class MainWindow(QMainWindow):
         horizontal_splitter.addWidget(right_splitter)
 
         # Set relative sizes for panels: Left(15%), Center(70%), Right(15%)
-        horizontal_splitter.setSizes([300, 1320, 300])
+        # test/panel-width-guard: these 3 numbers and the "which widget sits
+        # in which pane" mapping now live in ui/panel_layout.py — the ONE
+        # place both this window and tests/test_panel_width_guard.py read
+        # them from, so they can never silently drift apart.
+        horizontal_splitter.setSizes(
+            [LEFT_PANEL_DOCK_WIDTH, CENTER_PANEL_DOCK_WIDTH, RIGHT_PANEL_DOCK_WIDTH]
+        )
 
         # Init Application State
         from logic_studio.core.project import Project
