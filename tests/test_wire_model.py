@@ -126,6 +126,25 @@ def test_validator_does_not_warn_on_a_labeled_free_end():
     assert res is not None
     assert not any("Niedokończony przewód" in w for w in c.warnings)
 
+def test_validator_warns_on_a_whitespace_only_label_same_as_empty():
+    """fix/wire-labels-and-project-integrity §A2 (user correction): a
+    label made of nothing but spaces carries no signal and breaks
+    nothing else either -- an unfinished drawing, same as a genuinely
+    empty label -- so it gets the SAME warning, still just a warning."""
+    p = Project()
+    b = BlockRegistry.create_block("logic.and")
+    p.add_block(b)
+    wire = Wire()
+    wire.source_pin = b.outputs[0].uuid
+    wire.free_end_dest = {"x": 10.0, "y": 10.0}
+    wire.label = "   "
+    p.add_wire(wire)
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is not None  # warning, not an error
+    assert any("Niedokończony przewód" in w for w in c.warnings), c.warnings
+
 def test_validator_does_not_warn_on_a_fully_connected_unlabeled_wire():
     """The overwhelming common case -- a plain wire with no Wire record
     at all -- must never trigger this check."""

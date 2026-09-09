@@ -544,7 +544,7 @@ class LogicScene(QGraphicsScene):
         if not blocks:
             return False
 
-        definition, crossings = macros_module.build_definition(name, blocks)
+        definition, crossings = macros_module.build_definition(name, blocks, wires=project.wires)
         origin_x = min(b.x for b in blocks)
         origin_y = min(b.y for b in blocks)
 

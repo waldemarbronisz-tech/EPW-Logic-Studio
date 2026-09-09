@@ -77,13 +77,20 @@ class Compiler:
         # exactly like a Validator error, aborting before Validator itself
         # ever sees the project.
         from logic_studio.core import macros
-        expanded_blocks, macro_errors = macros.expand_project(self.project)
+        expanded_blocks, wire_scopes, macro_errors = macros.expand_project(self.project)
         if macro_errors:
             self.errors.extend(macro_errors)
             self.status = "COMPILE_FAILED"
             return None
 
-        compile_view = _ExpandedProjectView(expanded_blocks, self.project.settings, wires=self.project.wires)
+        # fix/wire-labels-and-project-integrity §B1.3: `wire_scopes` is
+        # ALREADY split (project-level wires, plus one entry per macro
+        # instance's own internal wires, remapped) — Validator's own
+        # checks (§2.5's free-end/no-label warning) don't care about
+        # scope, so they get the flat union; label-merging below runs
+        # ONCE PER SCOPE instead, precisely so it never does.
+        all_wires = [w for scope in wire_scopes for w in scope]
+        compile_view = _ExpandedProjectView(expanded_blocks, self.project.settings, wires=all_wires)
 
         # 1. Label-based node merging (fix/wire-labels-and-project-
         # integrity §A1/§A2) — BEFORE Validator, deliberately: this
@@ -99,8 +106,19 @@ class Compiler:
         # labeled input wrongly flagged "unconnected" one stage too
         # early — caught by this PR's own manual verification before
         # settling on this order.
+        #
+        # §B1.3: run ONCE PER SCOPE (never on the flattened `all_wires`)
+        # — a label named "X" inside a macro definition must never merge
+        # with a top-level "X", nor with the SAME macro's own "X" in a
+        # different placed instance. Each call only ever sees its own
+        # scope's wires; `expanded_blocks` is passed in full every time
+        # purely for pin lookup (safe: post-expansion pin uuids are
+        # unique per instance, so a scope's own wires can only ever
+        # resolve to pins that are actually its own).
         from logic_studio.compiler.label_merge import merge_and_validate_labels
-        merge_and_validate_labels(compile_view, self.errors, self.warnings)
+        for wires_in_scope in wire_scopes:
+            scoped_view = _ExpandedProjectView(expanded_blocks, self.project.settings, wires=wires_in_scope)
+            merge_and_validate_labels(scoped_view, self.errors, self.warnings)
 
         # 2. Validation Stage
         from logic_studio.compiler.validator import Validator

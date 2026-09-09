@@ -548,11 +548,25 @@ class MainWindow(QMainWindow):
                 f"Definicja odwołuje się do nieznanych typów bloków: {', '.join(unknown_type_ids)}"
             )
             return
+        # fix/wire-labels-and-project-integrity §B1.2: project.wires is
+        # swapped IN LOCKSTEP with project.blocks now — before this, it
+        # stayed pointed at the top-level project's own list for the
+        # whole time a macro was being edited, which made
+        # check_wire_pin_consistency() false-positive on every top-level
+        # Wire (its pins simply weren't in the swapped project.blocks
+        # any more) and silently dropped/misplaced any Wire drawn while
+        # inside the macro's own view (§9.4 of the audit that found this).
+        wires = macros_module.instantiate_definition_wires(definition)
 
         self.stop_simulation()
-        self._macro_nav_stack.append({"def_id": self.current_macro_def_id, "blocks": self.project.blocks})
+        self._macro_nav_stack.append({
+            "def_id": self.current_macro_def_id,
+            "blocks": self.project.blocks,
+            "wires": self.project.wires,
+        })
         self.current_macro_def_id = def_id
         self.project.blocks = blocks
+        self.project.wires = wires
         self.scene.clear()
         self._reconstruct_scene()
         self._refresh_project_dependent_panels()
@@ -560,19 +574,24 @@ class MainWindow(QMainWindow):
 
     def _navigate_to_breadcrumb_index(self, index: int):
         """Exits levels one at a time (innermost first, each one COMMITTED
-        back into its own definition via update_definition_blocks() before
-        being popped) until the nav stack matches `index` — the position
-        clicked in the breadcrumb trail. A no-op if `index` is already the
-        current level (BreadcrumbBar never actually emits this for the
-        last/current entry, but nothing here should depend on that)."""
+        back into its own definition via update_definition_blocks()/
+        update_definition_wires() before being popped) until the nav
+        stack matches `index` — the position clicked in the breadcrumb
+        trail. A no-op if `index` is already the current level
+        (BreadcrumbBar never actually emits this for the last/current
+        entry, but nothing here should depend on that)."""
         from logic_studio.core import macros as macros_module
 
         while len(self._macro_nav_stack) > index:
             if self.current_macro_def_id is not None:
                 macros_module.update_definition_blocks(self.project, self.current_macro_def_id, self.project.blocks)
+                # fix/wire-labels-and-project-integrity §B1.2: committed
+                # in the SAME breath as blocks, never left behind.
+                macros_module.update_definition_wires(self.project, self.current_macro_def_id, self.project.wires)
             parent = self._macro_nav_stack.pop()
             self.current_macro_def_id = parent["def_id"]
             self.project.blocks = parent["blocks"]
+            self.project.wires = parent["wires"]
 
         self.scene.clear()
         self._reconstruct_scene()

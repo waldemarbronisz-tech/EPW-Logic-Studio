@@ -20,7 +20,32 @@ class _HistoryEntry:
 # Bump when the on-disk .epwlogic schema changes in a way that requires migration.
 # Every bump needs a matching _migrate_vN_to_v(N+1)(data) function registered in
 # _MIGRATIONS below — see AUDIT_REPORT.md §2 "Wersjonowanie schematów".
-EPWLOGIC_SCHEMA_VERSION = 12
+EPWLOGIC_SCHEMA_VERSION = 13
+
+# fix/wire-labels-and-project-integrity §B2.1: the ONE declaration of
+# "what are Project's own top-level CONTENT elements" — as opposed to
+# `format`/`schema_version`, which are metadata ABOUT the project, not
+# part of it. Derived from state_diff.py's own three registries
+# (SCALAR_KEYS/UUID_LIST_KEYS/DICT_KEYS — itself the single source of
+# truth `test_meta_every_top_level_serialize_key_is_known_to_state_diff`
+# checks against `Project().serialize().keys()`), never re-declared by
+# hand here — a fourth element added to state_diff.py's own registries
+# (which that test already forces to happen the moment
+# Project.serialize() itself changes shape) is picked up by
+# PROJECT_ELEMENTS automatically, with nothing to keep in sync twice.
+#
+# tests/test_project_element_coverage.py is what actually enforces the
+# thing this declaration exists FOR (§B2.2/§B2.3): every function that
+# swaps or copies project content — serialize/deserialize, state_diff,
+# clipboard, macro expansion, macro enter/exit, macro import/export,
+# schema migration — must have a documented, tested answer for what it
+# does with EACH of these three, even when the answer is "deliberately
+# left alone" (settings during macro enter/exit, e.g.). This is the
+# EIGHTH known instance of "element added to the model, one path never
+# learned about" (project.wires + core/macros.py, found writing this
+# same PR) — this file is the mechanism meant to make a ninth
+# impossible to ship unnoticed.
+PROJECT_ELEMENTS = state_diff.UUID_LIST_KEYS + state_diff.DICT_KEYS
 
 
 def _migrate_v1_to_v2(data: dict) -> dict:
@@ -315,9 +340,30 @@ def _migrate_v11_to_v12(data: dict) -> dict:
     return data
 
 
+def _migrate_v12_to_v13(data: dict) -> dict:
+    """v12 -> v13 (fix/wire-labels-and-project-integrity §B1.1): a macro
+    DEFINITION now carries its own "wires" list too, mirroring its own
+    existing "blocks" list — a Wire naming a pin inside a macro's own
+    internal blocks is scoped to that macro (§B1.3: its label can never
+    merge with a top-level label, or another instance's), so it lives in
+    the definition, not the top-level project. No file older than this
+    feature could have anything to put there — same "an empty migration
+    is not a skipped one" reasoning as v11->v12 above — but every
+    existing definition still gets the key explicitly, so
+    core/macros.py's own _copy_definition() (which round-trips every
+    definition through get_definition()/set_definition() on every
+    access) never has to guess whether an old, unmigrated definition
+    dict is missing it."""
+    macro_defs = data.get("settings", {}).get("macro_definitions", {})
+    for definition in macro_defs.values():
+        definition.setdefault("wires", [])
+    data["schema_version"] = 13
+    return data
+
+
 # Keyed by the version a migration upgrades FROM. Project.deserialize() walks
 # this sequentially — apply the migration for the file's current version,
-# re-check, repeat — so a v1 file goes through v1->v2->...->v11->v12 in one load.
+# re-check, repeat — so a v1 file goes through v1->v2->...->v12->v13 in one load.
 _MIGRATIONS = {
     1: _migrate_v1_to_v2,
     2: _migrate_v2_to_v3,
@@ -330,6 +376,7 @@ _MIGRATIONS = {
     9: _migrate_v9_to_v10,
     10: _migrate_v10_to_v11,
     11: _migrate_v11_to_v12,
+    12: _migrate_v12_to_v13,
 }
 
 

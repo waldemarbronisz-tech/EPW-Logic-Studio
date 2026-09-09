@@ -139,6 +139,17 @@ def _copy_definition(definition: dict) -> dict:
     return {
         "name": definition.get("name", ""),
         "blocks": [dict(b) for b in definition.get("blocks", [])],
+        # fix/wire-labels-and-project-integrity §B1.1: absent entirely on
+        # a definition built before this PR — defaults to [], same
+        # graceful-degrade reasoning as "parameters" below. Found the
+        # HARD way (§B2's own reason for existing): this whitelist copy
+        # is itself a hand-enumerated list of keys that had already
+        # forgotten "wires" existed by the time update_definition_wires()
+        # tried to persist one through it — every write silently
+        # vanished on its very next get_definition()/set_definition()
+        # round trip, an EIGHTH instance of this project's own most
+        # recurring bug class, caught here rather than shipped.
+        "wires": [dict(w) for w in definition.get("wires", [])],
         "input_pins": [dict(p) for p in definition.get("input_pins", [])],
         "output_pins": [dict(p) for p in definition.get("output_pins", [])],
         # fix/safety-and-macro-params §C1: absent entirely on a definition
@@ -238,6 +249,36 @@ def update_definition_blocks(project, def_id: str, blocks: list) -> bool:
     if definition is None:
         return False
     definition["blocks"] = [b.serialize() for b in blocks]
+    set_definition(project, def_id, definition)
+    return True
+
+
+def instantiate_definition_wires(definition: dict) -> list:
+    """fix/wire-labels-and-project-integrity §B1.2: fresh, live Wire
+    objects from `definition["wires"]` — the counterpart to
+    instantiate_definition_blocks() above, called at the exact same
+    place (MainWindow.enter_macro_instance()) so `project.wires` is
+    swapped in lockstep with `project.blocks` rather than staying
+    pointed at the top-level project's own list for the whole time a
+    macro is being edited (the bug this whole Part B closes). Absent
+    key (a pre-§B1 definition, migrated to an empty list — see
+    core/project.py's schema migration) yields an empty list, not an
+    error."""
+    from logic_studio.core.wire import Wire
+    return [Wire.deserialize(w_data) for w_data in definition.get("wires", [])]
+
+
+def update_definition_wires(project, def_id: str, wires: list) -> bool:
+    """Commits `wires` (this definition's OWN wires, just edited
+    directly via breadcrumb navigation) back into its stored
+    definition — the counterpart to update_definition_blocks() above,
+    called at the exact same place (MainWindow._navigate_to_breadcrumb_
+    index(), leaving the macro's edit view). Returns False (no-op) if
+    the definition was deleted while it was being edited."""
+    definition = get_definition(project, def_id)
+    if definition is None:
+        return False
+    definition["wires"] = [w.serialize() for w in wires]
     set_definition(project, def_id, definition)
     return True
 
@@ -762,7 +803,7 @@ def sync_instance_parameters(properties: dict, definition: dict) -> list:
 
 # ---- Building a definition from a live selection ---------------------------
 
-def build_definition(name: str, blocks: list) -> tuple:
+def build_definition(name: str, blocks: list, wires: list = None) -> tuple:
     """`blocks` are live BaseLogicBlock instances forming the selection to
     extract — still attached to their project/scene; this function never
     mutates them or the project, it only computes data. Returns
@@ -785,6 +826,18 @@ def build_definition(name: str, blocks: list) -> tuple:
     several crossings all pointing at the same `instance_pin_index`, never
     several separate output pins for what is, internally, one signal.
 
+    `wires` (fix/wire-labels-and-project-integrity §B1.1): the live
+    project's OWN Wire list — every wire whose every real end lands
+    INSIDE the selection is captured into `definition["wires"]`
+    (serialized, pin uuids unchanged — they still match
+    `definition["blocks"]`'s own uuids verbatim, remapped only later, at
+    expansion time). A wire touching a pin OUTSIDE the selection (the
+    Wire equivalent of a "crossing" connection) has no boundary-pin
+    concept to attach to and is simply left out — same as ui/canvas/
+    scene.py's own create_macro_from_selection() already did for every
+    Wire touching an extracted block before this, just now conditional
+    on whether it's actually capturable instead of unconditional.
+
     Deliberately re-derives the same "keep only connections landing inside
     the selection" filtering ui/canvas/scene.py's own
     copy_selected_items() already does, rather than importing it — this
@@ -792,6 +845,12 @@ def build_definition(name: str, blocks: list) -> tuple:
     Qt-owning one.
     """
     selected_pin_uuids = {p.uuid for b in blocks for p in (b.inputs + b.outputs)}
+
+    captured_wires = []
+    for wire in (wires or []):
+        real_pins = [p for p in (wire.source_pin, wire.dest_pin) if p is not None]
+        if real_pins and all(p in selected_pin_uuids for p in real_pins):
+            captured_wires.append(wire.serialize())
 
     serialized = []
     input_pins = []
@@ -826,6 +885,7 @@ def build_definition(name: str, blocks: list) -> tuple:
     definition = {
         "name": name,
         "blocks": serialized,
+        "wires": captured_wires,
         "input_pins": input_pins,
         "output_pins": output_pins,
         "parameters": [],
@@ -837,23 +897,36 @@ def build_definition(name: str, blocks: list) -> tuple:
 # ---- Compile-time expansion --------------------------------------------
 
 def expand_project(project) -> tuple:
-    """Returns `(expanded_blocks, errors)`. `expanded_blocks` is
-    `project.blocks` with every macro instance recursively replaced by
+    """Returns `(expanded_blocks, wire_scopes, errors)`. `expanded_blocks`
+    is `project.blocks` with every macro instance recursively replaced by
     fresh, independently-uuid'd copies of its definition's own internal
     blocks, wired directly to whatever the instance's own external
     connections were — the macro instance block itself never appears in
-    the result. `errors` is non-empty (and `expanded_blocks` always `[]`
-    in that case) on a cycle (a macro directly or indirectly containing an
-    instance of itself) or a reference to a missing/deleted definition —
-    Compiler.compile() surfaces these exactly like a Validator error,
-    aborting compilation before Validator/GraphBuilder/Exporter ever run.
-    """
+    the result. `errors` is non-empty (and `expanded_blocks`/`wire_scopes`
+    always `[]` in that case) on a cycle (a macro directly or indirectly
+    containing an instance of itself) or a reference to a missing/deleted
+    definition — Compiler.compile() surfaces these exactly like a
+    Validator error, aborting compilation before Validator/GraphBuilder/
+    Exporter ever run.
+
+    `wire_scopes` (fix/wire-labels-and-project-integrity §B1.3): a list of
+    Wire lists, ONE PER LABEL SCOPE — `project.wires` itself (index 0,
+    always present even if empty) plus one more entry per macro instance
+    actually expanded, that instance's OWN internal wires with pin uuids
+    remapped onto its fresh, per-instance pins. Kept as SEPARATE lists
+    (never flattened into one) so compiler/core.py can run
+    compiler/label_merge.py's grouping once per scope — a label named
+    "X" inside a macro's own definition must never merge with a
+    top-level "X", nor with the SAME macro's own "X" in a different
+    placed instance; the scope ends at the macro boundary, same as an
+    ordinary variable name would in any block-scoped language."""
     macro_defs = project.settings.get(SETTINGS_KEY, {})
     errors = []
     rewire_plan = []  # [(external_pin_uuid, old_boundary_pin_uuid, new_internal_pin_uuid), ...]
-    expanded = _expand_blocks(project.blocks, macro_defs, frozenset(), errors, rewire_plan)
+    wire_scopes = [list(project.wires)]
+    expanded = _expand_blocks(project.blocks, macro_defs, frozenset(), errors, rewire_plan, wire_scopes)
     if errors:
-        return [], errors
+        return [], [], errors
 
     pin_map = {}
     for block in expanded:
@@ -894,11 +967,11 @@ def expand_project(project) -> tuple:
             new_pin.connections.append(external_uuid)
 
     if errors:
-        return [], errors
-    return expanded, []
+        return [], [], errors
+    return expanded, wire_scopes, []
 
 
-def _expand_blocks(blocks, macro_defs, expanding, errors, rewire_plan):
+def _expand_blocks(blocks, macro_defs, expanding, errors, rewire_plan, wire_scopes):
     from logic_studio.blocks.registry import BlockRegistry
 
     result = []
@@ -927,13 +1000,13 @@ def _expand_blocks(blocks, macro_defs, expanding, errors, rewire_plan):
             ref = block.short_id or block.display_name
             errors.append(f"[{ref}] Odwołuje się do nieistniejącej definicji makrobloku '{def_id}'.")
             continue
-        result.extend(_expand_instance(block, def_id, macro_def, macro_defs, expanding, errors, rewire_plan))
+        result.extend(_expand_instance(block, def_id, macro_def, macro_defs, expanding, errors, rewire_plan, wire_scopes))
         if errors:
             return []
     return result
 
 
-def _expand_instance(instance_block, def_id, macro_def, macro_defs, expanding, errors, rewire_plan):
+def _expand_instance(instance_block, def_id, macro_def, macro_defs, expanding, errors, rewire_plan, wire_scopes):
     from logic_studio.blocks.registry import BlockRegistry
 
     pin_uuid_map = {}       # old internal pin uuid (in the definition) -> new (fresh) internal pin uuid
@@ -1007,6 +1080,37 @@ def _expand_instance(instance_block, def_id, macro_def, macro_defs, expanding, e
         for pin in block.inputs + block.outputs:
             pin.connections = [pin_uuid_map.get(c, c) for c in pin.connections]
 
+    # fix/wire-labels-and-project-integrity §B1.3: this instance's OWN
+    # internal wires (labels attached to internal pins), remapped onto
+    # the fresh per-instance pin uuids just assigned above — appended as
+    # a SEPARATE scope (never merged into wire_scopes[0]/another
+    # instance's own entry), so compiler/core.py's per-scope label-merge
+    # pass can never let this instance's "X" reach a top-level "X" or a
+    # sibling instance's own "X". A wire whose anchor pin didn't survive
+    # into pin_uuid_map (its own internal block was itself a nested
+    # macro instance's now-discarded boundary — the same unsupported
+    # shape expand_project()'s own rewire pass already rejects) is
+    # simply skipped, not resolved into a wrong pin.
+    from logic_studio.core.wire import Wire as _Wire
+    instance_wires = []
+    for w_data in macro_def.get("wires", []):
+        wire = _Wire.deserialize(w_data)
+        skip = False
+        if wire.source_pin is not None:
+            if wire.source_pin not in pin_uuid_map:
+                skip = True
+            else:
+                wire.source_pin = pin_uuid_map[wire.source_pin]
+        if wire.dest_pin is not None:
+            if wire.dest_pin not in pin_uuid_map:
+                skip = True
+            else:
+                wire.dest_pin = pin_uuid_map[wire.dest_pin]
+        if not skip:
+            instance_wires.append(wire)
+    if instance_wires:
+        wire_scopes.append(instance_wires)
+
     # fix/safety-and-macro-params §C3.1: substitute THIS instance's own
     # parameter values onto the fresh internal blocks' properties — AFTER
     # they're copied (so there's something to overwrite) and BEFORE the
@@ -1072,7 +1176,7 @@ def _expand_instance(instance_block, def_id, macro_def, macro_defs, expanding, e
         if internal_pin is not None:
             boundary_pins.append(("output", j, internal_pin))
 
-    fresh_blocks = _expand_blocks(fresh_blocks, macro_defs, expanding | {def_id}, errors, rewire_plan)
+    fresh_blocks = _expand_blocks(fresh_blocks, macro_defs, expanding | {def_id}, errors, rewire_plan, wire_scopes)
     if errors:
         return []
 
