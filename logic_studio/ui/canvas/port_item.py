@@ -146,13 +146,21 @@ class PortItem(QGraphicsItem):
             return
         super().mouseDoubleClickEvent(event)
 
+    def _add_stub_eligibility(self) -> bool:
+        """fix/wire-labels-and-project-integrity §A3.2: any port with NO
+        wire attached — either direction — except one already carrying
+        the OTHER "why is this not wired" annotation (a disabled/blanked
+        input, §2) — the two are meant to read as distinct, mutually
+        exclusive states, not stackable."""
+        return len(self.pin.connections) == 0 and not self.pin.disabled
+
     def contextMenuEvent(self, event):
-        eligible, blocked_reason = self._disable_eligibility()
-        if not eligible:
-            # Not an input, or this block type doesn't allow disabling any
-            # of its inputs at all (§2.4) — nothing of ours to show here;
-            # ignore so the event falls through to the block's own
-            # Properties/Duplicate/Delete menu underneath, unchanged.
+        disable_eligible, blocked_reason = self._disable_eligibility()
+        stub_eligible = self._add_stub_eligibility()
+        if not disable_eligible and not stub_eligible:
+            # Nothing of ours to show here; ignore so the event falls
+            # through to the block's own Properties/Duplicate/Delete menu
+            # underneath, unchanged.
             event.ignore()
             return
 
@@ -163,13 +171,50 @@ class PortItem(QGraphicsItem):
             QMenu::item:selected { background-color: #0078D7; color: white; }
             QMenu::item:disabled { color: #A0A0A0; }
         """)
-        label = "Odblokuj wejście" if self.pin.disabled else "Zaślep wejście"
-        action = menu.addAction(label)
-        action.setEnabled(blocked_reason is None)
-        if blocked_reason:
-            action.setToolTip(blocked_reason)
+        disable_action = None
+        if disable_eligible:
+            label = "Odblokuj wejście" if self.pin.disabled else "Zaślep wejście"
+            disable_action = menu.addAction(label)
+            disable_action.setEnabled(blocked_reason is None)
+            if blocked_reason:
+                disable_action.setToolTip(blocked_reason)
+
+        stub_action = None
+        if stub_eligible:
+            if disable_action is not None:
+                menu.addSeparator()
+            stub_action = menu.addAction("Dodaj odnośnik...")
 
         chosen = menu.exec(QCursor.pos())
-        if chosen == action and blocked_reason is None:
+        if chosen == disable_action and blocked_reason is None:
             self._toggle_disabled()
+        elif chosen == stub_action:
+            self._add_stub()
         event.accept()
+
+    def _add_stub(self):
+        """§A3.2: "otwiera edycję nazwy" — immediately after creating the
+        stub, the SAME label dialog every wire-label action uses."""
+        window = None
+        if self.scene() and self.scene().views():
+            window = self.scene().views()[0].window()
+        project = getattr(window, 'project', None) if window is not None else None
+        if project is None:
+            return
+
+        from logic_studio.ui.canvas.wire_ops import add_stub_wire_from_port
+        from logic_studio.ui.label_dialog import prompt_for_label
+
+        self._push_state_if_possible()
+        wire = add_stub_wire_from_port(project, self)
+        window.set_dirty()
+
+        text, similar = prompt_for_label(window, project, initial="", title="Dodaj odnośnik")
+        if text:
+            wire.label = text
+            if similar:
+                window.statusBar().showMessage(f"Podobna etykieta w projekcie: {similar}", 5000)
+        scene = self.scene()
+        if scene is not None:
+            scene.clear()
+            window._reconstruct_scene()
