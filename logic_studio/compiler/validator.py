@@ -416,16 +416,23 @@ class Validator:
         # PENDING state while a wire is being drawn or a label is about
         # to be typed in — a warning, not an error, naming whichever
         # block the wire is still actually attached to. fix/wire-labels-
-        # and-project-integrity §A2: kept exactly as a warning even now
-        # that labels merge nodes (compiler/label_merge.py) — an
-        # unlabeled free end names no node to validate yet, so there is
-        # nothing for label_merge.py to check here; this is the only
-        # free-end/label check that stays independent of it. Every
+        # and-project-integrity §A2 (confirmed, not a leftover): kept
+        # exactly as a warning even now that labels merge nodes
+        # (compiler/label_merge.py) — a free-end wire with no label
+        # carries no signal and breaks nothing else either; it's an
+        # UNFINISHED DRAWING, not faulty logic, so it stays a warning,
+        # never an error, regardless of how far label-merging itself
+        # grows. An unlabeled free end names no node to validate yet, so
+        # there is nothing for label_merge.py to check here; this is the
+        # only free-end/label check that stays independent of it. Every
         # STRONGER check (a labeled node with no source, more than one,
         # or no receiver) now lives in compiler/label_merge.py instead,
-        # run right after this stage in compiler/core.py.
+        # run right after this stage in compiler/core.py. A label of
+        # only whitespace counts as no label at all here — same
+        # reasoning group_labeled_pins() already applies via its own
+        # .strip() before grouping.
         for wire in getattr(self.project, 'wires', []):
-            if wire.label or not wire.has_free_end():
+            if (wire.label or "").strip() or not wire.has_free_end():
                 continue
             attached_pin = wire.source_pin if wire.source_pin is not None else wire.dest_pin
             attached_block = _block_owning_pin(attached_pin, blocks) if attached_pin else None

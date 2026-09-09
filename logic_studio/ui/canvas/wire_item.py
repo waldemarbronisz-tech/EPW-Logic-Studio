@@ -199,13 +199,13 @@ class WireItem(QGraphicsPathItem):
 
     def boundingRect(self):
         base = super().boundingRect()
-        if self.wire is None or not self.wire.label:
+        if self.wire is None or not self.wire.has_label():
             return base
         return base.adjusted(-40, -self._LABEL_MARGIN, 40, 10)
 
     def paint(self, painter, option, widget=None):
         super().paint(painter, option, widget)
-        if self.wire is None or not self.wire.label:
+        if self.wire is None or not self.wire.has_label():
             return
         self._paint_label(painter)
 
@@ -233,7 +233,7 @@ class WireItem(QGraphicsPathItem):
         from PySide6.QtGui import QFont, QFontMetricsF
 
         anchor = self._label_anchor_point()
-        if anchor is None or self.wire is None or not self.wire.label:
+        if anchor is None or self.wire is None or not self.wire.has_label():
             return None
         is_free_end = self.fixed_free_end is not None
         text = self.wire.label
@@ -321,7 +321,7 @@ class WireItem(QGraphicsPathItem):
         click/Enter on a labeled free end navigates to. Empty for an
         unlabeled free end (nothing to navigate to) or one whose group
         can't be resolved right now."""
-        if self.wire is None or not self.wire.label:
+        if self.wire is None or not self.wire.has_label():
             return []
         project = self._current_project()
         if project is None:
@@ -407,7 +407,7 @@ class WireItem(QGraphicsPathItem):
             return
 
         existing_wire = self._existing_wire_record(project)
-        has_label = existing_wire is not None and bool(existing_wire.label)
+        has_label = existing_wire is not None and existing_wire.has_label()
 
         menu = QMenu()
         menu.setStyleSheet("""

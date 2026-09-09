@@ -134,7 +134,7 @@ def prompt_for_label(parent, project, initial: str = "", title: str = "Etykieta"
     on OK — `similar_existing` is the near-miss label to warn about
     (§A3.3), or None if there isn't one — or `(None, None)` if the
     dialog was cancelled."""
-    existing_labels = sorted({w.label for w in project.wires if w.label})
+    existing_labels = sorted({w.label for w in project.wires if w.has_label()})
     dialog = LabelNameDialog(existing_labels, initial, title, parent)
     if dialog.exec() != QDialog.Accepted:
         return None, None

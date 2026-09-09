@@ -124,3 +124,30 @@ def test_has_free_end_false_when_both_ends_connected():
     wire.dest_pin = "p2"
     assert wire.has_free_end() is False
     assert wire.is_fully_connected() is True
+
+
+# ---- has_label() (fix/wire-labels-and-project-integrity §A2) --------------
+
+def test_has_label_true_for_a_real_label():
+    wire = Wire()
+    wire.label = "Blokada ZS"
+    assert wire.has_label() is True
+
+def test_has_label_false_for_empty_string():
+    wire = Wire()
+    assert wire.label == ""
+    assert wire.has_label() is False
+
+def test_has_label_false_for_whitespace_only():
+    """User correction: a label made of nothing but spaces counts as no
+    label at all, everywhere this is checked."""
+    wire = Wire()
+    wire.label = "   "
+    assert wire.has_label() is False
+
+def test_has_label_true_for_a_label_with_leading_or_trailing_spaces():
+    """Only a WHOLLY-whitespace label is "no label" -- "Wyl. Q1 " (a
+    stray trailing space) is still a real, meaningful label."""
+    wire = Wire()
+    wire.label = "  Wyl. Q1  "
+    assert wire.has_label() is True

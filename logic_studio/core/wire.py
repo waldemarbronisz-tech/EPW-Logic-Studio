@@ -81,6 +81,16 @@ class Wire:
     def is_fully_connected(self) -> bool:
         return self.source_pin is not None and self.dest_pin is not None
 
+    def has_label(self) -> bool:
+        """fix/wire-labels-and-project-integrity §A2 (user correction):
+        a label made of nothing but whitespace counts as no label at
+        all — the single place that rule lives, so every caller (label-
+        merge grouping, the free-end-without-label warning, rendering,
+        context-menu enablement) agrees on it instead of re-deriving
+        `.strip()` truthiness independently and risking one of them
+        drifting."""
+        return bool((self.label or "").strip())
+
     def serialize(self) -> dict:
         data = {}
         for field in self.SERIALIZED_FIELDS:

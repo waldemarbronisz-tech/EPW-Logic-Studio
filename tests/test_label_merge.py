@@ -93,6 +93,88 @@ def test_label_and_direct_wire_compile_to_the_same_execution_order():
     ]
     assert labeled_order_types == direct_order_types == ["input.di", "output.do"]
 
+def test_source_declared_after_receiver_still_sorts_before_it():
+    """User-requested addition: the main acceptance test's own two
+    blocks (input.di has zero dependencies, output.do has exactly one)
+    could pass even by ACCIDENT regardless of whether label-merging
+    correctly wires anything at all -- Kahn's algorithm would put the
+    zero-in-degree block first either way. This test forces the real
+    question: the RECEIVER block is added to the project BEFORE its
+    source, so a topological sort that (bug) relied on insertion order
+    instead of the actual Pin.connections graph would get this wrong."""
+    p = Project()
+    receiver = BlockRegistry.create_block("logic.buffer")  # added FIRST
+    p.add_block(receiver)
+    source = _di()  # added SECOND -- but must still execute FIRST
+    p.add_block(source)
+    p.add_wire(_free_end_wire(receiver.inputs[0], "Later", is_source=False))
+    p.add_wire(_free_end_wire(source.outputs[0], "Later", is_source=True))
+
+    c = Compiler(p)
+    res = c.compile()
+    assert res is not None, c.errors
+    order = res["execution_order"]
+    assert order.index(source.uuid) < order.index(receiver.uuid)
+
+def test_one_source_three_receivers_matches_direct_fanout_wiring():
+    """User-requested addition, and per their own note the more
+    important of the two: "jeden sygnał na pięć stron schematu" is the
+    single most common real use of a label. One source, three
+    receivers, MUST produce the same execution_order as the identical
+    topology wired with three direct fan-out connections from the same
+    output (Pin.connect() already allows one output driving several
+    inputs -- only an INPUT is single-driver)."""
+    def _labeled_fanout():
+        p = Project()
+        source = _di()
+        r1 = BlockRegistry.create_block("logic.buffer")
+        r2 = BlockRegistry.create_block("logic.buffer")
+        r3 = BlockRegistry.create_block("logic.buffer")
+        for b in (source, r1, r2, r3):
+            p.add_block(b)
+        p.add_wire(_free_end_wire(source.outputs[0], "Fanout", is_source=True))
+        p.add_wire(_free_end_wire(r1.inputs[0], "Fanout", is_source=False))
+        p.add_wire(_free_end_wire(r2.inputs[0], "Fanout", is_source=False))
+        p.add_wire(_free_end_wire(r3.inputs[0], "Fanout", is_source=False))
+        return p, source, [r1, r2, r3]
+
+    def _direct_fanout():
+        p = Project()
+        source = _di()
+        r1 = BlockRegistry.create_block("logic.buffer")
+        r2 = BlockRegistry.create_block("logic.buffer")
+        r3 = BlockRegistry.create_block("logic.buffer")
+        for b in (source, r1, r2, r3):
+            p.add_block(b)
+        source.outputs[0].connect(r1.inputs[0])
+        source.outputs[0].connect(r2.inputs[0])
+        source.outputs[0].connect(r3.inputs[0])
+        return p, source, [r1, r2, r3]
+
+    labeled_p, labeled_source, labeled_receivers = _labeled_fanout()
+    direct_p, direct_source, direct_receivers = _direct_fanout()
+
+    labeled_res = Compiler(labeled_p).compile()
+    direct_res = Compiler(direct_p).compile()
+    assert labeled_res is not None, Compiler(labeled_p).errors
+    assert direct_res is not None
+
+    def _shape(execution_order, source, receivers):
+        """Position-independent shape: (is-source-first, set of
+        positions after it) -- uuids differ between the two separately-
+        built projects, only relative order is comparable."""
+        source_index = execution_order.index(source.uuid)
+        receiver_indices = {execution_order.index(r.uuid) for r in receivers}
+        return source_index, sorted(receiver_indices)
+
+    labeled_shape = _shape(labeled_res["execution_order"], labeled_source, labeled_receivers)
+    direct_shape = _shape(direct_res["execution_order"], direct_source, direct_receivers)
+
+    assert labeled_shape == direct_shape
+    # And explicitly: the source runs before EVERY receiver, in both.
+    assert all(i > labeled_shape[0] for i in labeled_shape[1])
+    assert all(i > direct_shape[0] for i in direct_shape[1])
+
 def test_label_and_direct_wire_produce_identical_simulation_results():
     from logic_studio.engine.execution import ExecutionEngine
     from logic_studio.engine.io_provider import SimulationIOProvider
