@@ -2728,3 +2728,160 @@ Pełne dane empiryczne (współczynnik crashu PRZED i PO tej naprawie, na
 identycznym zestawie losowań) są w podsumowaniu PR — ten dokument
 notuje wyłącznie, że reguła z §29.1 jest konieczna, ale — jak dotąd
 zmierzone — NIE wystarczająca do pełnego wyeliminowania zjawiska z §34.
+
+## 30. Przewody wewnątrz makrobloku — zakres etykiety kończy się na granicy makra (fix/wire-labels-and-project-integrity §B1)
+
+### 30.1 Decyzja
+
+**Definicja makrobloku przechowuje własną listę przewodów (`Wire`),
+dokładnie tak jak przechowuje własną listę bloków.** Wejście w widok
+edycji makra (`MainWindow.enter_macro_instance()`) podmienia
+`project.blocks` I `project.wires` razem, w tym samym momencie; wyjście
+(`_navigate_to_breadcrumb_index()`) zatwierdza obie listy z powrotem do
+definicji razem, tą samą ścieżką co dotąd wyłącznie bloki.
+
+**Uzasadnienie**: przewód z etykietą wewnątrz makra opisuje WEWNĘTRZNĄ
+strukturę tego konkretnego makra i nie ma żadnego znaczenia poza nim —
+dokładnie tak samo jak blok wewnątrz tej samej definicji. Rozważana
+alternatywa — przewody istniejące wyłącznie na poziomie projektu,
+nigdy wewnątrz definicji makra — została odrzucona: oznaczałaby, że
+etykieta nadana wewnątrz makra PRZECIEKA na zewnątrz, do schematu
+nadrzędnego, i że DWIE RÓŻNE, niezależnie postawione instancje tego
+samego makra dzieliłyby jeden węzeł sieci tylko dlatego, że twórca
+definicji nazwał coś tak samo w obu miejscach wewnątrz niej. To byłoby
+niepoprawne — instancja makra ma być czarną skrzynką, nie oknem, przez
+które nazwy wewnętrznych sygnałów wyciekają na zewnątrz.
+
+Konsekwencja przy kompilacji (`core/macros.py::expand_project()`,
+`compiler/label_merge.py`): każda placowana instancja makra dostaje
+WŁASNY, osobny "zakres etykiet" (`wire_scopes` — lista list `Wire`,
+jedna na poziom projektu plus jedna na każdą faktycznie rozwiniętą
+instancję) — scalanie węzłów po etykiecie (§29 nie, patrz raczej PR
+`fix/wire-labels-and-project-integrity` część A) uruchamiane jest
+OSOBNO dla każdego zakresu, nigdy na spłaszczonej liście wszystkich
+przewodów naraz. Etykieta "X" wewnątrz Instancji A nigdy nie zobaczy
+etykiety "X" wewnątrz Instancji B tej samej definicji, ani etykiety "X"
+na poziomie projektu — dokładnie jak zmienna lokalna w dowolnym języku
+programowania ze statycznym zasięgiem blokowym.
+
+### 30.2 Ósmy przypadek: `_copy_definition()` jako własna, niezależna lista dozwolonych kluczy
+
+Przy weryfikacji tej zmiany znaleziono realny błąd, zanim trafił do
+testów: `core/macros.py::_copy_definition()` — funkcja, przez którą
+KAŻDY odczyt i zapis definicji makra (`get_definition()`/
+`set_definition()`/`get_definitions()`) faktycznie przechodzi — jest
+WŁASNĄ, ręcznie wypisaną listą dozwolonych kluczy (`"name"`, `"blocks"`,
+`"input_pins"`, `"output_pins"`, `"parameters"`, `"parameter_bindings"`),
+niezależną od jakiejkolwiek innej deklaracji w projekcie. Dodanie klucza
+`"wires"` do samej definicji nie wystarczyło — `_copy_definition()` po
+prostu go nie znała, więc każdy zapis znikał cicho przy najbliższym
+odczycie. To ÓSMY, z rzędu, przypadek dokładnie tej samej klasy błędu
+("element dodany do modelu, którego jedna ze ścieżek nie zna") — patrz
+§B2 podsumowania tego PR dla mechanizmu na poziomie CAŁEGO projektu
+(`PROJECT_ELEMENTS`, `core/project.py`), który miał to złapać wcześniej,
+ale nie objął jeszcze tego DRUGIEGO poziomu zagnieżdżenia (elementy
+WEWNĄTRZ jednej definicji makra) — zapisane tu jako świadome
+ograniczenie tego PR-a, nie przeoczenie: naprawiono konkretny znaleziony
+przypadek, mechanizm ogólny na tym poziomie zagnieżdżenia zostaje do
+rozważenia przy kolejnym takim znalezisku.
+
+## 31. Etykiety przewodów: semantyka scalania węzłów (fix/wire-labels-and-project-integrity §A)
+
+### 31.1 Zasada
+
+Dwa przewody noszące tę samą etykietę (porównanie BEZ uwzględniania
+wielkości liter — "Blokada ZS" i "blokada zs" to JEDEN węzeł; etykieta
+złożona z samych spacji liczy się jako brak etykiety) są JEDNYM I TYM
+SAMYM węzłem sieci logicznej, niezależnie od tego, gdzie fizycznie leżą
+na schemacie. Realizowane w `compiler/label_merge.py`, wywoływanym
+przez `Compiler.compile()` PRZED walidatorem (kolejność zweryfikowana
+ręcznie — odwrotna kolejność zostawiała każde oznakowane wejście
+błędnie oflagowane jako "niepodłączone" o jeden etap za wcześnie):
+grupa przewodów o tej samej etykiecie ma dokładnie jeden pin wyjściowy
+(źródło) i dowolną liczbę pinów wejściowych (odbiorniki, wielu naraz —
+to legalne i jest najczęstszym praktycznym zastosowaniem etykiety:
+jeden sygnał czytany w pięciu miejscach schematu); mechanizm łączy je
+BEZPOŚREDNIM wywołaniem `Pin.connect()` — dokładnie tym samym, którego
+używa fizycznie narysowany przewód — na sklonowanych pinach widoku
+kompilacji, nigdy na żywych pinach projektu. Dzięki temu projekt z
+etykietą i identyczny projekt z przewodem prowadzonym wprost dają
+IDENTYCZNY `execution_order` i identyczny wynik symulacji — sprawdzone
+bezpośrednim testem (`tests/test_label_merge.py`), nie założone.
+
+Typ danych węzła jest DZIEDZICZONY z pinu wyjściowego — `Pin.connect()`
+odrzuca połączenie niezgodnego typu dokładnie tak samo, jak zrobiłby to
+dla fizycznego przewodu, z komunikatem nazywającym etykietę.
+
+### 31.2 Zasięg etykiety kończy się na granicy makrobloku
+
+Etykieta wewnątrz definicji makrobloku jest WŁASNYM, ODDZIELNYM
+zasięgiem — nigdy nie scala się z etykietą o tej samej nazwie na
+poziomie projektu, ani z etykietą o tej samej nazwie w INNEJ placowanej
+instancji tej samej definicji. Zob. §30.1 dla pełnego uzasadnienia tej
+decyzji (przewód wewnątrz makra opisuje jego wewnętrzną strukturę,
+tak jak blok) i §30 ogólnie dla mechanizmu (`wire_scopes`,
+`core/macros.py::expand_project()`).
+
+### 31.3 Różnica względem znaczników (`M.*`/wewnętrznych sygnałów)
+
+Ten projekt ma DWA różne mechanizmy przenoszenia sygnału w inne miejsce
+schematu bez fizycznego przewodu, i łatwo je pomylić:
+
+| | Etykieta przewodu (`Wire.label`) | Znacznik wewnętrzny (`M.*`/`MW.*`, `virtual.input`/`virtual.output`) |
+|---|---|---|
+| Mechanizm | Bezpośrednia krawędź grafu wykonania (`Pin.connect()`) | Zapis/odczyt osobnej komórki pamięci, BEZ bezpośredniej krawędzi między blokiem piszącym a czytającym |
+| Opóźnienie o cykl | **Nigdy** — węzeł uczestniczy w tym samym sortowaniu topologicznym co zwykły przewód, więc kolejność wykonania zawsze gwarantuje świeżą wartość | **Możliwe** — jeśli blok piszący wypadnie w kolejności wykonania PO bloku czytającym w tym samym skanie, odczyt dostaje wartość SPRZED zapisu (ostrzeżenie kompilatora: "Odczyt w bloku wyprzedza zapis") |
+| Zasięg | Kończy się na granicy makrobloku (§31.2) | Globalny w całym projekcie (rejestr `internal_bits` w `project.settings`) |
+| Do czego służy | Skrót rysunkowy — TEN SAM sygnał, inne miejsce na schemacie | Nowy, nazwany sygnał wewnętrzny — świadomie osobny byt, persystentny między skanami |
+
+**Wybór**: etykieta, gdy chodzi wyłącznie o czytelność schematu (za
+długi przewód, sygnał potrzebny w kilku miejscach) i opóźnienie o cykl
+jest niedopuszczalne; znacznik, gdy potrzebna jest nazwana, globalna
+zmienna stanu (retencja między skanami, zamierzone opóźnienie, użycie w
+wielu miejscach BEZ założenia "to jeden i ten sam przewód").
+
+### 31.4 Trzy mechanizmy łatwe do pomylenia: zaślepka, wolny koniec, etykieta
+
+| | Zaślepka wejścia (`Pin.disabled`) | Wolny koniec przewodu (`Wire.has_free_end()`) | Etykieta (`Wire.label`) |
+|---|---|---|---|
+| Co to jest | Wejście świadomie WYŁĄCZONE z `evaluate()` bloku | Przewód z jednym końcem bez podłączonego pinu | Nazwa scalająca węzły (może współistnieć z każdym z powyższych) |
+| Reprezentuje węzeł sieci? | **Nie — brak węzła** | Sam w sobie: nie (dopóki nieoznakowany) | Tak — to WŁAŚNIE etykieta tworzy/rozszerza węzeł |
+| Można oznaczyć etykietą? | **NIE** — nie ma czego scalać, bo nie ma węzła | Tak — to jego główne zastosowanie | (to jest etykieta) |
+| Znacznik na kanwie | Krótki odcinek zakończony poprzeczną kreską (PortItem) | Pogrubiona nazwa + pionowa kreska + znacznik X na przewodzie (bez etykiety: samo "niedokończony przewód", ostrzeżenie) | Tekst nad przewodem (połączenie pełne) albo nad wolnym końcem (jw.) |
+
+Wprost: **zaślepki NIE DA SIĘ oznaczyć etykietą**, ponieważ etykieta
+łączy węzły sieci, a zaślepka to świadomy BRAK węzła — nie ma nic do
+połączenia. Próba nadania etykiety zaślepionemu wejściu nie ma sensu na
+poziomie modelu danych (`Wire` wymaga realnego pinu na przynajmniej
+jednym końcu, `Pin.disabled` i tak wyklucza je z `evaluate()`) i nie
+jest oferowana w interfejsie.
+
+## 32. Elementy najwyższego poziomu projektu (fix/wire-labels-and-project-integrity §B2)
+
+`core/project.py::PROJECT_ELEMENTS = ("blocks", "wires", "settings")`
+— jedna deklaracja, wyprowadzona z rejestrów `core/state_diff.py`
+(`UUID_LIST_KEYS + DICT_KEYS`), nie duplikowana ręcznie. Każda funkcja
+przenosząca lub kopiująca zawartość projektu musi mieć udokumentowaną,
+przetestowaną odpowiedź dla KAŻDEGO z tych trzech elementów — nawet gdy
+poprawną odpowiedzią jest "świadomie pominięte" (np. `settings` nigdy
+nie jest podmieniane przy wejściu/wyjściu z edycji makra — zob. §30).
+`tests/test_project_element_coverage.py` wymusza to dla siedmiu
+ścieżek: serializacji/deserializacji, `state_diff` (undo/redo),
+schowka, rozwijania makr przy kompilacji, wejścia/wyjścia z edycji
+makra, eksportu/importu makra, łańcucha migracji schematu.
+
+To ÓSMY znany przypadek klasy błędu "element dodany do modelu, którego
+jedna ze ścieżek nie zna" (poprzednie siedem: `Pin.connections` przez
+referencję, `Pin.disabled` gubione przy wczytaniu, `execution_state`
+serializowane a nieodtwarzane, `safety_relevant` gubione przez
+`clone()`, piąty niezależny przypadek tej samej klasy przy audycie
+`clone()`, `state_diff` czytające tylko "blocks"/"settings" (przed
+dodaniem "wires"), `QTimer` przeżywający właściciela) — tym razem na
+poziomie CAŁEGO PROJEKTU, nie jednego pola jednej klasy:
+`project.wires` istniał od PR-a wprowadzającego etykiety, a
+`core/macros.py` nie wiedział o nim NIC aż do tego PR-a. `PROJECT_ELEMENTS`
++ `tests/test_project_element_coverage.py` to mechanizm mający uczynić
+dziewiąty przypadek niemożliwym do wysłania niezauważonym — zweryfikowany
+empirycznie (dopisanie tymczasowego, atrapowego czwartego elementu do
+`Project.serialize()` natychmiast wysadziło dokładnie jeden test, bez
+kaskady mylących błędów; usunięcie atrapy przywróciło zielony zestaw).

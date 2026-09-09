@@ -2,7 +2,6 @@
 panel (read-only), rebuilt onto a category-grouped QTreeWidget."""
 import pytest
 from PySide6.QtWidgets import QApplication
-from PySide6.QtTest import QTest
 
 from logic_studio.blocks import register_builtin_blocks
 from logic_studio.blocks.registry import BlockRegistry
@@ -346,18 +345,46 @@ def test_request_refresh_schedules_a_debounced_rebuild(qsettings):
     assert _leaf_count(panel) == 0  # still not rebuilt synchronously
 
 def test_request_refresh_actually_rebuilds_after_the_debounce_window(qsettings):
+    """fix/wire-labels-and-project-integrity §C2: real QTest.qWait(350)
+    replaced with directly firing the timer's own `timeout` — see
+    test_repeated_requests_coalesce_into_one_rebuild's own docstring for
+    why (this is the SAME "other test relying on a real delay" that
+    §C2 asked to find and rewrite the same way)."""
     _app()
     panel = SignalsPanel(settings=qsettings)
     panel.project = Project()
     panel.project.add_block(_di("ELA01.DI01"))
 
     panel.request_refresh()
-    QTest.qWait(350)  # > REFRESH_DEBOUNCE_MS
+    panel._refresh_timer.timeout.emit()  # simulate the debounce window elapsing
     assert _leaf_count(panel) == 1
 
 def test_repeated_requests_coalesce_into_one_rebuild(qsettings):
     """A burst of edits must not cause a burst of rebuilds — only the
-    LAST request_refresh() within the debounce window should fire."""
+    LAST request_refresh() within the debounce window should fire.
+
+    fix/wire-labels-and-project-integrity §C2: rewritten off a
+    controlled clock instead of real QTest.qWait() delays — the
+    original version (5x QTest.qWait(20), then QTest.qWait(350) against
+    a 200ms debounce window) had margins tight enough to fail under a
+    loaded CI machine (confirmed: 2 of 5 full-suite random-order runs
+    in the systematic-sweep audit), even though the debounce mechanism
+    itself was never actually broken. Widening the margin would only
+    postpone the same flake to a slower machine — the fix is to not
+    depend on real elapsed time at all.
+
+    What's actually worth testing here doesn't need real time in the
+    first place: repeated request_refresh() calls must keep restarting
+    the SAME QTimer (Qt's own well-tested, documented behavior for
+    calling .start() on an already-running timer — not this code's own
+    logic to re-verify) rather than accumulating N separate
+    timeout connections to _rebuild. Firing the timer's own `timeout`
+    signal directly (create_owned_timer()'s dynamic by-name method
+    resolution — see its own docstring — means this reaches whatever
+    `panel._rebuild` currently is, exactly like a real fire would)
+    proves that directly: if request_refresh() had ever re-connected
+    the signal instead of just restarting the timer, one emit() here
+    would call the counting wrapper more than once."""
     _app()
     panel = SignalsPanel(settings=qsettings)
     panel.project = Project()
@@ -371,7 +398,8 @@ def test_repeated_requests_coalesce_into_one_rebuild(qsettings):
 
     for _ in range(5):
         panel.request_refresh()
-        QTest.qWait(20)  # well under the 200ms window each time
+        assert panel._refresh_timer.isActive()  # armed, restarted each time
 
-    QTest.qWait(350)
+    panel._refresh_timer.timeout.emit()  # simulate the eventual real fire
+
     assert rebuild_count["n"] == 1

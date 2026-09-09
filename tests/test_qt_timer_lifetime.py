@@ -90,6 +90,74 @@ def test_no_direct_qtimer_construction_outside_the_sanctioned_factory(path):
 
 
 # ============================================================================
+# fix/wire-labels-and-project-integrity §C1.1 — the SAME disease, other Qt
+# classes with their own independent lifecycle. create_owned_timer() only
+# ever covers QTimer specifically; none of the classes below are used
+# ANYWHERE in this codebase today (confirmed by this test itself, not just
+# a one-off grep) — this closed, currently-empty list exists so the
+# instant one of them IS introduced, whoever adds it is forced to
+# consciously decide how its lifetime is managed (a QThread outliving the
+# window that started it is a far more serious version of the exact same
+# bug fix/qtimer-lifetime closed for QTimer — a stuck background thread,
+# not just a stray callback) rather than it slipping in unnoticed the way
+# the original bare QTimer() in pulse_highlight() did.
+# ============================================================================
+
+_OTHER_LIFECYCLE_CLASSES = (
+    "QThread", "QPropertyAnimation", "QTimeLine", "QMovie",
+    "QSequentialAnimationGroup", "QParallelAnimationGroup",
+    "QVariantAnimation", "QAbstractAnimation",
+)
+
+
+def _lifecycle_class_call_lines(path: Path) -> dict:
+    """Same ast-based approach as _qtimer_call_lines() (a *mention* in a
+    comment/docstring — this very file's own, included — must never be
+    mistaken for a real call): returns {class_name: [lineno, ...]} for
+    every direct `ClassName(...)` construction found."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    hits = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = None
+        if isinstance(func, ast.Name):
+            name = func.id
+        elif isinstance(func, ast.Attribute):
+            name = func.attr
+        if name in _OTHER_LIFECYCLE_CLASSES:
+            hits.setdefault(name, []).append(node.lineno)
+    return hits
+
+
+@pytest.mark.parametrize(
+    "path", _all_source_files(),
+    ids=lambda p: str(p.relative_to(_SRC_ROOT)).replace("\\", "/"),
+)
+def test_no_other_qt_lifecycle_object_used_anywhere_yet(path):
+    """§C1.1: confirms today's audit finding (none of QThread/
+    QPropertyAnimation/QTimeLine/QMovie/QSequentialAnimationGroup/
+    QParallelAnimationGroup/QVariantAnimation/QAbstractAnimation are used
+    ANYWHERE in logic_studio/) stays true — and fails loudly, by class
+    name and line number, the moment one is introduced without a
+    corresponding, deliberate update to this test (and, expected
+    alongside it, a real answer for how that object's lifetime is
+    managed — the conversation this test exists to force)."""
+    hits = _lifecycle_class_call_lines(path)
+    assert hits == {}, (
+        f"{path}: found direct construction of {sorted(hits)} — none of "
+        "these Qt classes with their own independent lifecycle (a "
+        "background thread, a running animation) were used anywhere in "
+        "this codebase as of fix/wire-labels-and-project-integrity §C1. "
+        "Before using one here, decide explicitly how its lifetime is "
+        "bounded (owner, explicit stop on teardown, guard against a "
+        "destroyed target) — see ui/qt_lifetime.py's own docstring for "
+        "why this matters — then update this test's own expectations."
+    )
+
+
+# ============================================================================
 # create_owned_timer() itself
 # ============================================================================
 

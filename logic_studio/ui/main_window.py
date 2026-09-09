@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import QMainWindow, QSplitter, QWidget, QVBoxLayout, QTabWidget, QStatusBar, QToolBar, QLabel
 from PySide6.QtGui import QAction, QKeySequence, QActionGroup
-from PySide6.QtCore import Qt, QSettings
+from PySide6.QtCore import Qt, QSettings, QPointF
 
 from logic_studio.ui.canvas.scene import LogicScene
 from logic_studio.ui.canvas.view import LogicView
@@ -321,9 +321,16 @@ class MainWindow(QMainWindow):
         # Device Explorer — kept as self.left_tabs (not a local variable)
         # so the block context menu (§4) can switch to it programmatically.
         self.signals_panel = SignalsPanel(settings=self.settings)
+        # fix/wire-labels-and-project-integrity §A5: fourth left tab,
+        # QTabWidget already supports it with no restructuring —
+        # every network node compiler/label_merge.py can resolve, in
+        # one table.
+        from logic_studio.ui.panels.labels import LabelsPanel
+        self.labels_panel = LabelsPanel(settings=self.settings)
         left_tabs.addTab(library_splitter, "Library")
         left_tabs.addTab(self.device_panel, "Device Explorer")
         left_tabs.addTab(self.signals_panel, "Sygnały")
+        left_tabs.addTab(self.labels_panel, "Etykiety")
         self.left_tabs = left_tabs
 
         # feat/signal-watch: pinned signals for continuous monitoring during
@@ -477,6 +484,12 @@ class MainWindow(QMainWindow):
         # the first one after a clean state — request_refresh() itself is
         # what debounces a burst of these into one actual rebuild.
         self.signals_panel.request_refresh()
+        # fix/wire-labels-and-project-integrity §A5: same reasoning as
+        # signals_panel above — a label can be added/renamed/removed by
+        # any edit, not just the wire-context-menu actions that call
+        # window._reconstruct_scene() (and thus already show the CANVAS
+        # side immediately) — this keeps the panel's own table current.
+        self.labels_panel.request_refresh()
         self._update_disabled_blocks_status()
 
     def _refresh_project_dependent_panels(self):
@@ -497,6 +510,11 @@ class MainWindow(QMainWindow):
         # macro_definitions (a per-project registry, unlike every other
         # category, which is a fixed BlockRegistry class list).
         self.library_panel.set_project(self.project)
+        # fix/wire-labels-and-project-integrity §A5: same coverage as
+        # signals_panel above — load/undo/redo swap the whole project,
+        # this rebuilds the labels table from its (possibly different)
+        # wires list.
+        self.labels_panel.set_project(self.project)
         self._update_disabled_blocks_status()
 
     # ---- feat/macro-blocks: breadcrumb navigation "into" a macro ------------
@@ -530,11 +548,25 @@ class MainWindow(QMainWindow):
                 f"Definicja odwołuje się do nieznanych typów bloków: {', '.join(unknown_type_ids)}"
             )
             return
+        # fix/wire-labels-and-project-integrity §B1.2: project.wires is
+        # swapped IN LOCKSTEP with project.blocks now — before this, it
+        # stayed pointed at the top-level project's own list for the
+        # whole time a macro was being edited, which made
+        # check_wire_pin_consistency() false-positive on every top-level
+        # Wire (its pins simply weren't in the swapped project.blocks
+        # any more) and silently dropped/misplaced any Wire drawn while
+        # inside the macro's own view (§9.4 of the audit that found this).
+        wires = macros_module.instantiate_definition_wires(definition)
 
         self.stop_simulation()
-        self._macro_nav_stack.append({"def_id": self.current_macro_def_id, "blocks": self.project.blocks})
+        self._macro_nav_stack.append({
+            "def_id": self.current_macro_def_id,
+            "blocks": self.project.blocks,
+            "wires": self.project.wires,
+        })
         self.current_macro_def_id = def_id
         self.project.blocks = blocks
+        self.project.wires = wires
         self.scene.clear()
         self._reconstruct_scene()
         self._refresh_project_dependent_panels()
@@ -542,19 +574,24 @@ class MainWindow(QMainWindow):
 
     def _navigate_to_breadcrumb_index(self, index: int):
         """Exits levels one at a time (innermost first, each one COMMITTED
-        back into its own definition via update_definition_blocks() before
-        being popped) until the nav stack matches `index` — the position
-        clicked in the breadcrumb trail. A no-op if `index` is already the
-        current level (BreadcrumbBar never actually emits this for the
-        last/current entry, but nothing here should depend on that)."""
+        back into its own definition via update_definition_blocks()/
+        update_definition_wires() before being popped) until the nav
+        stack matches `index` — the position clicked in the breadcrumb
+        trail. A no-op if `index` is already the current level
+        (BreadcrumbBar never actually emits this for the last/current
+        entry, but nothing here should depend on that)."""
         from logic_studio.core import macros as macros_module
 
         while len(self._macro_nav_stack) > index:
             if self.current_macro_def_id is not None:
                 macros_module.update_definition_blocks(self.project, self.current_macro_def_id, self.project.blocks)
+                # fix/wire-labels-and-project-integrity §B1.2: committed
+                # in the SAME breath as blocks, never left behind.
+                macros_module.update_definition_wires(self.project, self.current_macro_def_id, self.project.wires)
             parent = self._macro_nav_stack.pop()
             self.current_macro_def_id = parent["def_id"]
             self.project.blocks = parent["blocks"]
+            self.project.wires = parent["wires"]
 
         self.scene.clear()
         self._reconstruct_scene()
@@ -1080,12 +1117,40 @@ class MainWindow(QMainWindow):
     def _reconstruct_scene(self):
         from logic_studio.ui.canvas.block_item import BlockItem
         from logic_studio.ui.canvas.wire_item import WireItem
+        from logic_studio.ui.canvas.port_item import PortItem
+        from logic_studio.compiler.label_merge import describe_label_groups
 
         block_items = {}
         for block in self.project.blocks:
             item = BlockItem(block)
             self.scene.addItem(item)
             block_items[block.uuid] = item
+
+        pin_to_port = {}
+        for block in self.project.blocks:
+            item = block_items.get(block.uuid)
+            if not item:
+                continue
+            for child in item.childItems():
+                if isinstance(child, PortItem):
+                    pin_to_port[child.pin.uuid] = child
+
+        # fix/wire-labels-and-project-integrity §A4: one pass over every
+        # label group up front — never recomputed per-wire or inside
+        # paint() (label_merge.py's own docstring on why).
+        label_summary = describe_label_groups(self.project.wires, self.project.blocks)
+
+        def _label_info_for(label: str):
+            return label_summary.get(label.strip().lower()) if label else None
+
+        # A Wire record naming a FULLY-CONNECTED pin pair (§4.1) attaches
+        # its label to the WireItem the physical-connection loop below
+        # already builds — indexed by pin pair up front rather than
+        # searched per-item.
+        wire_by_pin_pair = {}
+        for wire in self.project.wires:
+            if wire.is_fully_connected():
+                wire_by_pin_pair[frozenset((wire.source_pin, wire.dest_pin))] = wire
 
         for block in self.project.blocks:
             item = block_items.get(block.uuid)
@@ -1097,20 +1162,32 @@ class MainWindow(QMainWindow):
                         if not dest_item: continue
                         for in_pin in dest_block.inputs:
                             if in_pin.uuid == conn_uuid:
-                                source_port = None
-                                dest_port = None
-                                from logic_studio.ui.canvas.port_item import PortItem
-                                for child in item.childItems():
-                                    if isinstance(child, PortItem) and child.pin.uuid == out_pin.uuid:
-                                        source_port = child
-                                        break
-                                for child in dest_item.childItems():
-                                    if isinstance(child, PortItem) and child.pin.uuid == in_pin.uuid:
-                                        dest_port = child
-                                        break
+                                source_port = pin_to_port.get(out_pin.uuid)
+                                dest_port = pin_to_port.get(in_pin.uuid)
                                 if source_port and dest_port:
-                                    wire = WireItem(source_port, dest_port)
-                                    self.scene.addItem(wire)
+                                    labeled_wire = wire_by_pin_pair.get(frozenset((out_pin.uuid, in_pin.uuid)))
+                                    info = _label_info_for(labeled_wire.label) if labeled_wire else None
+                                    wire_item = WireItem(source_port, dest_port, wire=labeled_wire, label_info=info)
+                                    self.scene.addItem(wire_item)
+
+        # §A4.2: free-end wires get their OWN WireItem, anchored at
+        # whichever end is real, with a FIXED (not cursor-following)
+        # far end — see WireItem's own note on fixed_free_end vs.
+        # temp_end_point.
+        for wire in self.project.wires:
+            if not wire.has_free_end():
+                continue
+            anchor_pin_uuid = wire.source_pin if wire.source_pin is not None else wire.dest_pin
+            free_pos = wire.free_end_dest if wire.source_pin is not None else wire.free_end_source
+            anchor_port = pin_to_port.get(anchor_pin_uuid)
+            if anchor_port is None or free_pos is None:
+                continue  # dangling reference — nothing to draw
+            info = _label_info_for(wire.label)
+            free_item = WireItem(
+                anchor_port, dest_port=None, wire=wire,
+                fixed_free_end=QPointF(free_pos["x"], free_pos["y"]), label_info=info,
+            )
+            self.scene.addItem(free_item)
 
     def _new_project(self):
         if not self.check_dirty_prompt():
