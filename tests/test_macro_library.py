@@ -220,7 +220,7 @@ def test_import_bundle_result_expands_and_compiles_in_the_target_project():
     for b in (di1, di2, do, instance):
         target.add_block(b)
 
-    expanded, errors = expand_project(target)
+    expanded, _wire_scopes, errors = expand_project(target)
     assert errors == []
     assert "logic.and" in {b.type_id for b in expanded}
 

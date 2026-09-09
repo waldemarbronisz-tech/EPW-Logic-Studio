@@ -21,7 +21,7 @@ register_builtin_blocks()
 
 
 def _empty_definition(name="X"):
-    return {"name": name, "blocks": [], "input_pins": [], "output_pins": [], "parameters": [], "parameter_bindings": []}
+    return {"name": name, "blocks": [], "wires": [], "input_pins": [], "output_pins": [], "parameters": [], "parameter_bindings": []}
 
 
 def _and_macro_definition():
@@ -168,7 +168,7 @@ def test_build_definition_unconnected_pins_are_not_exposed():
 
 def test_expand_project_on_empty_project():
     p = Project()
-    expanded, errors = expand_project(p)
+    expanded, _wire_scopes, errors = expand_project(p)
     assert expanded == []
     assert errors == []
 
@@ -190,7 +190,7 @@ def test_expand_project_replaces_instance_with_definition_blocks():
     for b in (di1, di2, do, inst):
         p.add_block(b)
 
-    expanded, errors = expand_project(p)
+    expanded, _wire_scopes, errors = expand_project(p)
     assert errors == []
 
     type_ids = {b.type_id for b in expanded}
@@ -230,7 +230,7 @@ def test_expand_project_preserves_safety_relevant_on_an_ordinary_block():
     p.add_block(ai_di)
     p.add_block(gate)
 
-    expanded, errors = expand_project(p)
+    expanded, _wire_scopes, errors = expand_project(p)
     assert errors == []
 
     expanded_gate = next(b for b in expanded if b.uuid == gate.uuid)
@@ -263,7 +263,7 @@ def test_expand_project_preserves_safety_relevant_on_a_macro_internal_block():
     for b in (di1, di2, do, inst):
         p.add_block(b)
 
-    expanded, errors = expand_project(p)
+    expanded, _wire_scopes, errors = expand_project(p)
     assert errors == []
 
     inner_gate = next(b for b in expanded if b.type_id == "logic.and")
@@ -297,7 +297,7 @@ def test_expand_project_preserves_disabled_on_a_macro_internal_input_pin():
     for b in (di, do, inst):
         p.add_block(b)
 
-    expanded, errors = expand_project(p)
+    expanded, _wire_scopes, errors = expand_project(p)
     assert errors == []
 
     inner_gate = next(b for b in expanded if b.type_id == "logic.and")
@@ -334,7 +334,7 @@ def test_expand_project_gives_independent_uuids_to_multiple_instances():
     p.add_block(inst1)
     p.add_block(inst2)
 
-    expanded, errors = expand_project(p)
+    expanded, _wire_scopes, errors = expand_project(p)
     assert errors == []
 
     gates = [b for b in expanded if b.type_id == "logic.and"]
@@ -349,7 +349,7 @@ def test_expand_project_reports_missing_definition():
     inst = MacroInstanceBlock(def_id="doesnotexist")
     p.add_block(inst)
 
-    expanded, errors = expand_project(p)
+    expanded, _wire_scopes, errors = expand_project(p)
     assert expanded == []
     assert len(errors) == 1
     assert "doesnotexist" in errors[0]
@@ -364,7 +364,7 @@ def test_expand_project_reports_unknown_block_type_inside_a_definition():
     inst = MacroInstanceBlock(def_id=def_id)
     p.add_block(inst)
 
-    expanded, errors = expand_project(p)
+    expanded, _wire_scopes, errors = expand_project(p)
     assert expanded == []
     assert len(errors) == 1
     assert "logic.does_not_exist" in errors[0]
@@ -380,7 +380,7 @@ def test_expand_project_detects_direct_self_reference_cycle():
     inst = MacroInstanceBlock(def_id=def_id)
     p.add_block(inst)
 
-    expanded, errors = expand_project(p)
+    expanded, _wire_scopes, errors = expand_project(p)
     assert expanded == []
     assert any("cykl" in e.lower() for e in errors)
 
@@ -419,7 +419,7 @@ def test_expand_project_supports_nesting_a_macro_inside_another_macro():
     p.add_block(inst_b_1)
     p.add_block(inst_b_2)
 
-    expanded, errors = expand_project(p)
+    expanded, _wire_scopes, errors = expand_project(p)
     assert errors == []
 
     gates = [b for b in expanded if b.type_id == "logic.and"]
@@ -553,7 +553,7 @@ def test_expand_project_errors_when_boundary_anchors_directly_on_a_nested_instan
     for b in (di, instance_b, do):
         p.add_block(b)
 
-    expanded, errors = expand_project(p)
+    expanded, _wire_scopes, errors = expand_project(p)
 
     assert expanded == []
     assert len(errors) >= 1

@@ -294,7 +294,7 @@ def test_compiled_ton_properties_carry_each_instances_own_value():
     inst1 = _place_instance(p, def_id, "ELA01.DI01", "ADA01.DO01", param_value=300)
     inst2 = _place_instance(p, def_id, "ELA01.DI02", "ADA01.DO02", param_value=700)
 
-    expanded, errors = M.expand_project(p)
+    expanded, _wire_scopes, errors = M.expand_project(p)
     assert errors == []
     presets = sorted(b.properties["Preset (ms)"] for b in expanded if b.type_id == "timer.ton")
     assert presets == [300, 700]
@@ -307,7 +307,7 @@ def test_unbound_instance_falls_back_to_the_definitions_own_value():
     def_id, ton_uuid, _ = _make_delay_macro(p, preset_ms=500)
     _place_instance(p, def_id, "ELA01.DI01", "ADA01.DO01")  # no param_value override
 
-    expanded, errors = M.expand_project(p)
+    expanded, _wire_scopes, errors = M.expand_project(p)
     assert errors == []
     ton = next(b for b in expanded if b.type_id == "timer.ton")
     assert ton.properties["Preset (ms)"] == 500
@@ -355,7 +355,7 @@ def test_nested_macro_parameter_reaches_the_deepest_block():
     outer_instance.outputs[0].connect(do.inputs[0])
     p.add_block(di); p.add_block(outer_instance); p.add_block(do)
 
-    expanded, errors = M.expand_project(p)
+    expanded, _wire_scopes, errors = M.expand_project(p)
     assert errors == []
     ton = next(b for b in expanded if b.type_id == "timer.ton")
     assert ton.properties["Preset (ms)"] == 999
@@ -462,7 +462,7 @@ def test_round_tripped_project_still_compiles_with_the_right_presets():
     _place_instance(p, def_id, "ELA01.DI02", "ADA01.DO02", param_value=700)
 
     reloaded = Project.deserialize(p.serialize())
-    expanded, errors = M.expand_project(reloaded)
+    expanded, _wire_scopes, errors = M.expand_project(reloaded)
     assert errors == []
     presets = sorted(b.properties["Preset (ms)"] for b in expanded if b.type_id == "timer.ton")
     assert presets == [300, 700]
@@ -567,7 +567,7 @@ def test_a_macro_with_no_parameters_compiles_and_behaves_unchanged():
     res = c.compile()
     assert res is not None, f"Compile failed: {c.errors}"
 
-    expanded, errors = M.expand_project(p)
+    expanded, _wire_scopes, errors = M.expand_project(p)
     assert errors == []
     ton = next(b for b in expanded if b.type_id == "timer.ton")
     assert ton.properties["Preset (ms)"] == 500  # the definition's own value, untouched

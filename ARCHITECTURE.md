@@ -2728,3 +2728,59 @@ Pełne dane empiryczne (współczynnik crashu PRZED i PO tej naprawie, na
 identycznym zestawie losowań) są w podsumowaniu PR — ten dokument
 notuje wyłącznie, że reguła z §29.1 jest konieczna, ale — jak dotąd
 zmierzone — NIE wystarczająca do pełnego wyeliminowania zjawiska z §34.
+
+## 30. Przewody wewnątrz makrobloku — zakres etykiety kończy się na granicy makra (fix/wire-labels-and-project-integrity §B1)
+
+### 30.1 Decyzja
+
+**Definicja makrobloku przechowuje własną listę przewodów (`Wire`),
+dokładnie tak jak przechowuje własną listę bloków.** Wejście w widok
+edycji makra (`MainWindow.enter_macro_instance()`) podmienia
+`project.blocks` I `project.wires` razem, w tym samym momencie; wyjście
+(`_navigate_to_breadcrumb_index()`) zatwierdza obie listy z powrotem do
+definicji razem, tą samą ścieżką co dotąd wyłącznie bloki.
+
+**Uzasadnienie**: przewód z etykietą wewnątrz makra opisuje WEWNĘTRZNĄ
+strukturę tego konkretnego makra i nie ma żadnego znaczenia poza nim —
+dokładnie tak samo jak blok wewnątrz tej samej definicji. Rozważana
+alternatywa — przewody istniejące wyłącznie na poziomie projektu,
+nigdy wewnątrz definicji makra — została odrzucona: oznaczałaby, że
+etykieta nadana wewnątrz makra PRZECIEKA na zewnątrz, do schematu
+nadrzędnego, i że DWIE RÓŻNE, niezależnie postawione instancje tego
+samego makra dzieliłyby jeden węzeł sieci tylko dlatego, że twórca
+definicji nazwał coś tak samo w obu miejscach wewnątrz niej. To byłoby
+niepoprawne — instancja makra ma być czarną skrzynką, nie oknem, przez
+które nazwy wewnętrznych sygnałów wyciekają na zewnątrz.
+
+Konsekwencja przy kompilacji (`core/macros.py::expand_project()`,
+`compiler/label_merge.py`): każda placowana instancja makra dostaje
+WŁASNY, osobny "zakres etykiet" (`wire_scopes` — lista list `Wire`,
+jedna na poziom projektu plus jedna na każdą faktycznie rozwiniętą
+instancję) — scalanie węzłów po etykiecie (§29 nie, patrz raczej PR
+`fix/wire-labels-and-project-integrity` część A) uruchamiane jest
+OSOBNO dla każdego zakresu, nigdy na spłaszczonej liście wszystkich
+przewodów naraz. Etykieta "X" wewnątrz Instancji A nigdy nie zobaczy
+etykiety "X" wewnątrz Instancji B tej samej definicji, ani etykiety "X"
+na poziomie projektu — dokładnie jak zmienna lokalna w dowolnym języku
+programowania ze statycznym zasięgiem blokowym.
+
+### 30.2 Ósmy przypadek: `_copy_definition()` jako własna, niezależna lista dozwolonych kluczy
+
+Przy weryfikacji tej zmiany znaleziono realny błąd, zanim trafił do
+testów: `core/macros.py::_copy_definition()` — funkcja, przez którą
+KAŻDY odczyt i zapis definicji makra (`get_definition()`/
+`set_definition()`/`get_definitions()`) faktycznie przechodzi — jest
+WŁASNĄ, ręcznie wypisaną listą dozwolonych kluczy (`"name"`, `"blocks"`,
+`"input_pins"`, `"output_pins"`, `"parameters"`, `"parameter_bindings"`),
+niezależną od jakiejkolwiek innej deklaracji w projekcie. Dodanie klucza
+`"wires"` do samej definicji nie wystarczyło — `_copy_definition()` po
+prostu go nie znała, więc każdy zapis znikał cicho przy najbliższym
+odczycie. To ÓSMY, z rzędu, przypadek dokładnie tej samej klasy błędu
+("element dodany do modelu, którego jedna ze ścieżek nie zna") — patrz
+§B2 podsumowania tego PR dla mechanizmu na poziomie CAŁEGO projektu
+(`PROJECT_ELEMENTS`, `core/project.py`), który miał to złapać wcześniej,
+ale nie objął jeszcze tego DRUGIEGO poziomu zagnieżdżenia (elementy
+WEWNĄTRZ jednej definicji makra) — zapisane tu jako świadome
+ograniczenie tego PR-a, nie przeoczenie: naprawiono konkretny znaleziony
+przypadek, mechanizm ogólny na tym poziomie zagnieżdżenia zostaje do
+rozważenia przy kolejnym takim znalezisku.
