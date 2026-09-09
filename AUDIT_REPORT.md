@@ -1,8 +1,18 @@
 # EPW Logic Studio — Pełny raport audytowy (dla Claude.ai)
 
-**Data:** 2026-09-07 (migawka §1-§10 odświeżona do stanu na branchu
-`test/clone-field-coverage`, zbudowanym na `main` commit `13dfec6` — po
-scaleniu PR #33 `fix/safety-and-macro-params`; wszystkie liczby poniżej
+**Data:** 2026-09-09 — TYLKO liczby-nagłówki w §2 odświeżone do stanu na
+branchu `fix/wire-labels-and-project-integrity` (patrz dziennik §44):
+1926 passed + 1 skipped testów, 81 plików testowych, 83 pliki `.py` w
+`logic_studio/`, 161 commitów. To TRZECI raz z rzędu, gdy ta migawka
+odjeżdża od rzeczywistości po kilku PR-ach (poprzednio: 1414→1746
+testów/73→79 plików/143→158 commitów niezauważone aż do tego audytu) —
+propozycja generowania tych liczb skryptem zamiast ręcznego wpisywania
+jest w dzienniku §44, niewdrożona w tym PR. Reszta §1-§10 (opis
+architektury, lista bloków, struktura katalogów) NIE była w tym
+przebiegu weryfikowana zdanie po zdaniu — pozostaje z poprzedniej
+migawki (2026-09-07, branch `test/clone-field-coverage`, `main` commit
+`13dfec6`, po scaleniu PR #33 `fix/safety-and-macro-params`); wszystkie
+liczby poniżej
 wyliczone bezpośrednio z repozytorium na tym branchu, nie przepisane z
 poprzedniej wersji — polecenia użyte do ich wyliczenia podane w każdej
 sekcji. Krótkie zadanie uzupełniające: rozszerzenie testów-strażników pól
@@ -26,7 +36,7 @@ dziennik napraw, jeden wpis na branch/PR, w kolejności chronologicznej,
 
 EPW Logic Studio to wizualny edytor schematów blokowych (FBD — Function Block Diagram) i kompilator/runtime dla platformy automatyki EPW OS. Użytkownik układa bloki logiczne (bramki, timery, liczniki, przerzutniki, bloki I/O, matematyczne, porównania) na kanwie PySide6, łączy je "drutami", a Studio:
 
-1. zapisuje projekt inżynierski jako plik `.epwlogic` (JSON, `format: EPW_LOGIC`, `schema_version: 11`),
+1. zapisuje projekt inżynierski jako plik `.epwlogic` (JSON, `format: EPW_LOGIC`, `schema_version: 13`),
 2. kompiluje go do porządku wykonania (topological sort) i formatu `EPW_RUNTIME_LOGIC` (`schema_version: 4`), z sumą kontrolną SHA-256,
 3. wykonuje go w headless silniku PLC-podobnym (`ExecutionEngine`) — deterministycznie, bez zależności od Qt/zegara systemowego, gotowym do symulacji lub docelowo do uruchomienia na sterowniku EPW.
 
@@ -34,13 +44,13 @@ Stack: **Python 3**, **PySide6 ≥ 6.5** (UI/kanwa), **pytest ≥ 7.0** (testy) 
 
 ## 2. Status repozytorium
 
-- Gałąź: `test/clone-field-coverage` (na `main` commit `13dfec6`, po scaleniu PR #33 `fix/safety-and-macro-params`), jeszcze niescalona.
-- **Testy: 1414/1414 PASS** — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q`, headless, ~40s.
-- **63 pliki testowe** (`tests/test_*.py`) + `conftest.py` + `__init__.py`, **17706 linii** testów — `find tests -name "test_*.py" | xargs wc -l`.
-- **Kod produkcyjny (`logic_studio/`): 17876 linii w 73 plikach `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | xargs wc -l` (+28 linii, wyłącznie w `blocks/base.py`/`core/macros.py` — komentarze i naprawa, zero nowych plików/typów).
-- **69 zarejestrowanych typów bloków w 12 kategoriach** — patrz §5 (polecenie i pełna lista tam), bez zmian od ostatniej migawki. `MacroInstanceBlock` jest, jak zawsze, celowo nigdy rejestrowany w `BlockRegistry`.
+- Gałąź: `fix/wire-labels-and-project-integrity` (na `main` commit `e58bbc5`, po scaleniu PR #37 `fix/qtimer-lifetime`), jeszcze niescalona. (Poprzednia migawka opisywała `test/clone-field-coverage`/`13dfec6` — od tamtej pory scalone: PR #34-#37, patrz dziennik §41-§43.)
+- **Testy: 1926 passed + 1 skipped** (fixed-order, `pytest-qt` wyłączona — patrz §43/dziennik dla uzasadnienia) — `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q -p no:randomly -p "no:pytest-qt"`, headless, ~33s. **NIE stabilne pod losową kolejnością** — patrz dziennik §44: 8 z 13 przebiegów w tej samej sesji zakończyło się crashem procesu w losowej kolejności, w różnych, pozornie niepowiązanych miejscach.
+- **81 plików testowych** (`tests/test_*.py`) + `conftest.py` + `__init__.py` — `find tests -name "test_*.py" | wc -l` (linie tekstu niepoliczone w tym przebiegu — patrz zastrzeżenie na początku dokumentu).
+- **Kod produkcyjny (`logic_studio/`): 83 pliki `.py`** (bez `__pycache__`) — `find logic_studio -name "*.py" | wc -l` (linie tekstu niepoliczone w tym przebiegu).
+- **69 zarejestrowanych typów bloków w 12 kategoriach** — bez zmian od ostatniej migawki (niezweryfikowane ponownie w tym przebiegu — patrz zastrzeżenie). `MacroInstanceBlock` jest, jak zawsze, celowo nigdy rejestrowany w `BlockRegistry`.
 - **10 przykładowych projektów** w `examples/*.epwlogic` — wszystkie otwierają się, kompilują i eksportują z bieżącym kodem (zweryfikowane przy każdym PR, patrz dziennik).
-- **143 commity** w historii (`git log --oneline | wc -l`, przed commitem tej gałęzi) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
+- **161 commitów** w historii (`git log --oneline | wc -l`, przed commitem tej gałęzi) — praca prowadzona przez PR-y typu jedna gałąź/jedna funkcja, każda z własnym wpisem w dzienniku napraw (§11 i dalej).
 
 Istniejące dokumenty w repo: `README.md`, `ARCHITECTURE.md` (obecnie do §27, +§24.13, +§3.3 na tej gałęzi), `REPORT.md` (log kamieni milowych, obecnie do Phase 8 — nieaktualizowany od PR #13/#14/#15/hiperłącza/tego PR, śledzone tylko w tym dzienniku od §20 wzwyż).
 
@@ -137,7 +147,7 @@ Rejestr dekoratorowy: `@BlockRegistry.register` na klasie bloku → wpis w `_blo
   - `watch_history: {}` — nagrane przebiegi (`(t_ms, wartość)`) per obserwowany sygnał (feat/signal-watch, § "let the program save these runs", §23.2 ARCHITECTURE.md) — klucz `"<kind>|<signal_id>"`, czytane/pisane wyłącznie przez `core/watch.py::append_history_sample()`/`get_history()`/`clear_history()`/`clear_all_history()`. Przycinane do `MAX_HISTORY_MS` (4 h).
   - `macro_definitions: {}` — rejestr definicji makrobloków (feat/macro-blocks, §24 ARCHITECTURE.md) — `def_id -> {"name", "blocks", "input_pins", "output_pins"}`, czytane/pisane wyłącznie przez `core/macros.py::get_definition()`/`set_definition()`/`delete_definition()`/`is_definition_in_use()`.
   - `short_id_counters` — licznik per-prefiks, dodawany leniwie przy pierwszym bloku.
-- `serialize()` → `{format: "EPW_LOGIC", schema_version: 11, settings, blocks:[...]}`.
+- `serialize()` → `{format: "EPW_LOGIC", schema_version: 13, settings, blocks:[...]}`.
 - `deserialize()`: odrzuca nieznany `format` lub `schema_version` nowszy niż obsługiwany; **łańcuch migracji** `_MIGRATIONS = {1: v1→v2, 2: v2→v3, 3: v3→v4, 4: v4→v5, 5: v5→v6, 6: v6→v7, 7: v7→v8, 8: v8→v9, 9: v9→v10, 10: v10→v11}` sekwencyjnie podnosi starszy plik do bieżącej wersji przed dalszym przetwarzaniem:
   - v1→v2: wprowadza `analog_points`; usuwa błędnie zapisywane "Force State" z właściwości bloku (przenosi do `simulation_state` przy wczytaniu — runtime-only, nigdy nie powinno trafić do pliku).
   - v2→v3: wprowadza `internal_bits`; migruje wolnotekstowe `Tag` na `virtual.input`/`virtual.output` do zwalidowanego rejestru (`Bit`), scalając duplikaty bez rozróżniania wielkości liter.
@@ -245,7 +255,7 @@ Stan maszyny: `STOPPED / RUNNING / PAUSED / FAULT`. `start()` z `STOPPED` czyśc
 ### 7.3 `RuntimeSnapshot` / `RuntimeBlockState` / `RuntimePinState`
 Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 
-## 8. Testy ([tests/](tests/)) — 1414/1414 PASS
+## 8. Testy ([tests/](tests/)) — 1926 passed + 1 skipped
 
 63 pliki `test_*.py`, 17706 linii. Kilka największych/najbardziej reprezentatywnych plików:
 
@@ -295,7 +305,7 @@ Read-only DTO do inspekcji stanu z UI/testów bez ryzyka mutacji runtime state.
 | `test_wire_routing.py` | kierunek wejścia/wyjścia przewodu z pinu — 6 testów |
 | `test_e2e.py`, `test_isolation.py`, `test_compiler.py`, `test_project.py`, `test_acceptance.py`, ... | pipeline end-to-end, izolacja `CompiledProgram`, kompilator, (de)serializacja projektu, scenariusze akceptacyjne |
 
-Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1414 passed w ~40s**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
+Uruchomienie: `QT_QPA_PLATFORM=offscreen python -m pytest tests/ -q` → **1926 passed + 1 skipped w ~33s (fixed-order; patrz dziennik §44 dla niestabilności pod losową kolejnością)**, w pełni headless (CI: `.github/workflows/pytest.yml`, Linux + Qt offscreen, kolejność losowana przez `pytest-randomly` — patrz dziennik §19 dla historii jego naprawy, §21 dla stałej randomizacji).
 
 ## 9. Znane problemy i uwagi z audytu (wyłącznie OTWARTE)
 
@@ -1969,6 +1979,155 @@ plików testowych (każdy ma własny, prawie identyczny `_app()`/`_close()`)
 uznany za osobne, dużo większe zadanie, świadomie odłożone — nowe testy
 w tym PR używają nowych fixture'ów jako przykładu, istniejące pliki
 zostawione bez zmian.
+
+## 44. Etykiety przewodów dokończone, ósmy przypadek "elementu bez pokrycia ścieżek" na poziomie CAŁEGO projektu, i CI wciąż niestabilne pod losową kolejnością (branch `fix/wire-labels-and-project-integrity`)
+
+Trzy powiązane części, jedna gałąź.
+
+**Część A — dokończenie etykiet przewodów.** `feat/wire-labels` zbudowało
+model danych (Wire z wolnym końcem i etykietą) i NIGDY nie zbudowało
+jedynej rzeczy, dla której powstał: scalania węzłów po etykiecie —
+dwa przewody z tą samą nazwą po prostu nie przenosiły sygnału,
+kompilator milczał. `compiler/label_merge.py` (nowy): grupuje przewody
+po etykiecie (bez uwzględniania wielkości liter, spacje-only liczą się
+jako brak etykiety — poprawka po informacji zwrotnej: pierwotna
+instrukcja zadania sama sobie zaprzeczała, każąc to samo potraktować
+i jako błąd, i jako istniejące ostrzeżenie do zachowania — autor
+zadania potwierdził, że to jego pomyłka, zostaje ostrzeżenie), łączy
+je BEZPOŚREDNIM `Pin.connect()` na sklonowanych pinach widoku
+kompilacji — nigdy na żywym projekcie — PRZED Walidatorem (kolejność
+odwrotna dawała fałszywe "wejście niepodłączone" o jeden etap za
+wcześnie, znalezione i poprawione podczas ręcznej weryfikacji tego PR-a
+zanim trafiło do testów). Test akceptacyjny: projekt z etykietą i
+identyczny projekt z przewodem wprost dają IDENTYCZNY `execution_order`
+i identyczny wynik symulacji — potwierdzone bezpośrednio, w tym na
+specjalnie dobranych przypadkach (źródło zadeklarowane w projekcie PO
+odbiorniku; jedno źródło, trzech odbiorców — realistyczny "jeden sygnał
+na pięć stron schematu"), gdzie prostszy dwublokowy przypadek mógłby
+wyjść poprawnie przypadkiem niezależnie od tego, czy scalanie faktycznie
+działa. Walidacja: błąd dla braku źródła / więcej niż jednego źródła
+(z nazwami bloków po short_id) / niezgodności typu (dziedziczonego z
+pinu wyjściowego, jak przy zwykłym przewodzie); ostrzeżenie dla źródła
+bez odbiorcy. Menu kontekstowe (przewód: nadaj/usuń etykietę, zamień na
+odnośnik; port niepodłączony: dodaj odnośnik), okno nazwy z
+podpowiadaniem (`QCompleter`, dopasowanie w dowolnym miejscu tekstu) i
+wykrywaniem literówki (odległość edycyjna ≤1, dopasowanie
+bez-uwzględniania-wielkości-liter wyłączone z tego — to ten sam węzeł,
+nie literówka) — żadne z tego nie istniało wcześniej, zweryfikowane
+greppem przed rozpoczęciem pracy. Rysowanie (tekst nad przewodem, tło w
+kolorze płótna; wolny koniec: pogrubiona nazwa, pionowa kreska, znacznik
+X celowo różny kształtem od zaślepki wejścia; kolor błędu z
+`describe_label_groups()`, liczone RAZ na przebudowę sceny, nigdy w
+`paint()`) i nawigacja (dwuklik/Enter na oznakowanym wolnym końcu —
+rozszerzenie `ui/canvas/navigation.py`, nie druga implementacja) — test
+geometryczny na prostokątach potwierdza brak nachodzenia etykiety na
+własny blok ani na inną etykietę. Czwarta zakładka "Etykiety" w
+`left_tabs`, wzorem `SignalsPanel`.
+
+**Część B — ósmy przypadek, tym razem na poziomie CAŁEGO projektu.**
+`core/macros.py` miało ZERO odwołań do `project.wires` — edycja
+wewnątrz makra dawała fałszywe alarmy `check_wire_pin_consistency()`
+dla każdego przewodu najwyższego poziomu i cicho gubiła każdy przewód
+narysowany wewnątrz makra. Decyzja (ARCHITECTURE.md §30.1): definicja
+makra dostaje WŁASNĄ listę przewodów, zakresowaną dokładnie jak listę
+bloków — wejście/wyjście z edycji makra podmienia obie razem; etykieta
+wewnątrz makra nigdy nie scala się z etykietą na poziomie projektu ani
+w innej instancji tej samej definicji (zweryfikowane mutacyjnie:
+spłaszczenie zakresów z powrotem w jeden i potwierdzenie, że dwa testy
+scoping wtedy PADAJĄ z prawdziwym błędem "więcej niż jedno źródło", nie
+asercja pozorna). Znaleziony PODCZAS ręcznej weryfikacji, zanim trafił
+do testów: `core/macros.py::_copy_definition()` — funkcja, przez którą
+KAŻDY odczyt/zapis definicji faktycznie przechodzi — jest WŁASNĄ,
+niezależną listą dozwolonych kluczy; `"wires"` w niej nie było, więc
+każdy zapis znikał cicho przy najbliższym odczycie. Ósmy z rzędu
+przypadek dokładnie tej klasy błędu (ARCHITECTURE.md §30.2).
+
+Mechanizm ogólny na poziomie PROJEKTU (nie jednej klasy):
+`PROJECT_ELEMENTS = ("blocks", "wires", "settings")` (`core/project.py`,
+wyprowadzone z rejestrów `state_diff.py`, nie duplikowane ręcznie) +
+`tests/test_project_element_coverage.py`, jedna odpowiedź na siedem
+ścieżek dla każdego elementu (serializacja, `state_diff`, schowek,
+rozwijanie makr, wejście/wyjście z edycji makra, eksport/import makra,
+migracja schematu) — łącznie z "świadomie pominięte" jako poprawną
+odpowiedzią (np. `settings` nigdy nie jest podmieniane przy edycji
+makra). Zweryfikowane empirycznie zgodnie z instrukcją zadania:
+dopisanie tymczasowego, atrapowego czwartego elementu do
+`Project.serialize()` wysadziło DOKŁADNIE JEDEN test (meta-test
+`state_diff`), bez kaskady mylących błędów w pozostałych 1842 — usunięcie
+atrapy przywróciło zielony zestaw. `EPWLOGIC_SCHEMA_VERSION` 12 → 13
+(migracja: istniejące definicje makr dostają `"wires": []`).
+
+**Część C — stabilność CI, wciąż nie w pełni rozwiązana, zaraportowana
+uczciwie.** §C1.1: test audytujący AST rozszerzony poza `QTimer` na
+`QThread`/`QPropertyAnimation`/`QTimeLine`/`QMovie`/
+`QSequentialAnimationGroup`/`QParallelAnimationGroup`/`QVariantAnimation`/
+`QAbstractAnimation` — ŻADEN z nich nie występuje nigdzie w kodzie
+(potwierdzone samym testem, nie tylko jednorazowym greppem); test
+utrzymuje to jako zamkniętą, dziś pustą listę, więc pierwsze użycie
+któregokolwiek zostanie wykryte natychmiast. §C1.2: ponowny przegląd
+wszystkich 139 wywołań `.connect()` — `Project` to nadal zwykła klasa
+Pythona bez sygnałów Qt (nic, co mogłoby się zdezaktualizować przy
+`self.project = ...`), `self.scene`/`MainWindow` nigdy nie są
+podmieniane po konstrukcji, żaden dialog nie podłącza się do sygnału
+obiektu spoza siebie — trzy nowe połączenia z Części A (przyciski
+dialogu etykiety, tabela panelu Etykiety) sprawdzone osobno, bezpieczne
+(nadawca i odbiornik to ta sama para rodzic-dziecko). Brak nowej
+instancji tej choroby znalezionej.
+
+§C2: dwa testy z rzeczywistymi opóźnieniami (`QTest.qWait`) w
+`tests/test_signals_panel.py` przepisane na bezpośrednie wywołanie
+`timer.timeout.emit()` zamiast czekania — debounce sam w sobie jest
+mechanizmem Qt (restart już działającego `QTimer.start()`), więc
+wystarczy sprawdzić, że powtórne wywołania trzymają JEDNO połączenie
+sygnału, nie ile ich się nazbiera. Trzeci test (`test_canvas_navigation.py`,
+`pulse_highlight`) miał już wcześniej solidne obejście z pollingiem
+(±2s margines na ~40ms animację) — przepisany mimo to na bezpośrednie
+odpalenie `timeout` dokładnie `cycles` razy przez `scene.findChildren(QTimer)`,
+zgodnie z zasadą zadania: poszerzanie marginesu to obejście, nie
+rozwiązanie, nawet gdy margines już jest duży.
+
+§C3: DZIESIĘĆ przebiegów całego zestawu w losowej kolejności (bez
+`pytest-qt` — patrz §43 dla uzasadnienia tego wyłączenia, niezwiązanego
+z żadnym prawdziwym błędem): **5 zielonych, 5 z crashem procesu**
+(`Fatal Python error: Aborted`), w różnych miejscach (78%, 52%, 70%,
+63%, 63% postępu) — GORZEJ niż poprzedni pomiar audytu systematycznego
+(2 z 5). Trzy DODATKOWE przebiegi diagnostyczne z `-v`: 2 zielone, 1
+crash — tym razem z dokładną nazwą testu w chwili crashu
+(`test_qt_timer_lifetime.py::test_guard_object_going_invalid_stops_the_timer_without_calling_back`,
+57% postępu) — ale ten konkretny test przechodzi poprawnie w izolacji i
+w większości pozostałych przebiegów, więc to prawdopodobnie tylko
+miejsce, w którym wcześniejsze, nieznalezione uszkodzenie pamięci akurat
+się objawiło, nie jego przyczyna — dokładnie ten sam wzorzec co poprzednie
+przebiegi, gdzie crash padał za każdym razem w innym, pozornie
+niepowiązanym miejscu.
+
+**NIE UDAJĘ, że to naprawione.** §C1's rozszerzony audyt AST i przegląd
+połączeń sygnałów nie znalazły NIC nowego do naprawienia — mechanizm z
+`fix/qtimer-lifetime` (§43) zamyka KONKRETNĄ, znalezioną wtedy instancję
+(`pulse_highlight`), ale przyczyna źródłowa pozostałej niestabilności
+jest wciąż nieznaleziona. Kandydaci NIE potwierdzeni (brak dowodu za
+ani przeciw w czasie tej sesji): rzeczywista niestabilność natywna
+kombinacji Qt 6.11/PySide6 6.11.2/Python 3.14 pod platformą `offscreen`
+(Python 3.14 wydany dopiero w październiku 2025 — kombinacja z PySide6
+może być słabiej przetestowana niż starsze wersje Pythona); jakiś inny,
+wciąż nieznaleziony bezpański obiekt Qt spoza już sprawdzonej listy
+klas z §C1.1. Zalecenie: jeśli to nie zostanie zamknięte w kolejnej
+sesji, rozważyć uruchomienie pełnego zestawu pod prawdziwym debuggerem
+C++ (gdb/WinDbg z symbolami PySide6) zamiast dalszego zgadywania z
+poziomu Pythona — `<cannot get C stack on this system>` w każdym
+dotychczasowym crashu oznacza, że diagnostyka czysto pythonowa
+osiągnęła swój sufit.
+
+Zmienione pliki: `logic_studio/compiler/{core,label_merge(nowy),validator}.py`,
+`logic_studio/core/{wire,macros,project}.py`,
+`logic_studio/ui/canvas/{scene,wire_item,port_item,navigation,wire_ops(nowy)}.py`,
+`logic_studio/ui/{main_window,label_dialog(nowy)}.py`,
+`logic_studio/ui/panels/labels.py` (nowy), 15 plików testowych (10 nowych,
+5 rozszerzonych), `ARCHITECTURE.md` (§30-§32), `README.md`, ten wpis.
+Testy: 1820 (koniec Części A) → 1843 (koniec Części B) → 1927 zebranych/
+1926 passed + 1 skipped (koniec Części C, fixed-order). Wszystkie 10
+`examples/*.epwlogic` nadal się wczytują, kompilują i eksportują po
+każdej części. `git status --porcelain` puste po każdym commicie.
 
 ## Zasada utrzymania tego dokumentu
 
