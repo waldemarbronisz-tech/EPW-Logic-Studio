@@ -255,23 +255,58 @@ class BlockItem(QGraphicsItem):
             self.height = _round_up_to_grid(max(self.height, min_height))
             self.width = _round_up_to_grid(max(self.width, style.GATE_BODY))
 
+    def doc_text_font(self, bold: bool = None) -> QFont:
+        """feat/wire-detour-and-text-size §B1: the font every DOC block's
+        own paint/size code should use — point size from this block's own
+        "Rozmiar tekstu (pkt)" property (documentation.py's TEXT_SIZE_KEY;
+        not imported directly — this module already imports `style`, and
+        the property key itself is UI-agnostic core state), falling back
+        to the pre-existing per-type style.FONT_SIZE_DOC_* constant only
+        for a project saved before this property existed (§B2: no schema
+        migration — a missing key just means "the default", exactly what
+        BaseLogicBlock.deserialize() now guarantees by merging onto a
+        freshly-constructed block's own properties instead of replacing
+        them outright). `bold` defaults to True for doc.section (its
+        existing look), False otherwise — pass explicitly to override."""
+        fallback = {
+            "doc.section": style.FONT_SIZE_DOC_SECTION,
+            "doc.note": style.FONT_SIZE_DOC_NOTE,
+        }.get(self.type_id, style.FONT_SIZE_DOC_TEXT)
+        size = self.logic_block.properties.get("Rozmiar tekstu (pkt)", fallback)
+        if bold is None:
+            bold = self.type_id == "doc.section"
+        return QFont(style.FONT_FAMILY, int(size), QFont.Bold if bold else QFont.Normal)
+
     def _size_doc_block(self):
         """DOC blocks have no pins to align to a grid, so they size to their
         text content instead (§6.6) — except doc.note, which is manually
-        resizable (§6.6/§6.5): its persisted width/height IS the size, only
-        rounded up to the grid, never recomputed from the text."""
+        resizable (§6.6/§6.5) and word-wraps its (multi-line) text within
+        whatever width the user set, rather than sizing to it.
+
+        feat/wire-detour-and-text-size §B3: "dopasowuje rozmiar do tekstu
+        przy zmianie czcionki" applies to doc.note too now, but NOT by
+        reusing doc.text/doc.section's single-line horizontalAdvance()
+        formula — doc.note's own text wraps within its current WIDTH
+        (_paint_doc_block()'s Qt.TextWordWrap), so a wider one-line
+        measurement would be simply wrong for it. WIDTH stays exactly
+        what the user set (never auto-grown — a narrower note is meant to
+        wrap onto more lines, that's the whole feature, not something to
+        silently override); only HEIGHT grows, and only if the current
+        one is too short to fit the wrapped text at the new font size
+        without clipping (§B3's "tekst nie może wychodzić poza obrys")."""
+        font = self.doc_text_font()
+        text = self.logic_block.properties.get("Text", "") or " "
+        fm = QFontMetricsF(font)
+
         if self.type_id == "doc.note":
-            self.width = _round_up_to_grid(max(self.logic_block.width, style.GATE_BODY))
-            self.height = _round_up_to_grid(max(self.logic_block.height, style.GATE_BODY))
+            width = _round_up_to_grid(max(self.logic_block.width, style.GATE_BODY))
+            inner_width = max(width - 12, 1)  # matches _paint_doc_block()'s own 6px-per-side inset
+            wrapped = fm.boundingRect(QRectF(0, 0, inner_width, 1_000_000.0), Qt.TextWordWrap, text)
+            min_height = _round_up_to_grid(wrapped.height() + 12)
+            self.width = width
+            self.height = _round_up_to_grid(max(self.logic_block.height, style.GATE_BODY, min_height))
             return
 
-        text = self.logic_block.properties.get("Text", "") or " "
-        if self.type_id == "doc.section":
-            font = QFont(style.FONT_FAMILY, style.FONT_SIZE_DOC_SECTION, QFont.Bold)
-        else:
-            font = QFont(style.FONT_FAMILY, style.FONT_SIZE_DOC_TEXT)
-
-        fm = QFontMetricsF(font)
         self.width = _round_up_to_grid(max(fm.horizontalAdvance(text) + 20, style.GATE_BODY))
         self.height = _round_up_to_grid(max(fm.height() + 10, style.GRID_SNAP))
 
@@ -780,7 +815,7 @@ class BlockItem(QGraphicsItem):
             painter.drawRect(rect)
 
             painter.setPen(QPen(style.COLOR_DOC_TEXT))
-            painter.setFont(QFont(style.FONT_FAMILY, style.FONT_SIZE_DOC_NOTE))
+            painter.setFont(self.doc_text_font())
             painter.drawText(rect.adjusted(6, 6, -6, -6), Qt.AlignLeft | Qt.AlignTop | Qt.TextWordWrap, text)
 
             h = style.DOC_NOTE_RESIZE_HANDLE
@@ -793,12 +828,12 @@ class BlockItem(QGraphicsItem):
 
         elif self.type_id == "doc.section":
             painter.setPen(QPen(style.COLOR_OUTLINE))
-            painter.setFont(QFont(style.FONT_FAMILY, style.FONT_SIZE_DOC_SECTION, QFont.Bold))
+            painter.setFont(self.doc_text_font())
             painter.drawText(rect, Qt.AlignLeft | Qt.AlignVCenter, text)
 
         else:  # doc.text
             painter.setPen(QPen(style.COLOR_DOC_TEXT))
-            painter.setFont(QFont(style.FONT_FAMILY, style.FONT_SIZE_DOC_TEXT))
+            painter.setFont(self.doc_text_font())
             painter.drawText(rect, Qt.AlignLeft | Qt.AlignVCenter, text)
 
     def _is_doc_note_resizable(self):
