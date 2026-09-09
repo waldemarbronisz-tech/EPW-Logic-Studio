@@ -57,8 +57,29 @@ class WireItem(QGraphicsPathItem):
 
     def _obstacle_rects(self):
         """Every OTHER block's scene bounding rect — never this wire's own
-        source/destination block, which the wire obviously has to touch.
-        feat/wire-routing-obstacle-avoidance."""
+        source/destination block(s). feat/wire-routing-obstacle-avoidance.
+
+        feat/wire-detour-and-text-size §A1 tried blanket-INCLUDING a
+        wire's own source/dest block(s) here (so the grid search would
+        also treat its own body as something to avoid, not just other
+        blocks) and that broke the existing, working "3rd-party obstacle"
+        case: a port's own scene position can sit measurably INSET from
+        its block's true sceneBoundingRect() edge (confirmed directly —
+        logic.and3's output port here, 15px inside the rect's right
+        edge) — same distance as the fixed stub offset (wire_item.py's
+        `offset = 15`) that's supposed to carry the wire clear of it. The
+        stub point can then land ON or barely INSIDE the block's own
+        (now-inflated-by-a-full-grid-cell, §A2) rect, trapping
+        astar_route() at its own starting cell — every neighbor still
+        reads as blocked, so it gives up immediately (returns None) and
+        the wire falls back to a straight/2-bend path that isn't actually
+        obstacle-checked against anything. Own-block exclusion stays for
+        this general case; only routing.route_self_loop() (§A2, a block
+        wired back to its OWN input/output — its stub segments both point
+        AWAY from the same body, not just inset from one edge of it) is
+        given its source/dest block's rect directly, as `own_rect`, and
+        avoids it by geometric construction rather than grid-search
+        membership, which is what actually keeps it safe from this trap."""
         scene = self.scene()
         if scene is None:
             return []
@@ -78,7 +99,19 @@ class WireItem(QGraphicsPathItem):
         ]
 
     def update_live_state(self):
-        """Update wire color based on source port pin value."""
+        """Update wire color based on source port pin value.
+
+        feat/wire-detour-and-text-size §A4: used to call the FULL
+        update_path() — geometry, obstacle-avoidance routing and all —
+        purely to pick up a color change. This runs once per WireItem on
+        EVERY simulation scan (scene.refresh_live_states(), called by
+        ExecutionEngine after each cycle), independent of whether any
+        block has moved at all: at 600 blocks and a scan running several
+        times a second, re-routing every wire's geometry that often for a
+        value change alone is pure waste. Only _apply_pen() runs here now
+        — the path itself is recomputed exactly when it needs to be,
+        on a block's own ItemPositionHasChanged (block_item.py) or this
+        wire's own creation/reconnection, never on a plain color tick."""
         if not self.source_port or not self.source_port.pin:
             return
 
@@ -90,7 +123,7 @@ class WireItem(QGraphicsPathItem):
         else:
             self.color = style.COLOR_LOGIC_LOW
 
-        self.update_path()
+        self._apply_pen()
 
     def update_path(self):
         if not self.source_port:
@@ -162,15 +195,44 @@ class WireItem(QGraphicsPathItem):
         # costs exactly what it did before this module existed; only a
         # backward/crossing connection in a tight layout pays for the
         # search.
+        #
+        # feat/wire-detour-and-text-size §A2: a SELF-LOOP (this wire's
+        # source and dest port both belong to the SAME block, e.g. a
+        # gate's output wired back to its own input) gets its own
+        # dedicated router — general A* has no notion of "prefer the side
+        # with more free space", which §A2 explicitly asks for, and (see
+        # _obstacle_rects()'s own docstring) grid-search membership is
+        # NOT a safe way to keep a wire off its own block's body anyway.
+        # route_self_loop() avoids that body by direct geometric
+        # construction instead; the general router (own block(s) still
+        # excluded from `obstacles`, as always — see _obstacle_rects())
+        # is only a fallback for when some OTHER obstacle blocks both
+        # sides of the dedicated route.
+        dest_block = self.dest_port.parentItem() if self.dest_port is not None else None
+        is_self_loop = dest_block is not None and dest_block is source_block
+
         obstacles = self._obstacle_rects() if self.dest_port is not None else []
-        middle = routing.route(start_stub, end_stub, obstacles)  # starts with start_stub itself
+
+        if is_self_loop:
+            own_rect = source_block.sceneBoundingRect()
+            middle = routing.route_self_loop(start_stub, end_stub, own_rect, obstacles)
+            if middle is None:
+                middle = routing.route(start_stub, end_stub, obstacles + [own_rect])
+        else:
+            middle = routing.route(start_stub, end_stub, obstacles)  # starts with start_stub itself
         for point in middle:
             path.lineTo(point.x(), point.y())
         if end_stub != end_pos:
             path.lineTo(end_pos.x(), end_pos.y())
 
         self.setPath(path)
+        self._apply_pen()
 
+    def _apply_pen(self):
+        """The color/selection half of what update_path() used to do
+        unconditionally at its own end — split out (§A4) so
+        update_live_state() can pick up a color change without paying
+        for a full geometry/routing recompute it doesn't need."""
         # SquareCap and MiterJoin ensure strict 90-degree visually sharp lines
         pen = QPen(self.color, self.thickness, Qt.SolidLine, Qt.SquareCap, Qt.MiterJoin)
         if self.isSelected():

@@ -12,10 +12,39 @@ search (astar_route()) only runs for the wires that actually need it —
 mostly backward/feedback connections in a tight layout — so a project
 with many blocks doesn't pay pathfinding cost on every drag frame for
 wires that were never going to cross anything anyway.
+
+feat/wire-detour-and-text-size §A1/§A2: a wire's own source/dest
+block(s) used to be UNCONDITIONALLY exempt from every obstacle list
+(wire_item.py::_obstacle_rects()) — correct for the tiny stub segment
+right at the port (drawn directly in update_path(), never even reaching
+this module), wrong for the rest of that block's own body, which a
+routed wire could then freely cut straight through. That exemption is
+gone: every block is a real obstacle now, including a wire's own
+source/dest. The one case this alone doesn't handle well is a
+self-loop (a block's output wired back to its OWN input, §A2) — general
+A*'s tie-breaking has no notion of "prefer the side with more free
+space", so route_self_loop() below is a small, deterministic, purpose-
+built router for exactly that shape: right from the output, over or
+under the block's own body (whichever side has more room; ties go
+up), back in from the left.
 """
 import heapq
+import math
 
 from PySide6.QtCore import QPointF, QRectF
+
+from logic_studio.core.grid import GRID_SIZE
+
+# feat/wire-detour-and-text-size §A2: "at least one grid cell" of
+# clearance between a routed wire and any block's outline — used as the
+# default obstacle-inflation margin everywhere in this module (was a
+# bare 6.0 in two places before this, less than one grid cell and not
+# tied to the same constant the rest of the app snaps block positions
+# to). A stub's own fixed 15px offset (wire_item.py) still clears this
+# margin comfortably (15 > 10), so a wire's own final approach segment
+# is never mistaken for crossing its own, now-no-longer-exempt source/
+# dest block — see routing.py's own module docstring update below.
+_OBSTACLE_MARGIN = GRID_SIZE
 
 
 def candidate_path(start: QPointF, end: QPointF) -> list:
@@ -52,7 +81,7 @@ def _segment_intersects_rect(p1: QPointF, p2: QPointF, rect: QRectF) -> bool:
     return seg_rect.intersects(rect)
 
 
-def path_intersects_obstacles(waypoints: list, obstacles: list, margin: float = 6.0) -> bool:
+def path_intersects_obstacles(waypoints: list, obstacles: list, margin: float = _OBSTACLE_MARGIN) -> bool:
     """True if any segment of `waypoints` enters any rect in `obstacles`
     (each inflated by `margin`, so a wire doesn't visually hug a block's
     edge even when it technically clears it)."""
@@ -80,7 +109,7 @@ _MAX_CELLS = 60000  # safety cap on total grid cells explored; beyond
                     # the caller falls back to the plain candidate_path().
 
 
-def astar_route(start: QPointF, end: QPointF, obstacles: list, cell_size: float = 10.0):
+def astar_route(start: QPointF, end: QPointF, obstacles: list, cell_size: float = GRID_SIZE):
     """4-directional grid search from `start` to `end` avoiding every rect
     in `obstacles`, returning a simplified (collinear runs merged) list of
     QPointF waypoints — or None if no path was found within the bounded
@@ -114,7 +143,7 @@ def astar_route(start: QPointF, end: QPointF, obstacles: list, cell_size: float 
     if (max_cx - min_cx) * (max_cy - min_cy) > _MAX_CELLS:
         return None
 
-    inflated = [r.adjusted(-6.0, -6.0, 6.0, 6.0) for r in obstacles]
+    inflated = [r.adjusted(-_OBSTACLE_MARGIN, -_OBSTACLE_MARGIN, _OBSTACLE_MARGIN, _OBSTACLE_MARGIN) for r in obstacles]
 
     def blocked(cell):
         p = to_point(cell)
@@ -194,3 +223,97 @@ def route(start: QPointF, end: QPointF, obstacles: list) -> list:
         return simple
     routed = astar_route(start, end, obstacles)
     return routed if routed else simple
+
+
+def _round_away(base: float, target: float, cell_size: float, direction: int) -> float:
+    """The smallest `base + k*cell_size` (k a positive integer) that is at
+    least as far from `base`, in `direction` (-1 toward smaller Y/"up",
+    +1 toward larger Y/"down"), as `target` — on the SAME relative grid
+    astar_route() already uses (anchored at the wire's own stub point,
+    not absolute scene coordinates — see this module's own docstring),
+    so a self-loop's detour bend points land exactly where a general A*
+    route's would. Always moves at least one full cell_size step, even if
+    `target` technically needs less — a detour landing back on `base`
+    itself would defeat the whole point of routing around something."""
+    delta = (target - base) * direction
+    steps = max(1, math.ceil(delta / cell_size))
+    return base + direction * steps * cell_size
+
+
+def _free_vertical_space(rect: QRectF, obstacles: list, direction: int, cap: float = 2000.0) -> float:
+    """Distance from `rect`'s own top (direction=-1) or bottom
+    (direction=+1) edge to the nearest OTHER obstacle that overlaps its
+    horizontal extent — capped at `cap` so "nothing up there for 50
+    screens" doesn't out-rank a genuinely tighter but still-clear gap on
+    the other side by an arbitrary amount; only which side has MORE room
+    within a sane visible range matters for §A2's side choice."""
+    edge = rect.top() if direction == -1 else rect.bottom()
+    best = cap
+    for obstacle in obstacles:
+        if obstacle.right() <= rect.left() or obstacle.left() >= rect.right():
+            continue  # no horizontal overlap with `rect` -- irrelevant to this gap
+        gap = (edge - obstacle.bottom()) if direction == -1 else (obstacle.top() - edge)
+        if gap >= 0:
+            best = min(best, gap)
+    return best
+
+
+def route_self_loop(start: QPointF, end: QPointF, own_rect: QRectF, obstacles: list,
+                     cell_size: float = GRID_SIZE, clearance: float = GRID_SIZE) -> list:
+    """feat/wire-detour-and-text-size §A2: `start`/`end` are a block's own
+    output/input stubs (already padded outward by wire_item.py). Routes
+    up-and-over or down-and-under `own_rect` — never through it, and
+    never running FLUSH along it either — choosing whichever side has
+    more free vertical space (ties go to "up", the smaller-Y side, per
+    §A2), with at least `clearance` (default one grid cell) between the
+    detour and the block's own outline on every side it passes, snapped
+    outward to the nearest grid line so it never ends up closer than
+    that minimum after rounding.
+
+    A stub lands exactly ON its own block's edge by this app's own
+    convention (the port itself is inset from the block's true
+    sceneBoundingRect() by the same fixed distance wire_item.py's own
+    stub offset then re-adds — confirmed directly, not assumed; see
+    wire_item.py::_obstacle_rects()'s docstring) — so the vertical riser
+    right at `start.x()`/`end.x()` would otherwise run exactly along that
+    edge, touching it, not clearing it. Each riser is pushed `clearance`
+    further out (away from own_rect's own horizontal center) BEFORE
+    turning to cross above/below — six points, five segments, still
+    fully orthogonal (§A3).
+
+    `own_rect` is handled directly here, NOT via `obstacles` — the caller
+    should not include the self-loop's own block in that list. Returns
+    None if BOTH sides are blocked by some OTHER obstacle in the way, so
+    the caller can fall back to the general route()/astar_route() around
+    every obstacle including this block's own body."""
+    free_up = _free_vertical_space(own_rect, obstacles, direction=-1)
+    free_down = _free_vertical_space(own_rect, obstacles, direction=1)
+    sides = (-1, 1) if free_up >= free_down else (1, -1)  # tie -> up first
+
+    center_x = own_rect.center().x()
+    start_out = 1 if start.x() >= center_x else -1  # which way is "away from the block" for this stub
+    end_out = 1 if end.x() >= center_x else -1
+    riser_start = QPointF(start.x() + start_out * clearance, start.y())
+    riser_end = QPointF(end.x() + end_out * clearance, end.y())
+
+    for direction in sides:
+        target = (own_rect.top() - clearance) if direction == -1 else (own_rect.bottom() + clearance)
+        detour_y = _round_away(start.y(), target, cell_size, direction)
+        detour_top = QPointF(riser_start.x(), detour_y)
+        detour_bottom = QPointF(riser_end.x(), detour_y)
+        path = [start, riser_start, detour_top, detour_bottom, riser_end, end]
+        # own_rect is checked only against the DETOUR itself (riser_start
+        # -> ... -> riser_end) — the two outer segments (start->riser_start,
+        # riser_end->end) start/end exactly ON own_rect's own edge BY
+        # DESIGN (see this function's docstring) and always register as
+        # "touching" a margin=0 check at that shared boundary; that's the
+        # same "final approach segment" §A1 explicitly exempts, not a
+        # real crossing. `obstacles` (every OTHER block) still checks the
+        # FULL path, outer segments included -- a real third-party
+        # obstacle right next to this block's own port is still a real
+        # collision.
+        if not path_intersects_obstacles(path, obstacles) and \
+                not path_intersects_obstacles([riser_start, detour_top, detour_bottom, riser_end],
+                                               [own_rect], margin=0):
+            return path
+    return None

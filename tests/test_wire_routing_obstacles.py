@@ -142,3 +142,60 @@ def test_route_falls_back_to_candidate_path_when_astar_cannot_find_one():
     obstacle = QRectF(100, 100, 50, 50)  # blocks the direct candidate path
     result = routing.route(start, end, [obstacle])
     assert result == routing.candidate_path(start, end)
+
+
+# ---- route_self_loop() — feat/wire-detour-and-text-size §A2 ---------------
+
+def test_route_self_loop_avoids_own_body_and_stays_orthogonal():
+    own_rect = QRectF(100, 100, 60, 80)
+    start, end = QPointF(160, 130), QPointF(90, 170)  # right/left stubs, own_rect's own edges
+    path = routing.route_self_loop(start, end, own_rect, [])
+    assert path is not None
+    assert path[0] == start and path[-1] == end
+    for i in range(len(path) - 1):
+        p1, p2 = path[i], path[i + 1]
+        assert p1.x() == p2.x() or p1.y() == p2.y()
+    # the true detour core (everything but the two stub-approach segments,
+    # which start/end exactly on own_rect's own edge by design) must clear
+    # the body with margin to spare, not merely avoid literally overlapping it
+    assert routing.path_intersects_obstacles(path[1:-1], [own_rect], margin=0) is False
+
+def test_route_self_loop_ties_go_to_the_top():
+    own_rect = QRectF(100, 100, 60, 80)
+    start, end = QPointF(160, 130), QPointF(90, 170)
+    path = routing.route_self_loop(start, end, own_rect, [])
+    detour_ys = [p.y() for p in path[2:-2]]
+    assert all(y < own_rect.top() for y in detour_ys)
+
+def test_route_self_loop_picks_the_side_with_more_free_space():
+    own_rect = QRectF(100, 100, 60, 80)
+    start, end = QPointF(160, 130), QPointF(90, 170)
+    crowding_above = QRectF(80, 0, 100, 90)  # leaves almost nothing above own_rect
+    path = routing.route_self_loop(start, end, own_rect, [crowding_above])
+    assert path is not None
+    detour_ys = [p.y() for p in path[2:-2]]
+    assert all(y > own_rect.bottom() for y in detour_ys)
+
+def test_route_self_loop_returns_none_when_both_sides_are_blocked():
+    own_rect = QRectF(100, 100, 60, 80)
+    start, end = QPointF(160, 130), QPointF(90, 170)
+    blocks_above = QRectF(80, 0, 100, 200)   # covers everything above own_rect
+    blocks_below = QRectF(80, 180, 100, 200)  # covers everything below it
+    path = routing.route_self_loop(start, end, own_rect, [blocks_above, blocks_below])
+    assert path is None
+
+def test_route_self_loop_keeps_the_grid_wide_riser_off_the_bodys_own_edge():
+    """The two ends given to route_self_loop sit exactly ON own_rect's own
+    edge (this app's own port-inset convention — see
+    wire_item.py::_obstacle_rects()'s docstring): a naive vertical riser
+    straight up from `start`/`end` would run flush along that edge,
+    touching it instead of clearing it. This is exactly the bug that
+    made the very first version of this function fail against a real
+    NAND-3 self-loop."""
+    own_rect = QRectF(100, 100, 60, 80)  # x: 100-160, y: 100-180
+    start, end = QPointF(160, 130), QPointF(100, 170)  # ON the right/left edges exactly
+    path = routing.route_self_loop(start, end, own_rect, [])
+    assert path is not None
+    riser_start, riser_end = path[1], path[-2]
+    assert riser_start.x() > own_rect.right()
+    assert riser_end.x() < own_rect.left()
