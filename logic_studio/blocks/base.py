@@ -270,7 +270,21 @@ class BaseLogicBlock:
         size = data.get("size", {"width": 120.0, "height": 80.0})
         block.width = size["width"]
         block.height = size["height"]
-        block.properties = data.get("properties", {}).copy() # Ensure copy
+        # feat/wire-detour-and-text-size §B2: was `block.properties =
+        # data.get("properties", {}).copy()` — a wholesale REPLACE of
+        # `cls()`'s own freshly-defaulted properties dict with whatever the
+        # file happens to have. That's fine for a key the file DOES have,
+        # but silently DROPS any key `cls()` sets that the file predates —
+        # no "falls back to the default" the way every SERIALIZED_FIELDS
+        # scalar above already gets (see this method's own comment on that
+        # loop). A property added to a block type after some project files
+        # were already saved (the exact case a new "Rozmiar tekstu"-style
+        # property is in) would come back MISSING from `properties`
+        # entirely for those old files, not defaulted — update() onto the
+        # already-correct `cls()` baseline instead: whatever's saved wins,
+        # whatever ISN'T in the file keeps the fresh default, no schema
+        # migration needed for a new property ever again.
+        block.properties.update(data.get("properties", {}))
         # Pin deserialization is handled by the project loader
         return block
 

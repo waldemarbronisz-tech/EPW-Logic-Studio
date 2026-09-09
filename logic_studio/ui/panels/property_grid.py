@@ -84,6 +84,20 @@ def _int_floor(key: str):
         return 1  # §5.2: "liczba próbek >= 1"
     if base in ("Preset", "Stuck Scans"):
         return 0  # a count; never negative
+    if base == "Rozmiar tekstu":
+        return 6  # feat/wire-detour-and-text-size §B1: zakres 6-48 pkt
+    return None
+
+
+def _int_ceiling(key: str):
+    """Same idea as _int_floor() but for an upper bound — no existing
+    numeric property needed one before feat/wire-detour-and-text-size
+    §B1's "Rozmiar tekstu" (range wymuszony edytorem, nie samą walidacją
+    po fakcie -- an editor-enforced QSpinBox.setMaximum(), not a
+    _commit_property()-time rejection after the fact)."""
+    base, _unit = _split_unit(key)
+    if base == "Rozmiar tekstu":
+        return 48
     return None
 
 
@@ -134,6 +148,12 @@ _COMBO_OPTIONS = {
 }
 
 _NUMERIC_RANGE = 1_000_000  # generic wide bound when no domain floor/ceiling applies
+
+# feat/wire-detour-and-text-size §B1/§B3: the 3 documentation block types
+# whose on-canvas geometry is derived from their own text/font, and so
+# needs an explicit refresh when either is edited via this panel — see
+# _commit_property()'s own use of this.
+_DOC_TYPE_IDS = ("doc.text", "doc.note", "doc.section")
 
 
 class PropertyGridPanel(QWidget):
@@ -550,6 +570,9 @@ class PropertyGridPanel(QWidget):
             floor = _int_floor(key)
             if floor is not None:
                 editor.setMinimum(floor)
+            ceiling = _int_ceiling(key)
+            if ceiling is not None:
+                editor.setMaximum(ceiling)
         if unit:
             editor.setSuffix(f" {unit}")  # §5.3
         editor.setValue(value)
@@ -594,8 +617,32 @@ class PropertyGridPanel(QWidget):
         if key == "Address" and hasattr(window, 'simulation_panel'):
             window.simulation_panel.refresh()
 
+        # feat/wire-detour-and-text-size §B1/§B3: a DOC block's on-canvas
+        # BlockItem caches its own width/height (block_item.py's
+        # _determine_shape_style()/_size_doc_block()) — computed once at
+        # construction and re-run explicitly on every text-affecting edit
+        # (apply_doc_text(), the canvas double-click path). Editing "Text"
+        # or the new "Rozmiar tekstu" HERE, through the property panel
+        # instead, updates the MODEL (`update_property()` above, already
+        # done) but would otherwise leave that cached geometry stale —
+        # same refresh apply_doc_text() already does, just reached from a
+        # second entry point now.
+        if key in ("Text", "Rozmiar tekstu (pkt)") and self.current_block.type_id in _DOC_TYPE_IDS:
+            self._refresh_doc_block_geometry(window)
+
         if hasattr(window, 'scene'):
             window.scene.update()
+
+    def _refresh_doc_block_geometry(self, window):
+        if not hasattr(window, 'scene'):
+            return
+        from logic_studio.ui.canvas.block_item import BlockItem
+        for item in window.scene.items():
+            if isinstance(item, BlockItem) and item.logic_block is self.current_block:
+                item.prepareGeometryChange()
+                item._determine_shape_style()
+                item.update()
+                break
 
     def _reject_value(self, old_value, editor, message):
         """§5.2: revert the editor to its last good value and show `message`
